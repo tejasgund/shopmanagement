@@ -470,6 +470,15 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# Allow all origins (development only)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],                # ✅ allows any domain
+    allow_credentials=True,
+    allow_methods=["*"],                # allows GET, POST, PUT, DELETE, OPTIONS
+    allow_headers=["*"],                # allows Authorization and other headers
+)
+
 
 # ---- Global error handlers (clean, consistent JSON error responses) ---------
 @app.exception_handler(RequestValidationError)
