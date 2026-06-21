@@ -49,7 +49,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-
+from fastapi.middleware.cors import CORSMiddleware
 # ------------------------------------------------------------------------------
 # Local imports - connection pool & logger (provided by the project)
 # ------------------------------------------------------------------------------
