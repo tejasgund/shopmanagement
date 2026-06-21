@@ -1,67 +1,53 @@
-import os
-import zipfile
-from logging.handlers import TimedRotatingFileHandler
+"""
+================================================================================
+ log.py
+================================================================================
+ Centralized logging configuration for the Shop Electricity Bill Management
+ System. Import `get_logger` anywhere in the project to obtain a consistently
+ formatted logger.
+
+ Usage:
+     from log import get_logger
+     logger = get_logger("main")
+     logger.info("Server starting...")
+================================================================================
+"""
 import logging
+import sys
+
+_LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
+_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+# Keep track of loggers we've already configured so we never attach
+# duplicate handlers if get_logger() is called multiple times for the
+# same name.
+_configured_loggers = {}
 
 
-class ZipTimedRotatingFileHandler(TimedRotatingFileHandler):
-    def doRollover(self):
-        super().doRollover()
+def get_logger(name: str = "app", level: int = logging.INFO) -> logging.Logger:
+    """
+    Returns a configured logger instance that writes to stdout.
 
-        log_dir = os.path.dirname(self.baseFilename)
+    Args:
+        name: Logger name, typically the module name (e.g. "main", "createMN").
+        level: Logging level (default INFO).
 
-        for filename in os.listdir(log_dir):
-            if filename.endswith(".log") and filename != os.path.basename(self.baseFilename):
-                log_path = os.path.join(log_dir, filename)
-                zip_path = log_path + ".zip"
-
-                if not os.path.exists(zip_path):
-                    try:
-                        with zipfile.ZipFile(
-                            zip_path,
-                            "w",
-                            zipfile.ZIP_DEFLATED
-                        ) as zf:
-                            zf.write(log_path, arcname=filename)
-
-                        os.remove(log_path)
-                    except Exception:
-                        pass
-
-
-def get_logger(name="app"):
-    log_dir = "logs"
-    os.makedirs(log_dir, exist_ok=True)
+    Returns:
+        A ready-to-use logging.Logger.
+    """
+    if name in _configured_loggers:
+        return _configured_loggers[name]
 
     logger = logging.getLogger(name)
+    logger.setLevel(level)
 
-    if logger.handlers:
-        return logger
+    if not logger.handlers:
+        handler = logging.StreamHandler(sys.stdout)
+        formatter = logging.Formatter(_LOG_FORMAT, datefmt=_DATE_FORMAT)
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+        # Avoid duplicate log lines bubbling up to the root logger
+        logger.propagate = False
 
-    logger.setLevel(logging.INFO)
-
-    log_file = os.path.join(log_dir, "app.log")
-
-    handler = ZipTimedRotatingFileHandler(
-        filename=log_file,
-        when="midnight",
-        interval=1,
-        backupCount=12,
-        encoding="utf-8"
-    )
-
-    handler.suffix = "%Y-%m-%d"
-
-    formatter = logging.Formatter(
-        "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
-    )
-
-    handler.setFormatter(formatter)
-
-    console = logging.StreamHandler()
-    console.setFormatter(formatter)
-
-    logger.addHandler(handler)
-    logger.addHandler(console)
-
+    _configured_loggers[name] = logger
     return logger

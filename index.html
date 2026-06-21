@@ -1,0 +1,1555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Meter Management System</title>
+    <script src="https://cdn.tailwindcss.com">
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+    <style>
+        /* ── global reset & scrollbar ── */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background: #f1f5f9;
+        }
+        .sidebar {
+            transition: transform 0.3s ease;
+            z-index: 40;
+        }
+        .sidebar-closed .sidebar {
+            transform: translateX(-100%);
+        }
+        .main-content {
+            transition: margin-left 0.3s ease;
+        }
+        .sidebar-closed .main-content {
+            margin-left: 0 !important;
+        }
+
+        /* card hover */
+        .stat-card {
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .stat-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08);
+        }
+
+        /* table row hover */
+        .table-row-hover:hover {
+            background: #f8fafc;
+        }
+
+        /* toast */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-width: 380px;
+            width: 100%;
+        }
+        .toast {
+            padding: 14px 18px;
+            border-radius: 10px;
+            color: #fff;
+            font-size: 0.9rem;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+            animation: slideIn 0.35s ease;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .toast-success {
+            background: #059669;
+        }
+        .toast-error {
+            background: #dc2626;
+        }
+        .toast-warning {
+            background: #d97706;
+        }
+        .toast-info {
+            background: #2563eb;
+        }
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(40px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        /* loader overlay */
+        .loader-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(4px);
+            z-index: 9998;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .loader-spinner {
+            border: 4px solid #e2e8f0;
+            border-top-color: #2563eb;
+            border-radius: 50%;
+            width: 44px;
+            height: 44px;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* login bg */
+        .login-bg {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+        }
+
+        /* pagination */
+        .pagination-btn {
+            padding: 6px 14px;
+            border-radius: 6px;
+            border: 1px solid #e2e8f0;
+            background: #fff;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: 0.2s;
+        }
+        .pagination-btn:hover:not(:disabled) {
+            background: #f1f5f9;
+        }
+        .pagination-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        .pagination-btn.active {
+            background: #2563eb;
+            color: #fff;
+            border-color: #2563eb;
+        }
+
+        /* misc */
+        .badge-pending {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        .badge-paid {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        /* responsive sidebar toggle */
+        @media (max-width: 768px) {
+            .sidebar {
+                position: fixed;
+                top: 0;
+                left: 0;
+                height: 100vh;
+                width: 280px;
+                transform: translateX(-100%);
+            }
+            .sidebar-open .sidebar {
+                transform: translateX(0);
+            }
+            .sidebar-open .sidebar-backdrop {
+                display: block;
+            }
+            .main-content {
+                margin-left: 0 !important;
+            }
+        }
+        .sidebar-backdrop {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.3);
+            z-index: 39;
+        }
+        .sidebar-backdrop.show {
+            display: block;
+        }
+
+        /* form helper */
+        .form-label {
+            display: block;
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: #334155;
+            margin-bottom: 4px;
+        }
+        .form-input,
+        .form-select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            transition: 0.2s;
+            background: #fff;
+        }
+        .form-input:focus,
+        .form-select:focus {
+            outline: none;
+            border-color: #2563eb;
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+        }
+        .form-input.error {
+            border-color: #dc2626;
+        }
+        .form-error {
+            color: #dc2626;
+            font-size: 0.8rem;
+            margin-top: 4px;
+        }
+
+        .btn-primary {
+            background: #2563eb;
+            color: #fff;
+            padding: 8px 20px;
+            border-radius: 8px;
+            border: none;
+            font-weight: 500;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .btn-primary:hover {
+            background: #1d4ed8;
+        }
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        .btn-danger {
+            background: #dc2626;
+            color: #fff;
+            padding: 8px 20px;
+            border-radius: 8px;
+            border: none;
+            font-weight: 500;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .btn-danger:hover {
+            background: #b91c1c;
+        }
+        .btn-outline {
+            background: transparent;
+            color: #334155;
+            padding: 8px 20px;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+            font-weight: 500;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .btn-outline:hover {
+            background: #f1f5f9;
+        }
+        .btn-success {
+            background: #059669;
+            color: #fff;
+            padding: 8px 20px;
+            border-radius: 8px;
+            border: none;
+            font-weight: 500;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .btn-success:hover {
+            background: #047857;
+        }
+
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(4px);
+            z-index: 50;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .modal-box {
+            background: #fff;
+            border-radius: 16px;
+            max-width: 560px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+            padding: 28px 32px;
+            animation: modalIn 0.25s ease;
+        }
+        @keyframes modalIn {
+            from {
+                opacity: 0;
+                transform: scale(0.95) translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1) translateY(0);
+            }
+        }
+
+        .nav-link {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 16px;
+            border-radius: 10px;
+            color: #94a3b8;
+            transition: 0.2s;
+            cursor: pointer;
+            text-decoration: none;
+            font-size: 0.9rem;
+        }
+        .nav-link:hover {
+            background: rgba(255, 255, 255, 0.06);
+            color: #e2e8f0;
+        }
+        .nav-link.active {
+            background: rgba(37, 99, 235, 0.15);
+            color: #60a5fa;
+        }
+        .nav-link i {
+            width: 20px;
+            text-align: center;
+        }
+
+        .page-section {
+            display: none;
+        }
+        .page-section.active {
+            display: block;
+        }
+
+        /* scrollable table wrapper */
+        .table-wrap {
+            overflow-x: auto;
+        }
+
+        /* empty state */
+        .empty-state {
+            text-align: center;
+            padding: 48px 20px;
+            color: #94a3b8;
+        }
+        .empty-state i {
+            font-size: 3rem;
+            margin-bottom: 12px;
+            opacity: 0.5;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ════════════════════════════════════════════════════ -->
+    <!--  TOAST CONTAINER                                   -->
+    <!-- ════════════════════════════════════════════════════ -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- ════════════════════════════════════════════════════ -->
+    <!--  LOADER OVERLAY                                    -->
+    <!-- ════════════════════════════════════════════════════ -->
+    <div class="loader-overlay" id="loaderOverlay" style="display:none;">
+        <div class="loader-spinner"></div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════ -->
+    <!--  LOGIN PAGE                                        -->
+    <!-- ════════════════════════════════════════════════════ -->
+    <div id="loginPage" class="min-h-screen login-bg flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8">
+            <div class="text-center mb-8">
+                <div class="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                    <i class="fas fa-bolt text-white text-2xl"></i>
+                </div>
+                <h1 class="text-2xl font-bold text-slate-800">Meter Management</h1>
+                <p class="text-slate-500 text-sm mt-1">Sign in to your account</p>
+            </div>
+
+            <!-- API Base URL Config -->
+            <div class="mb-5 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <label class="form-label text-xs uppercase tracking-wider text-slate-400">Backend API URL</label>
+                <input type="text" id="apiBaseInput" value="http://localhost:8080" class="form-input text-sm font-mono" />
+                <p class="text-xs text-slate-400 mt-1">Change this to your backend IP or domain</p>
+            </div>
+
+            <form id="loginForm" autocomplete="off">
+                <div class="mb-4">
+                    <label class="form-label">Username</label>
+                    <input type="text" id="loginUsername" value="admin" class="form-input" placeholder="Enter username" required />
+                </div>
+                <div class="mb-6">
+                    <label class="form-label">Password</label>
+                    <input type="password" id="loginPassword" value="admin123" class="form-input" placeholder="Enter password" required />
+                </div>
+                <button type="submit" id="loginBtn" class="btn-primary w-full py-3 text-base">
+                    <i class="fas fa-sign-in-alt mr-2"></i> Sign In
+                </button>
+                <p class="text-center text-xs text-slate-400 mt-4">
+                    Default: admin / admin123
+                </p>
+            </form>
+        </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════ -->
+    <!--  MAIN APP                                         -->
+    <!-- ════════════════════════════════════════════════════ -->
+    <div id="appMain" style="display:none;">
+
+        <!-- Sidebar Backdrop (mobile) -->
+        <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+        <div class="flex min-h-screen">
+
+            <!-- ─── SIDEBAR ─── -->
+            <aside class="sidebar w-[270px] bg-slate-900 text-slate-300 flex-shrink-0 h-screen sticky top-0 overflow-y-auto p-4 flex flex-col">
+                <div class="flex items-center gap-3 mb-8 px-2 pt-2">
+                    <div class="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center">
+                        <i class="fas fa-bolt text-white text-lg"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-white font-semibold text-lg leading-tight">Meter<span class="text-blue-400">Hub</span></h2>
+                        <p class="text-xs text-slate-400" id="sidebarRole">Admin</p>
+                    </div>
+                </div>
+
+                <nav class="flex-1 space-y-1" id="sidebarNav">
+                    <!-- injected by JS -->
+                </nav>
+
+                <div class="border-t border-slate-700 pt-4 mt-2">
+                    <button id="logoutBtn" class="nav-link w-full text-red-400 hover:text-red-300 hover:bg-red-900/20">
+                        <i class="fas fa-sign-out-alt"></i> Logout
+                    </button>
+                    <div class="text-xs text-slate-500 mt-3 px-2" id="sidebarUser">admin</div>
+                </div>
+            </aside>
+
+            <!-- ─── MAIN CONTENT ─── -->
+            <main class="main-content flex-1 p-4 md:p-6 ml-0" style="margin-left:0;">
+
+                <!-- top bar -->
+                <div class="flex items-center justify-between mb-6">
+                    <div class="flex items-center gap-3">
+                        <button id="sidebarToggle" class="md:hidden text-slate-600 text-xl p-1">
+                            <i class="fas fa-bars"></i>
+                        </button>
+                        <h1 class="text-xl font-bold text-slate-800" id="pageTitle">Dashboard</h1>
+                    </div>
+                    <div class="flex items-center gap-3 text-sm text-slate-500">
+                        <span id="currentUserBadge" class="hidden md:inline-flex items-center gap-2 bg-white px-4 py-2 rounded-full shadow-sm">
+                            <i class="fas fa-user-circle text-blue-600"></i>
+                            <span id="topbarUsername">admin</span>
+                        </span>
+                    </div>
+                </div>
+
+                <!-- ─── PAGE SECTIONS ─── -->
+                <div id="pageContent">
+                    <!-- each page-section is rendered by JS -->
+                </div>
+
+            </main>
+        </div>
+    </div>
+
+
+    <!-- ════════════════════════════════════════════════════ -->
+    <!--  JAVASCRIPT                                        -->
+    <!-- ════════════════════════════════════════════════════ -->
+    <script>
+        // ═══════════════════════════════════════════════════════════
+        //  CONFIG — change this to your backend IP / domain
+        // ═══════════════════════════════════════════════════════════
+        let API_BASE = localStorage.getItem('apiBase') || 'http://localhost:8080';
+
+        // ─── helpers ────────────────────────────────────────────────
+        function getApiBase() {
+            return API_BASE;
+        }
+
+        function setApiBase(url) {
+            API_BASE = url.replace(/\/+$/, '');
+            localStorage.setItem('apiBase', API_BASE);
+        }
+
+        // ─── state ───────────────────────────────────────────────────
+        let authToken = localStorage.getItem('authToken') || '';
+        let currentUser = null;
+        let currentRole = 'admin';
+
+        // ─── DOM refs ───────────────────────────────────────────────
+        const $ = (sel) => document.querySelector(sel);
+        const $$ = (sel) => document.querySelectorAll(sel);
+
+        const loginPage = $('#loginPage');
+        const appMain = $('#appMain');
+        const loginForm = $('#loginForm');
+        const loginBtn = $('#loginBtn');
+        const loginUsername = $('#loginUsername');
+        const loginPassword = $('#loginPassword');
+        const apiBaseInput = $('#apiBaseInput');
+        const sidebarNav = $('#sidebarNav');
+        const pageContent = $('#pageContent');
+        const pageTitle = $('#pageTitle');
+        const logoutBtn = $('#logoutBtn');
+        const sidebarToggle = $('#sidebarToggle');
+        const sidebarBackdrop = $('#sidebarBackdrop');
+        const loaderOverlay = $('#loaderOverlay');
+        const topbarUsername = $('#topbarUsername');
+        const sidebarRole = $('#sidebarRole');
+        const sidebarUser = $('#sidebarUser');
+
+        // ─── toast system ────────────────────────────────────────────
+        function showToast(message, type = 'info') {
+            const container = $('#toastContainer');
+            const icons = {
+                success: 'fa-check-circle',
+                error: 'fa-exclamation-circle',
+                warning: 'fa-triangle-exclamation',
+                info: 'fa-info-circle'
+            };
+            const el = document.createElement('div');
+            el.className = `toast toast-${type}`;
+            el.innerHTML = `<i class="fas ${icons[type] || icons.info}"></i><span>${message}</span>`;
+            container.appendChild(el);
+            setTimeout(() => {
+                el.style.opacity = '0';
+                el.style.transform = 'translateX(30px)';
+                setTimeout(() => el.remove(), 300);
+            }, 4000);
+        }
+
+        // ─── loader ──────────────────────────────────────────────────
+        function showLoader(show) {
+            loaderOverlay.style.display = show ? 'flex' : 'none';
+        }
+
+        // ─── API request ─────────────────────────────────────────────
+        async function apiRequest(endpoint, method = 'GET', body = null, auth = true) {
+            const url = `${getApiBase()}${endpoint}`;
+            const headers = {
+                'Content-Type': 'application/json',
+            };
+            if (auth && authToken) {
+                headers['Authorization'] = `Bearer ${authToken}`;
+            }
+            const options = {
+                method,
+                headers,
+            };
+            if (body) {
+                options.body = JSON.stringify(body);
+            }
+            try {
+                const resp = await fetch(url, options);
+                const data = await resp.json();
+                if (!resp.ok) {
+                    // if 401, clear session
+                    if (resp.status === 401) {
+                        logout();
+                        showToast('Session expired. Please login again.', 'warning');
+                    }
+                    throw new Error(data.message || `HTTP ${resp.status}`);
+                }
+                return data;
+            } catch (err) {
+                if (err.message.includes('Failed to fetch')) {
+                    throw new Error('Cannot connect to backend. Check API URL.');
+                }
+                throw err;
+            }
+        }
+
+        // ─── auth ────────────────────────────────────────────────────
+        async function login(username, password) {
+            showLoader(true);
+            try {
+                const data = await apiRequest('/api/auth/login', 'POST', { username, password }, false);
+                if (data.success && data.token) {
+                    authToken = data.token;
+                    currentUser = data.user;
+                    currentRole = data.user.role || 'admin';
+                    localStorage.setItem('authToken', authToken);
+                    localStorage.setItem('currentUser', JSON.stringify(data.user));
+                    showToast('Login successful!', 'success');
+                    return true;
+                } else {
+                    showToast(data.message || 'Login failed', 'error');
+                    return false;
+                }
+            } catch (err) {
+                showToast(err.message, 'error');
+                return false;
+            } finally {
+                showLoader(false);
+            }
+        }
+
+        function logout() {
+            authToken = '';
+            currentUser = null;
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('currentUser');
+            showApp(false);
+            showToast('Logged out', 'info');
+        }
+
+        function showApp(show) {
+            if (show) {
+                loginPage.style.display = 'none';
+                appMain.style.display = 'block';
+                renderApp();
+            } else {
+                loginPage.style.display = 'flex';
+                appMain.style.display = 'none';
+            }
+        }
+
+        // ─── navigation ─────────────────────────────────────────────
+        const routes = {
+            admin: [
+                { id: 'dashboard', label: 'Dashboard', icon: 'fa-gauge-high' },
+                { id: 'users', label: 'Users', icon: 'fa-users' },
+                { id: 'shops', label: 'Shops', icon: 'fa-store' },
+                { id: 'assignments', label: 'Shop Assignments', icon: 'fa-link' },
+                { id: 'unitrate', label: 'Unit Rate', icon: 'fa-dollar-sign' },
+                { id: 'readings', label: 'All Readings', icon: 'fa-chart-simple' },
+                { id: 'bills', label: 'All Bills', icon: 'fa-file-invoice' },
+            ],
+            user: [
+                { id: 'user-dashboard', label: 'Dashboard', icon: 'fa-gauge-high' },
+                { id: 'my-shops', label: 'My Shops', icon: 'fa-store' },
+                { id: 'submit-reading', label: 'Submit Reading', icon: 'fa-pen-to-square' },
+                { id: 'my-readings', label: 'My Readings', icon: 'fa-chart-simple' },
+                { id: 'my-bills', label: 'My Bills', icon: 'fa-file-invoice' },
+            ]
+        };
+
+        let currentPage = 'dashboard';
+
+        function renderSidebar() {
+            const role = currentRole === 'admin' ? 'admin' : 'user';
+            const items = routes[role] || routes.user;
+            sidebarNav.innerHTML = items.map(item => `
+                <a class="nav-link ${currentPage === item.id ? 'active' : ''}" data-page="${item.id}">
+                    <i class="fas ${item.icon}"></i> ${item.label}
+                </a>
+            `).join('');
+
+            sidebarNav.querySelectorAll('.nav-link').forEach(el => {
+                el.addEventListener('click', () => {
+                    const page = el.dataset.page;
+                    navigateTo(page);
+                    // close mobile sidebar
+                    closeSidebar();
+                });
+            });
+
+            // update role badge
+            sidebarRole.textContent = role === 'admin' ? 'Admin' : 'User';
+            sidebarUser.textContent = currentUser?.username || 'user';
+            topbarUsername.textContent = currentUser?.username || 'user';
+        }
+
+        function navigateTo(pageId) {
+            currentPage = pageId;
+            renderSidebar();
+            renderPage(pageId);
+            // update title
+            const allItems = [...routes.admin, ...routes.user];
+            const found = allItems.find(r => r.id === pageId);
+            pageTitle.textContent = found ? found.label : 'Page';
+            // close mobile
+            closeSidebar();
+        }
+
+        // ─── page rendering ─────────────────────────────────────────
+
+        async function renderPage(pageId) {
+            pageContent.innerHTML = '<div class="flex justify-center py-12"><div class="loader-spinner"></div></div>';
+            try {
+                switch (pageId) {
+                    case 'dashboard':
+                        await renderAdminDashboard();
+                        break;
+                    case 'user-dashboard':
+                        await renderUserDashboard();
+                        break;
+                    case 'users':
+                        await renderUsers();
+                        break;
+                    case 'shops':
+                        await renderShops();
+                        break;
+                    case 'assignments':
+                        await renderAssignments();
+                        break;
+                    case 'unitrate':
+                        await renderUnitRate();
+                        break;
+                    case 'readings':
+                        await renderReadings();
+                        break;
+                    case 'bills':
+                        await renderAllBills();
+                        break;
+                    case 'my-shops':
+                        await renderMyShops();
+                        break;
+                    case 'submit-reading':
+                        await renderSubmitReading();
+                        break;
+                    case 'my-readings':
+                        await renderMyReadings();
+                        break;
+                    case 'my-bills':
+                        await renderMyBills();
+                        break;
+                    default:
+                        pageContent.innerHTML = '<div class="empty-state"><i class="fas fa-map"></i><p>Page not found</p></div>';
+                }
+            } catch (err) {
+                pageContent.innerHTML = `
+                    <div class="bg-red-50 border border-red-200 rounded-xl p-6 text-red-700">
+                        <i class="fas fa-circle-exclamation mr-2"></i> ${err.message}
+                    </div>
+                `;
+            }
+        }
+
+        // ─── render functions ──────────────────────────────────────
+
+        // ----- Admin Dashboard -----
+        async function renderAdminDashboard() {
+            const data = await apiRequest('/api/dashboard/admin');
+            const { total_users, total_shops, total_bills, total_revenue, total_units_consumed } = data;
+            pageContent.innerHTML = `
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+                    ${makeStat('Users', total_users || 0, 'fa-users', 'blue')}
+                    ${makeStat('Shops', total_shops || 0, 'fa-store', 'purple')}
+                    ${makeStat('Bills', total_bills || 0, 'fa-file-invoice', 'green')}
+                    ${makeStat('Revenue', '₹' + (total_revenue || 0).toLocaleString(), 'fa-indian-rupee-sign', 'orange')}
+                    ${makeStat('Units', (total_units_consumed || 0).toLocaleString(), 'fa-bolt', 'red')}
+                </div>
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 text-center text-slate-500">
+                    <i class="fas fa-chart-line text-4xl text-slate-300 mb-3 block"></i>
+                    <p>Admin dashboard overview — all metrics at a glance.</p>
+                </div>
+            `;
+        }
+
+        // ----- User Dashboard -----
+        async function renderUserDashboard() {
+            const data = await apiRequest('/api/dashboard/user');
+            const { total_shops, current_month_bill, current_month_units, pending_bills } = data;
+            pageContent.innerHTML = `
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                    ${makeStat('My Shops', total_shops || 0, 'fa-store', 'blue')}
+                    ${makeStat('Current Bill', '₹' + (current_month_bill || 0).toLocaleString(), 'fa-file-invoice', 'orange')}
+                    ${makeStat('Units Used', (current_month_units || 0).toLocaleString(), 'fa-bolt', 'purple')}
+                    ${makeStat('Pending Bills', pending_bills || 0, 'fa-clock', 'red')}
+                </div>
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 text-center text-slate-500">
+                    <i class="fas fa-user-circle text-4xl text-slate-300 mb-3 block"></i>
+                    <p>Welcome back, ${currentUser?.username || 'User'}!</p>
+                </div>
+            `;
+        }
+
+        // ----- Users -----
+        async function renderUsers() {
+            const data = await apiRequest('/api/users');
+            const items = data.items || [];
+            pageContent.innerHTML = `
+                <div class="flex justify-between items-center mb-4 flex-wrap gap-2">
+                    <span class="text-sm text-slate-500">Total: ${items.length}</span>
+                    <button class="btn-primary" onclick="openUserModal()"><i class="fas fa-plus mr-1"></i> Add User</button>
+                </div>
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div class="table-wrap">
+                        <table class="w-full text-sm">
+                            <thead class="bg-slate-50 text-slate-600 border-b">
+                                <tr>
+                                    <th class="px-4 py-3 text-left">ID</th>
+                                    <th class="px-4 py-3 text-left">Username</th>
+                                    <th class="px-4 py-3 text-left">Mobile</th>
+                                    <th class="px-4 py-3 text-left">Rent</th>
+                                    <th class="px-4 py-3 text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${items.length === 0 ? `<tr><td colspan="5" class="text-center py-8 text-slate-400">No users found</td></tr>` :
+                                items.map(u => `
+                                    <tr class="border-b border-slate-100 table-row-hover">
+                                        <td class="px-4 py-3">${u.id}</td>
+                                        <td class="px-4 py-3 font-medium">${u.username}</td>
+                                        <td class="px-4 py-3">${u.mobile_number || '-'}</td>
+                                        <td class="px-4 py-3">₹${u.monthly_rent || 0}</td>
+                                        <td class="px-4 py-3 text-right">
+                                            <button class="text-blue-600 hover:text-blue-800 mr-2" onclick="openUserModal(${u.id})"><i class="fas fa-edit"></i></button>
+                                            <button class="text-red-500 hover:text-red-700" onclick="deleteUser(${u.id})"><i class="fas fa-trash"></i></button>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+
+        // ----- Shops -----
+        async function renderShops() {
+            const data = await apiRequest('/api/shops');
+            const items = data.items || [];
+            pageContent.innerHTML = `
+                <div class="flex justify-between items-center mb-4 flex-wrap gap-2">
+                    <span class="text-sm text-slate-500">Total: ${items.length}</span>
+                    <button class="btn-primary" onclick="openShopModal()"><i class="fas fa-plus mr-1"></i> Add Shop</button>
+                </div>
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div class="table-wrap">
+                        <table class="w-full text-sm">
+                            <thead class="bg-slate-50 text-slate-600 border-b">
+                                <tr>
+                                    <th class="px-4 py-3 text-left">ID</th>
+                                    <th class="px-4 py-3 text-left">Shop Name</th>
+                                    <th class="px-4 py-3 text-left">Sub Meter</th>
+                                    <th class="px-4 py-3 text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${items.length === 0 ? `<tr><td colspan="4" class="text-center py-8 text-slate-400">No shops found</td></tr>` :
+                                items.map(s => `
+                                    <tr class="border-b border-slate-100 table-row-hover">
+                                        <td class="px-4 py-3">${s.id}</td>
+                                        <td class="px-4 py-3 font-medium">${s.shop_name}</td>
+                                        <td class="px-4 py-3">${s.sub_meter_number || '-'}</td>
+                                        <td class="px-4 py-3 text-right">
+                                            <button class="text-blue-600 hover:text-blue-800 mr-2" onclick="openShopModal(${s.id})"><i class="fas fa-edit"></i></button>
+                                            <button class="text-red-500 hover:text-red-700" onclick="deleteShop(${s.id})"><i class="fas fa-trash"></i></button>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+
+        // ----- Assignments -----
+        async function renderAssignments() {
+            // fetch users and shops
+            const [usersData, shopsData] = await Promise.all([
+                apiRequest('/api/users'),
+                apiRequest('/api/shops')
+            ]);
+            const users = usersData.items || [];
+            const shops = shopsData.items || [];
+
+            // We'll show a simple form to assign
+            pageContent.innerHTML = `
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
+                    <h3 class="font-semibold text-slate-700 mb-4">Assign Shop to User</h3>
+                    <form id="assignForm" class="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
+                        <div>
+                            <label class="form-label">User</label>
+                            <select id="assignUserId" class="form-select">
+                                <option value="">Select user</option>
+                                ${users.map(u => `<option value="${u.id}">${u.username}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="form-label">Shop</label>
+                            <select id="assignShopId" class="form-select">
+                                <option value="">Select shop</option>
+                                ${shops.map(s => `<option value="${s.id}">${s.shop_name} (${s.sub_meter_number || 'no meter'})</option>`).join('')}
+                            </select>
+                        </div>
+                        <div>
+                            <button type="submit" class="btn-primary w-full"><i class="fas fa-link mr-1"></i> Assign</button>
+                        </div>
+                    </form>
+                    <div id="assignResult" class="mt-3"></div>
+                </div>
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                    <h3 class="font-semibold text-slate-700 mb-4">Assigned Shops</h3>
+                    <p class="text-slate-400 text-sm">Use the "My Shops" endpoint to view assignments per user.</p>
+                    <div class="mt-3 text-slate-500 text-sm">
+                        <i class="fas fa-info-circle mr-1"></i> To remove an assignment, use the DELETE /api/shop-assignments/{id} endpoint.
+                    </div>
+                </div>
+            `;
+
+            // handle assign form
+            const form = document.getElementById('assignForm');
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const userId = document.getElementById('assignUserId').value;
+                const shopId = document.getElementById('assignShopId').value;
+                if (!userId || !shopId) {
+                    showToast('Please select both user and shop', 'warning');
+                    return;
+                }
+                try {
+                    await apiRequest('/api/shop-assignments', 'POST', { user_id: parseInt(userId), shop_id: parseInt(
+                            shopId) });
+                    showToast('Shop assigned successfully!', 'success');
+                    document.getElementById('assignResult').innerHTML =
+                        `<div class="text-green-600 text-sm"><i class="fas fa-check-circle mr-1"></i> Assigned!</div>`;
+                } catch (err) {
+                    showToast(err.message, 'error');
+                }
+            });
+        }
+
+        // ----- Unit Rate -----
+        async function renderUnitRate() {
+            let currentRate = 8;
+            try {
+                const data = await apiRequest('/api/unit-rates/current');
+                currentRate = data.unit_rate || 8;
+            } catch (_) {}
+
+            pageContent.innerHTML = `
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 max-w-md">
+                    <h3 class="font-semibold text-slate-700 mb-4">Unit Rate Configuration</h3>
+                    <div class="text-3xl font-bold text-blue-600 mb-4">₹${currentRate} <span class="text-sm font-normal text-slate-500">per unit</span></div>
+                    <form id="unitRateForm" class="flex gap-3 items-end">
+                        <div class="flex-1">
+                            <label class="form-label">New Unit Rate (₹)</label>
+                            <input type="number" id="unitRateInput" step="0.5" value="${currentRate}" class="form-input" />
+                        </div>
+                        <button type="submit" class="btn-primary"><i class="fas fa-save mr-1"></i> Update</button>
+                    </form>
+                    <div id="unitRateResult" class="mt-3"></div>
+                </div>
+            `;
+
+            document.getElementById('unitRateForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const val = parseFloat(document.getElementById('unitRateInput').value);
+                if (isNaN(val) || val <= 0) {
+                    showToast('Please enter a valid rate', 'warning');
+                    return;
+                }
+                try {
+                    await apiRequest('/api/unit-rates', 'POST', { unit_rate: val });
+                    showToast('Unit rate updated!', 'success');
+                    document.getElementById('unitRateResult').innerHTML =
+                        `<div class="text-green-600 text-sm"><i class="fas fa-check-circle mr-1"></i> Updated to ₹${val}</div>`;
+                } catch (err) {
+                    showToast(err.message, 'error');
+                }
+            });
+        }
+
+        // ----- All Readings (admin) -----
+        async function renderReadings() {
+            const data = await apiRequest('/api/readings');
+            const items = data.items || [];
+            pageContent.innerHTML = `
+                <div class="flex justify-between items-center mb-4 flex-wrap gap-2">
+                    <span class="text-sm text-slate-500">Total readings: ${items.length}</span>
+                </div>
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div class="table-wrap">
+                        <table class="w-full text-sm">
+                            <thead class="bg-slate-50 text-slate-600 border-b">
+                                <tr>
+                                    <th class="px-4 py-3 text-left">Shop</th>
+                                    <th class="px-4 py-3 text-left">Year</th>
+                                    <th class="px-4 py-3 text-left">Month</th>
+                                    <th class="px-4 py-3 text-left">Previous</th>
+                                    <th class="px-4 py-3 text-left">Current</th>
+                                    <th class="px-4 py-3 text-left">Units</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${items.length === 0 ? `<tr><td colspan="6" class="text-center py-8 text-slate-400">No readings found</td></tr>` :
+                                items.map(r => `
+                                    <tr class="border-b border-slate-100 table-row-hover">
+                                        <td class="px-4 py-3">${r.shop_name || '-'}</td>
+                                        <td class="px-4 py-3">${r.year}</td>
+                                        <td class="px-4 py-3">${r.month}</td>
+                                        <td class="px-4 py-3">${r.previous_reading}</td>
+                                        <td class="px-4 py-3">${r.current_reading}</td>
+                                        <td class="px-4 py-3 font-medium">${r.used_units}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+
+        // ----- All Bills (admin) -----
+        async function renderAllBills() {
+            // We don't have a dedicated admin bills endpoint, reuse /api/bills/my but with admin view?
+            // Actually the spec shows /api/bills/my for users. For admin we'll show a message.
+            pageContent.innerHTML = `
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-8 text-center text-slate-500">
+                    <i class="fas fa-file-invoice text-5xl text-slate-300 mb-4 block"></i>
+                    <p class="text-lg font-medium text-slate-700">Admin Bill Overview</p>
+                    <p class="text-sm">Use the dashboard for revenue metrics. For detailed bills, view the "My Bills" section per user.</p>
+                    <div class="mt-4 text-xs text-slate-400">
+                        <i class="fas fa-info-circle mr-1"></i> API: GET /api/bills/my returns bills for the authenticated user.
+                    </div>
+                </div>
+            `;
+        }
+
+        // ----- My Shops (user) -----
+        async function renderMyShops() {
+            const data = await apiRequest('/api/my-shops');
+            const items = data.items || [];
+            pageContent.innerHTML = `
+                <div class="flex justify-between items-center mb-4 flex-wrap gap-2">
+                    <span class="text-sm text-slate-500">${items.length} shops assigned</span>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    ${items.length === 0 ? `<div class="col-span-full empty-state"><i class="fas fa-store"></i><p>No shops assigned to you</p></div>` :
+                    items.map(s => `
+                        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 hover:shadow-md transition">
+                            <div class="flex items-start justify-between">
+                                <div>
+                                    <h4 class="font-semibold text-slate-800">${s.shop_name}</h4>
+                                    <p class="text-sm text-slate-500">Meter: ${s.meter_number || 'N/A'}</p>
+                                    <p class="text-xs text-slate-400">Shop ID: ${s.shop_id}</p>
+                                </div>
+                                <div class="w-10 h-10 bg-blue-50 rounded-full flex items-center justify-center text-blue-600">
+                                    <i class="fas fa-store"></i>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        // ----- Submit Reading (user) -----
+        async function renderSubmitReading() {
+            // get user's shops
+            let shops = [];
+            try {
+                const data = await apiRequest('/api/my-shops');
+                shops = data.items || [];
+            } catch (_) {}
+
+            pageContent.innerHTML = `
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 max-w-xl">
+                    <h3 class="font-semibold text-slate-700 mb-4">Submit Meter Reading</h3>
+                    <form id="readingForm">
+                        <div class="mb-4">
+                            <label class="form-label">Shop</label>
+                            <select id="readingShopId" class="form-select" required>
+                                <option value="">Select a shop</option>
+                                ${shops.map(s => `<option value="${s.shop_id}">${s.shop_name} (${s.meter_number || 'no meter'})</option>`).join('')}
+                            </select>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4 mb-4">
+                            <div>
+                                <label class="form-label">Year</label>
+                                <input type="number" id="readingYear" class="form-input" value="${new Date().getFullYear()}" required />
+                            </div>
+                            <div>
+                                <label class="form-label">Month</label>
+                                <input type="number" id="readingMonth" class="form-input" min="1" max="12" value="${new Date().getMonth() + 1}" required />
+                            </div>
+                        </div>
+                        <div class="mb-4">
+                            <label class="form-label">Current Reading</label>
+                            <input type="number" id="readingCurrent" class="form-input" placeholder="Enter current meter reading" required />
+                        </div>
+                        <button type="submit" class="btn-primary w-full py-3"><i class="fas fa-paper-plane mr-1"></i> Submit Reading</button>
+                    </form>
+                    <div id="readingResult" class="mt-4"></div>
+                </div>
+            `;
+
+            document.getElementById('readingForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const shop_id = parseInt(document.getElementById('readingShopId').value);
+                const year = parseInt(document.getElementById('readingYear').value);
+                const month = parseInt(document.getElementById('readingMonth').value);
+                const current_reading = parseFloat(document.getElementById('readingCurrent').value);
+
+                if (!shop_id || !year || !month || isNaN(current_reading)) {
+                    showToast('Please fill all fields', 'warning');
+                    return;
+                }
+
+                try {
+                    const result = await apiRequest('/api/readings', 'POST', {
+                        shop_id,
+                        year,
+                        month,
+                        current_reading
+                    });
+                    if (result.success && result.data) {
+                        const d = result.data;
+                        document.getElementById('readingResult').innerHTML = `
+                            <div class="bg-green-50 border border-green-200 rounded-xl p-4 text-sm">
+                                <p class="font-semibold text-green-700">✅ Reading submitted!</p>
+                                <div class="grid grid-cols-2 gap-2 mt-2 text-slate-600">
+                                    <span>Previous: ${d.previous_reading}</span>
+                                    <span>Current: ${d.current_reading}</span>
+                                    <span>Units: ${d.used_units}</span>
+                                    <span>Rate: ₹${d.unit_rate}</span>
+                                    <span>Electricity: ₹${d.electricity_bill}</span>
+                                    <span>Rent: ₹${d.rent_amount}</span>
+                                    <span class="col-span-2 font-bold text-slate-800">Total: ₹${d.total_bill}</span>
+                                </div>
+                            </div>
+                        `;
+                        showToast('Reading submitted successfully!', 'success');
+                    } else {
+                        showToast(result.message || 'Submission failed', 'error');
+                    }
+                } catch (err) {
+                    showToast(err.message, 'error');
+                    document.getElementById('readingResult').innerHTML =
+                        `<div class="bg-red-50 border border-red-200 rounded-xl p-4 text-red-700 text-sm">${err.message}</div>`;
+                }
+            });
+        }
+
+        // ----- My Readings (user) -----
+        async function renderMyReadings() {
+            const data = await apiRequest('/api/readings');
+            const items = data.items || [];
+            pageContent.innerHTML = `
+                <div class="flex justify-between items-center mb-4 flex-wrap gap-2">
+                    <span class="text-sm text-slate-500">My readings: ${items.length}</span>
+                </div>
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div class="table-wrap">
+                        <table class="w-full text-sm">
+                            <thead class="bg-slate-50 text-slate-600 border-b">
+                                <tr>
+                                    <th class="px-4 py-3 text-left">Shop</th>
+                                    <th class="px-4 py-3 text-left">Year</th>
+                                    <th class="px-4 py-3 text-left">Month</th>
+                                    <th class="px-4 py-3 text-left">Previous</th>
+                                    <th class="px-4 py-3 text-left">Current</th>
+                                    <th class="px-4 py-3 text-left">Units</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${items.length === 0 ? `<tr><td colspan="6" class="text-center py-8 text-slate-400">No readings yet</td></tr>` :
+                                items.map(r => `
+                                    <tr class="border-b border-slate-100 table-row-hover">
+                                        <td class="px-4 py-3">${r.shop_name || '-'}</td>
+                                        <td class="px-4 py-3">${r.year}</td>
+                                        <td class="px-4 py-3">${r.month}</td>
+                                        <td class="px-4 py-3">${r.previous_reading}</td>
+                                        <td class="px-4 py-3">${r.current_reading}</td>
+                                        <td class="px-4 py-3 font-medium">${r.used_units}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+
+        // ----- My Bills (user) -----
+        async function renderMyBills() {
+            const data = await apiRequest('/api/bills/my');
+            const items = data.items || [];
+            pageContent.innerHTML = `
+                <div class="flex justify-between items-center mb-4 flex-wrap gap-2">
+                    <span class="text-sm text-slate-500">${items.length} bills</span>
+                </div>
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div class="table-wrap">
+                        <table class="w-full text-sm">
+                            <thead class="bg-slate-50 text-slate-600 border-b">
+                                <tr>
+                                    <th class="px-4 py-3 text-left">Shop</th>
+                                    <th class="px-4 py-3 text-left">Month</th>
+                                    <th class="px-4 py-3 text-left">Units</th>
+                                    <th class="px-4 py-3 text-left">Electricity</th>
+                                    <th class="px-4 py-3 text-left">Rent</th>
+                                    <th class="px-4 py-3 text-left">Total</th>
+                                    <th class="px-4 py-3 text-left">Status</th>
+                                    <th class="px-4 py-3 text-right">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${items.length === 0 ? `<tr><td colspan="8" class="text-center py-8 text-slate-400">No bills found</td></tr>` :
+                                items.map(b => `
+                                    <tr class="border-b border-slate-100 table-row-hover">
+                                        <td class="px-4 py-3 font-medium">${b.shop_name}</td>
+                                        <td class="px-4 py-3">${b.month}/${b.year}</td>
+                                        <td class="px-4 py-3">${b.used_units}</td>
+                                        <td class="px-4 py-3">₹${b.electricity_bill}</td>
+                                        <td class="px-4 py-3">₹${b.rent_amount}</td>
+                                        <td class="px-4 py-3 font-bold">₹${b.total_bill}</td>
+                                        <td class="px-4 py-3">
+                                            <span class="px-2 py-1 rounded-full text-xs font-medium ${b.payment_status === 'paid' ? 'badge-paid' : 'badge-pending'}">
+                                                ${b.payment_status || 'pending'}
+                                            </span>
+                                        </td>
+                                        <td class="px-4 py-3 text-right">
+                                            <button class="text-blue-600 hover:text-blue-800" onclick="viewBill(${b.bill_id})"><i class="fas fa-eye"></i></button>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+
+        // ─── stat card helper ──────────────────────────────────────
+        function makeStat(label, value, icon, color) {
+            const colors = {
+                blue: 'bg-blue-50 text-blue-600',
+                purple: 'bg-purple-50 text-purple-600',
+                green: 'bg-green-50 text-green-600',
+                orange: 'bg-orange-50 text-orange-600',
+                red: 'bg-red-50 text-red-600',
+            };
+            return `
+                <div class="stat-card bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex items-center gap-4">
+                    <div class="w-12 h-12 rounded-xl ${colors[color] || colors.blue} flex items-center justify-center text-xl">
+                        <i class="fas ${icon}"></i>
+                    </div>
+                    <div>
+                        <div class="text-2xl font-bold text-slate-800">${value}</div>
+                        <div class="text-xs text-slate-500 uppercase tracking-wide">${label}</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // ─── global modal functions ────────────────────────────────
+
+        window.openUserModal = async function(id) {
+            let user = { username: '', full_name: '', mobile_number: '', deposit: '', monthly_rent: '' };
+            if (id) {
+                try {
+                    const data = await apiRequest(`/api/users/${id}`);
+                    user = data.data || user;
+                } catch (_) {}
+            }
+            const isEdit = !!id;
+            showModal(`
+                <h3 class="text-lg font-bold text-slate-800 mb-4">${isEdit ? 'Edit' : 'Add'} User</h3>
+                <form id="userFormModal">
+                    <div class="mb-3">
+                        <label class="form-label">Username *</label>
+                        <input type="text" id="uf_username" value="${user.username || ''}" class="form-input" required />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Full Name</label>
+                        <input type="text" id="uf_fullname" value="${user.full_name || ''}" class="form-input" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Mobile Number</label>
+                        <input type="text" id="uf_mobile" value="${user.mobile_number || ''}" class="form-input" />
+                    </div>
+                    <div class="grid grid-cols-2 gap-3 mb-3">
+                        <div>
+                            <label class="form-label">Deposit</label>
+                            <input type="number" id="uf_deposit" value="${user.deposit || ''}" class="form-input" />
+                        </div>
+                        <div>
+                            <label class="form-label">Monthly Rent</label>
+                            <input type="number" id="uf_rent" value="${user.monthly_rent || ''}" class="form-input" />
+                        </div>
+                    </div>
+                    ${!isEdit ? `<div class="mb-3"><label class="form-label">Password</label><input type="password" id="uf_password" class="form-input" placeholder="Leave blank to keep default" /></div>` : ''}
+                    <div class="flex gap-3 mt-4">
+                        <button type="submit" class="btn-primary flex-1">${isEdit ? 'Update' : 'Create'}</button>
+                        <button type="button" class="btn-outline" onclick="closeModal()">Cancel</button>
+                    </div>
+                </form>
+            `);
+
+            document.getElementById('userFormModal').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const payload = {
+                    username: document.getElementById('uf_username').value.trim(),
+                    full_name: document.getElementById('uf_fullname').value.trim(),
+                    mobile_number: document.getElementById('uf_mobile').value.trim(),
+                    deposit: parseFloat(document.getElementById('uf_deposit').value) || 0,
+                    monthly_rent: parseFloat(document.getElementById('uf_rent').value) || 0,
+                };
+                if (!isEdit) {
+                    const pwd = document.getElementById('uf_password').value.trim();
+                    if (pwd) payload.password = pwd;
+                }
+                try {
+                    if (isEdit) {
+                        await apiRequest(`/api/users/${id}`, 'PUT', payload);
+                        showToast('User updated!', 'success');
+                    } else {
+                        await apiRequest('/api/users', 'POST', payload);
+                        showToast('User created!', 'success');
+                    }
+                    closeModal();
+                    renderPage('users');
+                } catch (err) {
+                    showToast(err.message, 'error');
+                }
+            });
+        };
+
+        window.deleteUser = async function(id) {
+            if (!confirm('Delete this user?')) return;
+            try {
+                await apiRequest(`/api/users/${id}`, 'DELETE');
+                showToast('User deleted', 'success');
+                renderPage('users');
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        };
+
+        window.openShopModal = async function(id) {
+            let shop = { shop_name: '', sub_meter_number: '' };
+            if (id) {
+                try {
+                    const data = await apiRequest(`/api/shops/${id}`);
+                    shop = data.data || shop;
+                } catch (_) {}
+            }
+            const isEdit = !!id;
+            showModal(`
+                <h3 class="text-lg font-bold text-slate-800 mb-4">${isEdit ? 'Edit' : 'Add'} Shop</h3>
+                <form id="shopFormModal">
+                    <div class="mb-3">
+                        <label class="form-label">Shop Name *</label>
+                        <input type="text" id="sf_name" value="${shop.shop_name || ''}" class="form-input" required />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Sub Meter Number</label>
+                        <input type="text" id="sf_meter" value="${shop.sub_meter_number || ''}" class="form-input" />
+                    </div>
+                    <div class="flex gap-3 mt-4">
+                        <button type="submit" class="btn-primary flex-1">${isEdit ? 'Update' : 'Create'}</button>
+                        <button type="button" class="btn-outline" onclick="closeModal()">Cancel</button>
+                    </div>
+                </form>
+            `);
+
+            document.getElementById('shopFormModal').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const payload = {
+                    shop_name: document.getElementById('sf_name').value.trim(),
+                    sub_meter_number: document.getElementById('sf_meter').value.trim(),
+                };
+                try {
+                    if (isEdit) {
+                        await apiRequest(`/api/shops/${id}`, 'PUT', payload);
+                        showToast('Shop updated!', 'success');
+                    } else {
+                        await apiRequest('/api/shops', 'POST', payload);
+                        showToast('Shop created!', 'success');
+                    }
+                    closeModal();
+                    renderPage('shops');
+                } catch (err) {
+                    showToast(err.message, 'error');
+                }
+            });
+        };
+
+        window.deleteShop = async function(id) {
+            if (!confirm('Delete this shop?')) return;
+            try {
+                await apiRequest(`/api/shops/${id}`, 'DELETE');
+                showToast('Shop deleted', 'success');
+                renderPage('shops');
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        };
+
+        window.viewBill = async function(billId) {
+            try {
+                const data = await apiRequest(`/api/bills/${billId}`);
+                const b = data.data || {};
+                showModal(`
+                    <h3 class="text-lg font-bold text-slate-800 mb-4">Bill #${b.bill_id}</h3>
+                    <div class="grid grid-cols-2 gap-3 text-sm">
+                        <div><span class="text-slate-500">User:</span> ${b.user_name || '-'}</div>
+                        <div><span class="text-slate-500">Shop:</span> ${b.shop_name || '-'}</div>
+                        <div><span class="text-slate-500">Meter:</span> ${b.meter_number || '-'}</div>
+                        <div><span class="text-slate-500">Period:</span> ${b.month}/${b.year}</div>
+                        <div><span class="text-slate-500">Previous:</span> ${b.previous_reading}</div>
+                        <div><span class="text-slate-500">Current:</span> ${b.current_reading}</div>
+                        <div><span class="text-slate-500">Units:</span> ${b.used_units}</div>
+                        <div><span class="text-slate-500">Rate:</span> ₹${b.unit_rate}</div>
+                        <div><span class="text-slate-500">Electricity:</span> ₹${b.electricity_bill}</div>
+                        <div><span class="text-slate-500">Rent:</span> ₹${b.rent_amount}</div>
+                        <div class="col-span-2 font-bold text-lg">Total: ₹${b.total_bill}</div>
+                        <div class="col-span-2"><span class="px-2 py-1 rounded-full text-xs font-medium ${b.payment_status === 'paid' ? 'badge-paid' : 'badge-pending'}">${b.payment_status || 'pending'}</span></div>
+                    </div>
+                    <div class="mt-4"><button class="btn-outline w-full" onclick="closeModal()">Close</button></div>
+                `);
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        };
+
+        // ─── modal system ───────────────────────────────────────────
+        let modalContainer = null;
+
+        function showModal(html) {
+            closeModal();
+            const overlay = document.createElement('div');
+            overlay.className = 'modal-overlay';
+            overlay.id = 'modalOverlay';
+            overlay.innerHTML = `<div class="modal-box">${html}</div>`;
+            document.body.appendChild(overlay);
+            // close on backdrop click
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) closeModal();
+            });
+            modalContainer = overlay;
+        }
+
+        window.closeModal = function() {
+            if (modalContainer) {
+                modalContainer.remove();
+                modalContainer = null;
+            }
+        };
+
+        // ─── sidebar toggle ─────────────────────────────────────────
+        function closeSidebar() {
+            document.body.classList.remove('sidebar-open');
+            sidebarBackdrop.classList.remove('show');
+        }
+
+        sidebarToggle.addEventListener('click', () => {
+            document.body.classList.toggle('sidebar-open');
+            sidebarBackdrop.classList.toggle('show');
+        });
+        sidebarBackdrop.addEventListener('click', closeSidebar);
+
+        // ─── logout ──────────────────────────────────────────────────
+        logoutBtn.addEventListener('click', logout);
+
+        // ─── login handler ──────────────────────────────────────────
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = loginUsername.value.trim();
+            const password = loginPassword.value.trim();
+            if (!username || !password) {
+                showToast('Please enter username and password', 'warning');
+                return;
+            }
+            // update API base from input
+            const baseUrl = apiBaseInput.value.trim();
+            if (baseUrl) setApiBase(baseUrl);
+
+            const ok = await login(username, password);
+            if (ok) {
+                showApp(true);
+                // load user data
+                try {
+                    const me = await apiRequest('/api/auth/me');
+                    currentUser = me;
+                    currentRole = me.role || 'admin';
+                    localStorage.setItem('currentUser', JSON.stringify(me));
+                    renderApp();
+                } catch (_) {
+                    renderApp();
+                }
+            }
+        });
+
+        // ─── render app ─────────────────────────────────────────────
+        function renderApp() {
+            if (!authToken) {
+                showApp(false);
+                return;
+            }
+            // restore user from storage if needed
+            if (!currentUser) {
+                try {
+                    const saved = localStorage.getItem('currentUser');
+                    if (saved) currentUser = JSON.parse(saved);
+                    currentRole = currentUser?.role || 'admin';
+                } catch (_) {}
+            }
+            renderSidebar();
+            navigateTo(currentRole === 'admin' ? 'dashboard' : 'user-dashboard');
+        }
+
+        // ─── init ────────────────────────────────────────────────────
+        (function init() {
+            // restore API base
+            const saved = localStorage.getItem('apiBase');
+            if (saved) {
+                API_BASE = saved;
+                apiBaseInput.value = saved;
+            }
+
+            // check token
+            const token = localStorage.getItem('authToken');
+            if (token) {
+                authToken = token;
+                // try to get user
+                (async () => {
+                    try {
+                        const me = await apiRequest('/api/auth/me');
+                        currentUser = me;
+                        currentRole = me.role || 'admin';
+                        localStorage.setItem('currentUser', JSON.stringify(me));
+                        showApp(true);
+                        renderApp();
+                    } catch (_) {
+                        // token invalid
+                        logout();
+                    }
+                })();
+            } else {
+                showApp(false);
+            }
+
+            // Enter key on login inputs
+            loginUsername.addEventListener('keydown', (e) => { if (e.key === 'Enter') loginForm.dispatchEvent(new Event(
+                    'submit')); });
+            loginPassword.addEventListener('keydown', (e) => { if (e.key === 'Enter') loginForm.dispatchEvent(new Event(
+                    'submit')); });
+
+            // update API base on change
+            apiBaseInput.addEventListener('change', () => {
+                const val = apiBaseInput.value.trim();
+                if (val) setApiBase(val);
+            });
+        })();
+    </script>
+
+</body>
+</html>

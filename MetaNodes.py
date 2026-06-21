@@ -1,15 +1,14 @@
 from log import get_logger
+logger = get_logger("test")
+logger.info("test")
+connection = get_connection()
+cursor = connection.cursor()""
+
+from dbconfig import get_connection
 
 
-#database connection
-try:
-    logger = get_logger("Database Connection")
-    logger.info("Connectiong Database")
-    from dbconfig import get_connection
-    logger.info("Successfully connected to Database")
 
-except Exception as e:
-    logger.error("%s",e)
+
 
 
 
