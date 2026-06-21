@@ -1,1 +1,5 @@
 mysql-connector-python
+os
+zipfile
+logging.handlers
+logging
