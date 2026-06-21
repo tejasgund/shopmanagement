@@ -6,7 +6,7 @@ try:
     logger = get_logger("Database Connection")
     logger.info("Connectiong Database")
     from dbconfig import get_connection
-    logger.info("Successfully connected to Database")
+    logger.info("Successfully conndected to Database")
 
 except Exception as e:
     logger.error("%s",e)
