@@ -9,11 +9,5 @@ db_pool = pooling.MySQLConnectionPool(
     database="test_lightbill"
 )
 
-
-cursor=db_pool.cursor()
-cursor.execute("show tables")
-print(cursor.fetchall())
-cursor.close()
-
 def get_connection():
     return db_pool.get_connection()
