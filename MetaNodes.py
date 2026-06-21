@@ -1,7 +1,6 @@
-from dbconfig import get_connection
 from log import get_logger
-logger = get_logger("test")
-logger.info("test")
-cursor = get_connection().cursor()
-cursor.execute("show databases")
-print(cursor.fetchall())
+try:
+    from dbconfig import get_connection
+except Exception as e:
+    logger = get_logger("Database Connection")
+    logger.error("%s",e)
