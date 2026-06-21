@@ -1691,27 +1691,29 @@
         document.addEventListener('DOMContentLoaded', async () => {
             // login form
             document.getElementById('loginForm').addEventListener('submit', async (e) => {
-                e.preventDefault();
-                const username = document.getElementById('loginUsername').value.trim();
-                const password = document.getElementById('loginPassword').value;
-                const errEl = document.getElementById('loginError');
-                errEl.classList.add('hidden');
-                const btn = document.getElementById('loginBtn');
-                btn.disabled = true;
-                btn.innerHTML = '<span class="spinner"></span> Signing in…';
-                try {
-                    const data = await login(username, password);
-                    const user = await fetchMe();
-                    saveSession(data.access_token, user);
-                    initApp();
-                } catch (err) {
-                    errEl.textContent = err.message || 'Invalid credentials';
-                    errEl.classList.remove('hidden');
-                } finally {
-                    btn.disabled = false;
-                    btn.innerHTML = 'Sign In';
-                }
-            });
+    e.preventDefault();
+    const username = document.getElementById('loginUsername').value.trim();
+    const password = document.getElementById('loginPassword').value;
+    const errEl = document.getElementById('loginError');
+    errEl.classList.add('hidden');
+    const btn = document.getElementById('loginBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Signing in…';
+    try {
+        const data = await login(username, password);
+        // ✅ Set token globally before fetching user data
+        token = data.access_token;
+        const user = await fetchMe();
+        saveSession(data.access_token, user);
+        initApp();
+    } catch (err) {
+        errEl.textContent = err.message || 'Invalid credentials';
+        errEl.classList.remove('hidden');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = 'Sign In';
+    }
+});
 
             // auto-login
             if (loadSession()) {
