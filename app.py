@@ -226,6 +226,12 @@ class ShopUpdate(BaseModel):
     complex_id:  Optional[int]   = None
 
 
+class ShopOwnerInfo(BaseModel):
+    id:     int
+    name:   str
+    mobile: str
+
+
 class ShopResponse(BaseModel):
     id:          int
     shop_number: str
@@ -234,6 +240,7 @@ class ShopResponse(BaseModel):
     complex_id:  Optional[int]
     created_at:  datetime
     updated_at:  datetime
+    assigned_to: Optional[ShopOwnerInfo] = None
 
     class Config:
         from_attributes = True
@@ -277,6 +284,7 @@ class UserResponse(BaseModel):
 
 class AssignShopsRequest(BaseModel):
     shop_ids: List[int] = Field(..., min_length=1)
+    force:    bool      = Field(False, description="If true, reassign shops already owned by another active tenant.")
 
 
 class DetachShopsRequest(BaseModel):
@@ -339,6 +347,30 @@ class PaymentResponse(BaseModel):
 def _decimal_to_float(value) -> float:
     """Convert Decimal to float for Pydantic serialisation."""
     return float(value) if isinstance(value, Decimal) else (value or 0.0)
+
+
+def _shop_owner_map(db: Session, shop_ids: Optional[List[int]] = None) -> dict:
+    """
+    Build {shop_id: ShopOwnerInfo} for current owners.
+    Since one shop should have at most one active owner, this takes the
+    most recently assigned UserShop row per shop as the "current" owner.
+    """
+    q = db.query(UserShop, User).join(User, User.id == UserShop.user_id)
+    if shop_ids is not None:
+        q = q.filter(UserShop.shop_id.in_(shop_ids))
+    rows = q.order_by(UserShop.shop_id, UserShop.assigned_at.desc()).all()
+
+    owner_map = {}
+    for user_shop, user in rows:
+        if user_shop.shop_id not in owner_map:  # first row per shop = most recent
+            owner_map[user_shop.shop_id] = ShopOwnerInfo(id=user.id, name=user.name, mobile=user.mobile)
+    return owner_map
+
+
+def _shop_to_response(shop: Shop, owner_map: dict) -> ShopResponse:
+    data = ShopResponse.model_validate(shop)
+    data.assigned_to = owner_map.get(shop.id)
+    return data
 
 
 def _reconcile_bill(bill: Bill):
@@ -471,22 +503,25 @@ def create_shop(
     write_audit(db, actor.id, "CREATE", "shops", obj.id, new_data=body.model_dump())
     db.commit()
     db.refresh(obj)
-    return obj
+    return _shop_to_response(obj, {})
 
 
 @app.get("/api/shop", response_model=List[ShopResponse], tags=["Shop"])
 def list_shops(db: Session = Depends(get_db), _: User = Depends(require_admin)):
-    """List all shops. Admin only."""
-    return db.query(Shop).order_by(Shop.id).all()
+    """List all shops, including current owner (if any). Admin only."""
+    shops = db.query(Shop).order_by(Shop.id).all()
+    owner_map = _shop_owner_map(db)
+    return [_shop_to_response(s, owner_map) for s in shops]
 
 
 @app.get("/api/shop/{id}", response_model=ShopResponse, tags=["Shop"])
 def get_shop(id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
-    """Retrieve a single shop. Admin only."""
+    """Retrieve a single shop, including current owner (if any). Admin only."""
     obj = db.query(Shop).filter(Shop.id == id).first()
     if not obj:
         raise HTTPException(404, detail="Shop not found")
-    return obj
+    owner_map = _shop_owner_map(db, [id])
+    return _shop_to_response(obj, owner_map)
 
 
 @app.put("/api/shop/{id}", response_model=ShopResponse, tags=["Shop"])
@@ -508,10 +543,8 @@ def update_shop(
     write_audit(db, actor.id, "UPDATE", "shops", id, old_data=old, new_data=body.model_dump(exclude_unset=True))
     db.commit()
     db.refresh(obj)
-    return obj
-
-
-@app.delete("/api/shop/{id}", tags=["Shop"])
+    owner_map = _shop_owner_map(db, [id])
+    return _shop_to_response(obj, owner_map)
 def delete_shop(id: int, db: Session = Depends(get_db), actor: User = Depends(require_admin)):
     """Delete a shop. Admin only."""
     obj = db.query(Shop).filter(Shop.id == id).first()
@@ -620,6 +653,7 @@ def update_user(
         raise HTTPException(404, detail="User not found")
 
     old = {"name": obj.name, "mobile": obj.mobile, "role": obj.role, "is_active": obj.is_active}
+    was_active = obj.is_active
 
     update_data = body.model_dump(exclude_unset=True)
     if "password" in update_data:
@@ -628,8 +662,22 @@ def update_user(
     for field, value in update_data.items():
         setattr(obj, field, value)
 
+    released_shops = []
+    # Deactivation auto-releases all shops owned by this user back to "available".
+    # Bills and payments already linked to this user are left untouched for records.
+    if was_active and obj.is_active is False:
+        owned_rows = db.query(UserShop).filter(UserShop.user_id == id).all()
+        for row in owned_rows:
+            shop = db.query(Shop).filter(Shop.id == row.shop_id).first()
+            if shop:
+                shop.status = "available"
+            released_shops.append(row.shop_id)
+            db.delete(row)
+
     write_audit(db, actor.id, "UPDATE", "users", id, old_data=old,
-                new_data={k: v for k, v in update_data.items() if k != "password"})
+                new_data={**{k: v for k, v in update_data.items() if k != "password"},
+                          "released_shops": released_shops} if released_shops
+                          else {k: v for k, v in update_data.items() if k != "password"})
     db.commit()
     db.refresh(obj)
     return obj
@@ -659,18 +707,63 @@ def assign_shops_to_user(
 ):
     """
     Assign one or more shops to a user.
-    One user can have multiple shops; duplicate assignments are silently skipped.
+
+    A shop can have only ONE current owner at a time. If a requested shop is
+    already owned by a different active user:
+      - force=false (default): the whole request is rejected with 409,
+        listing which shops are already taken and by whom, so the admin can
+        confirm before reassigning.
+      - force=true: the shop is detached from its previous owner first, then
+        assigned to the new user (full reassignment).
+
+    On success, every assigned shop's status is set to "occupied".
     Admin only.
     """
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(404, detail="User not found")
+    if not user.is_active:
+        raise HTTPException(400, detail="Cannot assign shops to a deactivated user")
 
-    assigned = []
+    # Validate shops exist first
+    shops = {}
     for shop_id in body.shop_ids:
         shop = db.query(Shop).filter(Shop.id == shop_id).first()
         if not shop:
             raise HTTPException(400, detail=f"Shop {shop_id} not found")
+        shops[shop_id] = shop
+
+    owner_map = _shop_owner_map(db, body.shop_ids)
+
+    # Find conflicts: shops already owned by a DIFFERENT user
+    conflicts = {
+        sid: owner for sid, owner in owner_map.items()
+        if sid in shops and owner.id != user_id
+    }
+
+    if conflicts and not body.force:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Some shops are already assigned to another tenant. "
+                           "Resend with force=true to reassign.",
+                "conflicts": [
+                    {"shop_id": sid, "shop_number": shops[sid].shop_number,
+                     "current_owner_id": owner.id, "current_owner_name": owner.name}
+                    for sid, owner in conflicts.items()
+                ],
+            },
+        )
+
+    assigned = []
+    reassigned_from = []
+    for shop_id, shop in shops.items():
+        # If force=true and shop has a different owner, detach the old owner first
+        if shop_id in conflicts:
+            old_row = db.query(UserShop).filter(UserShop.shop_id == shop_id).first()
+            if old_row:
+                db.delete(old_row)
+                reassigned_from.append({"shop_id": shop_id, "from_user_id": conflicts[shop_id].id})
 
         exists = db.query(UserShop).filter(
             UserShop.user_id == user_id, UserShop.shop_id == shop_id
@@ -679,10 +772,17 @@ def assign_shops_to_user(
             db.add(UserShop(user_id=user_id, shop_id=shop_id))
             assigned.append(shop_id)
 
+        shop.status = "occupied"
+
     write_audit(db, actor.id, "ASSIGN_SHOPS", "user_shops", user_id,
+                old_data={"reassigned_from": reassigned_from} if reassigned_from else None,
                 new_data={"user_id": user_id, "shop_ids": assigned})
     db.commit()
-    return {"success": True, "message": f"Assigned shops {assigned} to user {user_id}"}
+    return {
+        "success": True,
+        "message": f"Assigned shops {assigned} to user {user_id}",
+        "reassigned_from": reassigned_from,
+    }
 
 
 @app.post("/api/user/{user_id}/detach-shops", tags=["User"])
@@ -692,7 +792,7 @@ def detach_shops_from_user(
     db:      Session = Depends(get_db),
     actor:   User    = Depends(require_admin),
 ):
-    """Detach one or more shops from a user. Admin only."""
+    """Detach one or more shops from a user and mark them available. Admin only."""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(404, detail="User not found")
@@ -705,6 +805,9 @@ def detach_shops_from_user(
         if row:
             db.delete(row)
             detached.append(shop_id)
+            shop = db.query(Shop).filter(Shop.id == shop_id).first()
+            if shop:
+                shop.status = "available"
 
     write_audit(db, actor.id, "DETACH_SHOPS", "user_shops", user_id,
                 old_data={"user_id": user_id, "shop_ids": detached})
@@ -809,6 +912,92 @@ def record_payment(
 def list_payments(db: Session = Depends(get_db), _: User = Depends(require_admin)):
     """List all payments. Admin only."""
     return db.query(Payment).order_by(Payment.id).all()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ── ROUTES: Reports
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/reports/summary", tags=["Reports"])
+def reports_summary(
+    start_date: Optional[datetime] = None,
+    end_date:   Optional[datetime] = None,
+    db:         Session = Depends(get_db),
+    _:          User    = Depends(require_admin),
+):
+    """
+    Business summary report for a date range (defaults to all-time if omitted).
+    Includes: occupancy snapshot, collections, payments, and outstanding dues.
+    Admin only.
+    """
+    # ── Occupancy snapshot (current state, not date-filtered — it's a point-in-time fact) ──
+    shops = db.query(Shop).all()
+    total_shops = len(shops)
+    occupied = sum(1 for s in shops if s.status == "occupied")
+    available = sum(1 for s in shops if s.status == "available")
+    maintenance = sum(1 for s in shops if s.status == "maintenance")
+
+    # ── Bills raised in range ──
+    bill_q = db.query(Bill)
+    if start_date:
+        bill_q = bill_q.filter(Bill.bill_date >= start_date)
+    if end_date:
+        bill_q = bill_q.filter(Bill.bill_date <= end_date)
+    bills_in_range = bill_q.all()
+
+    total_billed = sum(_decimal_to_float(b.amount) for b in bills_in_range)
+    total_pending_in_range = sum(_decimal_to_float(b.pending_amount) for b in bills_in_range)
+
+    # ── Payments received in range (this is the actual "collections" figure) ──
+    pay_q = db.query(Payment)
+    if start_date:
+        pay_q = pay_q.filter(Payment.payment_date >= start_date)
+    if end_date:
+        pay_q = pay_q.filter(Payment.payment_date <= end_date)
+    payments_in_range = pay_q.all()
+    total_collected = sum(_decimal_to_float(p.amount) for p in payments_in_range)
+
+    by_method = {}
+    for p in payments_in_range:
+        by_method[p.payment_method] = by_method.get(p.payment_method, 0.0) + _decimal_to_float(p.amount)
+
+    # ── Outstanding dues across ALL bills (current liability, not range-limited) ──
+    all_bills = db.query(Bill).filter(Bill.status != "paid").all()
+    outstanding = [
+        {
+            "bill_id": b.id,
+            "user_id": b.user_id,
+            "shop_id": b.shop_id,
+            "bill_type": b.bill_type,
+            "pending_amount": _decimal_to_float(b.pending_amount),
+            "due_date": b.due_date,
+            "status": b.status,
+        }
+        for b in all_bills
+    ]
+
+    return {
+        "range": {"start_date": start_date, "end_date": end_date},
+        "occupancy": {
+            "total_shops": total_shops,
+            "occupied": occupied,
+            "available": available,
+            "maintenance": maintenance,
+        },
+        "collections": {
+            "total_billed_in_range": round(total_billed, 2),
+            "total_collected_in_range": round(total_collected, 2),
+            "total_pending_in_range": round(total_pending_in_range, 2),
+            "bills_raised_count": len(bills_in_range),
+            "payments_received_count": len(payments_in_range),
+            "collected_by_method": {k: round(v, 2) for k, v in by_method.items()},
+        },
+        "outstanding_dues": {
+            "total_outstanding": round(sum(o["pending_amount"] for o in outstanding), 2),
+            "bill_count": len(outstanding),
+            "bills": outstanding,
+        },
+    }
 
 
 # ══════════════════════════════════════════════════════════════════════════════

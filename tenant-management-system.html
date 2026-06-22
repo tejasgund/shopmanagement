@@ -1147,6 +1147,170 @@ async function paymentsView(){
 function attachPaymentHandlers(){}
 
 /* ================================================================
+   REPORTS VIEW
+   ================================================================ */
+let reportDateRange = { start: null, end: null };
+
+async function reportsView(){
+  const today = new Date();
+  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  const startVal = reportDateRange.start || monthStart.toISOString().slice(0,10);
+  const endVal = reportDateRange.end || today.toISOString().slice(0,10);
+
+  return `
+  <div class="card card-pad" style="margin-bottom:18px;">
+    <div style="display:flex; gap:14px; align-items:flex-end; flex-wrap:wrap;">
+      <div class="field" style="margin-bottom:0;">
+        <label for="repStart">From</label>
+        <input type="date" id="repStart" value="${startVal}">
+      </div>
+      <div class="field" style="margin-bottom:0;">
+        <label for="repEnd">To</label>
+        <input type="date" id="repEnd" value="${endVal}">
+      </div>
+      <button class="btn btn-primary" id="genReportBtn">Generate report</button>
+      <button class="btn btn-ghost" id="exportReportBtn" style="display:none;">Download as text</button>
+    </div>
+  </div>
+  <div id="reportResults"><div class="empty-state">${emptyIcon()}<h3>No report generated yet</h3><p>Choose a date range and generate a report to see occupancy, collections and outstanding dues.</p></div></div>
+  `;
+}
+
+function attachReportsHandlers(){
+  document.getElementById('genReportBtn').addEventListener('click', generateReport);
+}
+
+async function generateReport(){
+  const start = document.getElementById('repStart').value;
+  const end = document.getElementById('repEnd').value;
+  reportDateRange = { start, end };
+  const resultsEl = document.getElementById('reportResults');
+  const btn = document.getElementById('genReportBtn');
+  const original = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = `<span class="spinner"></span> Generating…`;
+  resultsEl.innerHTML = skeletonHtml();
+
+  try {
+    await Promise.all([ensureLoaded('users','/api/user'), ensureLoaded('shops','/api/shop')]);
+    const params = new URLSearchParams();
+    if (start) params.set('start_date', new Date(start).toISOString());
+    if (end) params.set('end_date', new Date(new Date(end).setHours(23,59,59)).toISOString());
+    const rep = await api(`/api/reports/summary?${params.toString()}`);
+    state._lastReport = rep;
+    resultsEl.innerHTML = renderReportHtml(rep, start, end);
+    document.getElementById('exportReportBtn').style.display = 'inline-flex';
+    document.getElementById('exportReportBtn').onclick = () => downloadReportText(rep, start, end);
+  } catch (err) {
+    resultsEl.innerHTML = errorBannerHtml(err.message);
+    document.getElementById('retryBtn')?.addEventListener('click', generateReport);
+  } finally {
+    btn.disabled = false; btn.innerHTML = original;
+  }
+}
+
+function renderReportHtml(rep, start, end){
+  const occ = rep.occupancy, col = rep.collections, due = rep.outstanding_dues;
+  const occupancyRate = occ.total_shops > 0 ? Math.round((occ.occupied / occ.total_shops) * 100) : 0;
+  const users = state.cache.users || [];
+  const shops = state.cache.shops || [];
+  const userName = (id) => users.find(u=>u.id===id)?.name || `#${id}`;
+  const shopNum = (id) => shops.find(s=>s.id===id)?.shop_number || `#${id}`;
+
+  return `
+  <div class="card-pad" style="padding:0 0 14px;"><div class="crumb">Report period: ${start ? dateFmt(start) : 'all time'} — ${end ? dateFmt(end) : 'today'}</div></div>
+
+  <div class="stat-row">
+    <div class="card stat-card"><div class="label">Occupancy</div><div class="value">${occupancyRate}%</div><div class="sub">${occ.occupied}/${occ.total_shops} shops occupied</div></div>
+    <div class="card stat-card accent-green"><div class="label">Collected</div><div class="value mono">${currency(col.total_collected_in_range)}</div><div class="sub">${col.payments_received_count} payments</div></div>
+    <div class="card stat-card"><div class="label">Billed</div><div class="value mono">${currency(col.total_billed_in_range)}</div><div class="sub">${col.bills_raised_count} bills raised</div></div>
+    <div class="card stat-card accent-rust"><div class="label">Outstanding (all-time)</div><div class="value mono">${currency(due.total_outstanding)}</div><div class="sub">${due.bill_count} unpaid bills</div></div>
+  </div>
+
+  <div class="card" style="margin-bottom:18px;">
+    <div class="card-pad" style="padding-bottom:0;"><h3 style="font-size:15.5px;">Shop occupancy breakdown</h3></div>
+    <div class="card-pad" style="padding-top:14px; display:flex; gap:18px; flex-wrap:wrap;">
+      <span class="pill occupied"><span class="pill-dot"></span>${occ.occupied} occupied</span>
+      <span class="pill available"><span class="pill-dot"></span>${occ.available} available</span>
+      ${occ.maintenance > 0 ? `<span class="pill" style="background:var(--partial-soft); color:var(--partial);"><span class="pill-dot" style="background:var(--partial);"></span>${occ.maintenance} maintenance</span>` : ''}
+    </div>
+  </div>
+
+  ${Object.keys(col.collected_by_method).length > 0 ? `
+  <div class="card" style="margin-bottom:18px;">
+    <div class="card-pad" style="padding-bottom:0;"><h3 style="font-size:15.5px;">Collections by payment method</h3></div>
+    <div class="table-wrap" style="border:none; border-radius:0; box-shadow:none; margin-top:10px;">
+      <table><tbody>
+        ${Object.entries(col.collected_by_method).map(([method,amt]) => `<tr><td>${escapeHtml(method)}</td><td class="num">${currency(amt)}</td></tr>`).join('')}
+      </tbody></table>
+    </div>
+  </div>` : ''}
+
+  <div class="card">
+    <div class="card-pad" style="padding-bottom:0;"><h3 style="font-size:15.5px;">Outstanding dues</h3></div>
+    ${due.bills.length === 0 ? emptyStateHtml('No outstanding dues', 'All bills are fully paid.', emptyIcon()) : `
+    <div class="table-wrap" style="border:none; border-radius:0; box-shadow:none; margin-top:10px;">
+      <table>
+        <thead><tr><th>Bill</th><th>Tenant</th><th>Shop</th><th>Type</th><th class="num">Pending</th><th>Status</th><th>Due</th></tr></thead>
+        <tbody>
+          ${due.bills.map(b => `<tr>
+            <td class="mono">#${b.bill_id}</td>
+            <td>${escapeHtml(userName(b.user_id))}</td>
+            <td class="mono">${escapeHtml(shopNum(b.shop_id))}</td>
+            <td>${escapeHtml(b.bill_type)}</td>
+            <td class="num">${currency(b.pending_amount)}</td>
+            <td>${stampHtml(b.status)}</td>
+            <td>${dateFmt(b.due_date)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`}
+  </div>`;
+}
+
+function downloadReportText(rep, start, end){
+  const occ = rep.occupancy, col = rep.collections, due = rep.outstanding_dues;
+  const users = state.cache.users || [];
+  const shops = state.cache.shops || [];
+  const userName = (id) => users.find(u=>u.id===id)?.name || `#${id}`;
+  const shopNum = (id) => shops.find(s=>s.id===id)?.shop_number || `#${id}`;
+
+  const lines = [
+    'TENANT MANAGEMENT — BUSINESS REPORT',
+    `Period: ${start ? dateFmt(start) : 'all time'} to ${end ? dateFmt(end) : 'today'}`,
+    `Generated: ${new Date().toLocaleString('en-IN')}`,
+    '',
+    '--- OCCUPANCY ---',
+    `Total shops: ${occ.total_shops}`,
+    `Occupied: ${occ.occupied}`,
+    `Available: ${occ.available}`,
+    `Maintenance: ${occ.maintenance}`,
+    '',
+    '--- COLLECTIONS (in range) ---',
+    `Total billed: ${currency(col.total_billed_in_range)}`,
+    `Total collected: ${currency(col.total_collected_in_range)}`,
+    `Bills raised: ${col.bills_raised_count}`,
+    `Payments received: ${col.payments_received_count}`,
+    ...Object.entries(col.collected_by_method).map(([m,a]) => `  ${m}: ${currency(a)}`),
+    '',
+    '--- OUTSTANDING DUES (all-time) ---',
+    `Total outstanding: ${currency(due.total_outstanding)}`,
+    `Unpaid bills: ${due.bill_count}`,
+    ...due.bills.map(b => `  #${b.bill_id} | ${userName(b.user_id)} | Shop ${shopNum(b.shop_id)} | ${b.bill_type} | ${currency(b.pending_amount)} pending | due ${dateFmt(b.due_date)}`),
+  ];
+
+  const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `business-report-${start||'all'}-to-${end||'today'}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/* ================================================================
    MODAL ENGINE
    ================================================================ */
 const modalOverlay = document.getElementById('modalOverlay');
