@@ -1,0 +1,2093 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.5, user-scalable=yes" />
+    <title>Sahyadri Park - Shop Management</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+    <style>
+        /* ──────────────────────────────────────────────
+           CSS Variables & Reset
+           ────────────────────────────────────────────── */
+        :root {
+            --primary: #1a3c5e;
+            --primary-light: #2a5a82;
+            --primary-dark: #0d2438;
+            --secondary: #e8a838;
+            --secondary-light: #f5c95a;
+            --success: #28a745;
+            --danger: #dc3545;
+            --warning: #ffc107;
+            --info: #17a2b8;
+            --bg: #f0f4f8;
+            --card: #ffffff;
+            --text: #1a2a3a;
+            --text-light: #5a6a7a;
+            --shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
+            --radius: 14px;
+            --radius-sm: 8px;
+            --transition: 0.25s ease;
+            --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            --header-height: 64px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: var(--font);
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            line-height: 1.5;
+        }
+
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #e9ecf0; }
+        ::-webkit-scrollbar-thumb { background: var(--primary-light); border-radius: 10px; }
+
+        /* ──────────────────────────────────────────────
+           Header
+           ────────────────────────────────────────────── */
+        .app-header {
+            background: var(--primary);
+            color: white;
+            padding: 0 20px;
+            height: var(--header-height);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+            flex-shrink: 0;
+        }
+        .app-header .brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 1.2rem;
+            font-weight: 700;
+            letter-spacing: -0.3px;
+        }
+        .app-header .brand i {
+            font-size: 1.6rem;
+            color: var(--secondary);
+        }
+        .app-header .brand span {
+            font-weight: 300;
+            opacity: 0.7;
+        }
+        .app-header .user-area {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 0.9rem;
+        }
+        .app-header .user-area .role-badge {
+            background: rgba(255, 255, 255, 0.15);
+            padding: 4px 14px;
+            border-radius: 30px;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .btn-logout {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 6px 16px;
+            border-radius: 30px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            transition: var(--transition);
+        }
+        .btn-logout:hover { background: rgba(255, 255, 255, 0.2); }
+
+        /* ──────────────────────────────────────────────
+           Main Layout
+           ────────────────────────────────────────────── */
+        .app-main {
+            flex: 1;
+            padding: 20px;
+            max-width: 1400px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        /* ──────────────────────────────────────────────
+           Login Screen
+           ────────────────────────────────────────────── */
+        .login-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: calc(100vh - var(--header-height));
+            padding: 20px;
+        }
+        .login-card {
+            background: var(--card);
+            padding: 40px 32px;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            width: 100%;
+            max-width: 400px;
+        }
+        .login-card .logo {
+            text-align: center;
+            margin-bottom: 28px;
+        }
+        .login-card .logo i {
+            font-size: 3rem;
+            color: var(--secondary);
+        }
+        .login-card .logo h2 {
+            margin-top: 8px;
+            color: var(--primary);
+            font-weight: 700;
+        }
+        .login-card .logo p {
+            color: var(--text-light);
+            font-size: 0.9rem;
+        }
+
+        /* ──────────────────────────────────────────────
+           Form Elements
+           ────────────────────────────────────────────── */
+        .form-group {
+            margin-bottom: 18px;
+        }
+        .form-group label {
+            display: block;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-bottom: 5px;
+            color: var(--text);
+        }
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 10px 14px;
+            border: 1.5px solid #dce1e8;
+            border-radius: var(--radius-sm);
+            font-size: 0.95rem;
+            transition: var(--transition);
+            background: #fafbfc;
+            font-family: var(--font);
+        }
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: var(--primary-light);
+            box-shadow: 0 0 0 3px rgba(26, 60, 94, 0.12);
+            background: white;
+        }
+        .form-group textarea {
+            min-height: 70px;
+            resize: vertical;
+        }
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+        }
+        @media (max-width: 500px) {
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* ──────────────────────────────────────────────
+           Buttons
+           ────────────────────────────────────────────── */
+        .btn {
+            padding: 10px 22px;
+            border: none;
+            border-radius: var(--radius-sm);
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            justify-content: center;
+        }
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+        .btn-primary:hover:not(:disabled) {
+            background: var(--primary-light);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 14px rgba(26, 60, 94, 0.25);
+        }
+        .btn-secondary {
+            background: #e9ecf0;
+            color: var(--text);
+        }
+        .btn-secondary:hover:not(:disabled) {
+            background: #d5dbe3;
+        }
+        .btn-success {
+            background: var(--success);
+            color: white;
+        }
+        .btn-success:hover:not(:disabled) {
+            background: #1e7e34;
+        }
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+        .btn-danger:hover:not(:disabled) {
+            background: #b02a37;
+        }
+        .btn-warning {
+            background: var(--warning);
+            color: #212529;
+        }
+        .btn-warning:hover:not(:disabled) {
+            background: #e0a800;
+        }
+        .btn-sm {
+            padding: 5px 12px;
+            font-size: 0.8rem;
+        }
+        .btn-block {
+            width: 100%;
+        }
+        .btn-outline {
+            background: transparent;
+            border: 1.5px solid #dce1e8;
+            color: var(--text);
+        }
+        .btn-outline:hover:not(:disabled) {
+            background: #f0f2f5;
+        }
+
+        /* ──────────────────────────────────────────────
+           Toast / Error
+           ────────────────────────────────────────────── */
+        .error-text {
+            color: var(--danger);
+            font-size: 0.85rem;
+            margin-top: 5px;
+            display: none;
+        }
+        .error-text.show { display: block; }
+
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            padding: 14px 24px;
+            border-radius: var(--radius-sm);
+            color: white;
+            font-weight: 500;
+            box-shadow: 0 6px 24px rgba(0, 0, 0, 0.15);
+            z-index: 999;
+            transform: translateY(120px);
+            opacity: 0;
+            transition: all 0.35s ease;
+            max-width: 400px;
+        }
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+        .toast.success { background: var(--success); }
+        .toast.error { background: var(--danger); }
+        .toast.info { background: var(--info); }
+
+        /* ──────────────────────────────────────────────
+           Dashboard / Cards
+           ────────────────────────────────────────────── */
+        .section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        .section-header h2 {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+        .section-header .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .card-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 18px;
+            margin-bottom: 28px;
+        }
+        .stat-card {
+            background: var(--card);
+            padding: 18px 20px;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            transition: var(--transition);
+        }
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 36px rgba(0, 0, 0, 0.08);
+        }
+        .stat-card .icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            background: rgba(26, 60, 94, 0.08);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.4rem;
+            color: var(--primary);
+            flex-shrink: 0;
+        }
+        .stat-card .info h4 {
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            color: var(--text-light);
+        }
+        .stat-card .info .value {
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+        .stat-card .info .value small {
+            font-size: 0.8rem;
+            font-weight: 400;
+            color: var(--text-light);
+            margin-left: 6px;
+        }
+
+        /* ──────────────────────────────────────────────
+           Data Cards / Tables
+           ────────────────────────────────────────────── */
+        .data-card {
+            background: var(--card);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+            margin-bottom: 24px;
+        }
+        .data-card .card-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid #eef1f5;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .data-card .card-header h3 {
+            font-size: 1rem;
+            font-weight: 600;
+        }
+        .data-card .card-body {
+            padding: 16px 20px;
+            overflow-x: auto;
+        }
+        .data-card table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+        .data-card table th {
+            text-align: left;
+            padding: 10px 10px 10px 0;
+            font-weight: 600;
+            color: var(--text-light);
+            border-bottom: 2px solid #eef1f5;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            white-space: nowrap;
+        }
+        .data-card table td {
+            padding: 10px 10px 10px 0;
+            border-bottom: 1px solid #f3f5f8;
+            vertical-align: middle;
+        }
+        .data-card table tr:last-child td { border-bottom: none; }
+        .data-card table .actions-cell {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        /* ──────────────────────────────────────────────
+           Status Badges
+           ────────────────────────────────────────────── */
+        .status-badge {
+            padding: 3px 12px;
+            border-radius: 30px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: capitalize;
+            display: inline-block;
+        }
+        .status-badge.pending { background: #fff3cd; color: #856404; }
+        .status-badge.paid { background: #d4edda; color: #155724; }
+        .status-badge.partial { background: #cce5ff; color: #004085; }
+        .status-badge.available { background: #d4edda; color: #155724; }
+        .status-badge.occupied { background: #f8d7da; color: #721c24; }
+        .status-badge.maintenance { background: #fff3cd; color: #856404; }
+        .status-badge.admin { background: #cce5ff; color: #004085; }
+        .status-badge.tenant { background: #d4edda; color: #155724; }
+        .status-badge.active { background: #d4edda; color: #155724; }
+        .status-badge.inactive { background: #f8d7da; color: #721c24; }
+
+        /* ──────────────────────────────────────────────
+           Modal
+           ────────────────────────────────────────────── */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 200;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            backdrop-filter: blur(3px);
+        }
+        .modal-overlay.open { display: flex; }
+        .modal {
+            background: var(--card);
+            border-radius: var(--radius);
+            max-width: 560px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+            padding: 32px 28px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+            animation: modalIn 0.25s ease;
+        }
+        @keyframes modalIn {
+            from { opacity: 0; transform: scale(0.95) translateY(20px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+        .modal .modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+        .modal .modal-header h3 {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+        .modal .modal-close {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            color: var(--text-light);
+            cursor: pointer;
+            padding: 0 8px;
+        }
+        .modal .modal-close:hover { color: var(--danger); }
+        .modal .modal-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+            justify-content: flex-end;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-light);
+        }
+        .empty-state i {
+            font-size: 3rem;
+            opacity: 0.3;
+            margin-bottom: 12px;
+        }
+
+        /* ──────────────────────────────────────────────
+           Tabs
+           ────────────────────────────────────────────── */
+        .tabs {
+            display: flex;
+            gap: 4px;
+            background: #eef1f5;
+            border-radius: var(--radius-sm);
+            padding: 4px;
+            margin-bottom: 20px;
+            overflow-x: auto;
+            flex-wrap: nowrap;
+        }
+        .tabs .tab {
+            padding: 8px 18px;
+            border: none;
+            background: transparent;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.85rem;
+            color: var(--text-light);
+            transition: var(--transition);
+            white-space: nowrap;
+        }
+        .tabs .tab.active {
+            background: var(--card);
+            color: var(--primary);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+        }
+        .tabs .tab:hover:not(.active) { color: var(--text); }
+
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        /* ──────────────────────────────────────────────
+           Utilities
+           ────────────────────────────────────────────── */
+        .hidden { display: none !important; }
+        .mt-8 { margin-top: 8px; }
+        .mt-16 { margin-top: 16px; }
+        .mb-8 { margin-bottom: 8px; }
+        .mb-16 { margin-bottom: 16px; }
+        .text-center { text-align: center; }
+        .text-muted { color: var(--text-light); }
+        .flex { display: flex; }
+        .flex-center { align-items: center; justify-content: center; }
+        .gap-8 { gap: 8px; }
+        .gap-12 { gap: 12px; }
+        .fw-600 { font-weight: 600; }
+
+        /* ──────────────────────────────────────────────
+           Responsive
+           ────────────────────────────────────────────── */
+        @media (max-width: 768px) {
+            .app-header .brand { font-size: 1rem; }
+            .app-header .brand i { font-size: 1.2rem; }
+            .app-header .user-area .role-badge { display: none; }
+            .login-card { padding: 30px 20px; }
+            .stat-card { padding: 14px 16px; }
+            .stat-card .info .value { font-size: 1.2rem; }
+            .modal { padding: 24px 18px; }
+            .data-card .card-body { padding: 12px 14px; }
+            .data-card table { font-size: 0.8rem; }
+            .data-card table th, .data-card table td { padding: 8px 6px 8px 0; }
+            .section-header h2 { font-size: 1.1rem; }
+            .card-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+        }
+        @media (max-width: 480px) {
+            .app-main { padding: 12px; }
+            .app-header { padding: 0 12px; }
+            .card-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+            .stat-card .icon { width: 36px; height: 36px; font-size: 1rem; }
+            .stat-card .info .value { font-size: 1rem; }
+            .modal { padding: 18px 14px; }
+        }
+    </style>
+</head>
+<body>
+    <!-- ════════════════════════════════════════════════════════════
+    HEADER
+    ════════════════════════════════════════════════════════════ -->
+    <header class="app-header" id="appHeader">
+        <div class="brand">
+            <i class="fas fa-store-alt"></i>
+            Sahyadri Park <span>| Shop Management</span>
+        </div>
+        <div class="user-area" id="userArea">
+            <span id="userName" style="font-weight:500;"></span>
+            <span class="role-badge" id="userRoleBadge"></span>
+            <button class="btn-logout" onclick="logout()">
+                <i class="fas fa-sign-out-alt"></i> Logout
+            </button>
+        </div>
+    </header>
+
+    <!-- ════════════════════════════════════════════════════════════
+    MAIN CONTENT
+    ════════════════════════════════════════════════════════════ -->
+    <main class="app-main">
+
+        <!-- ─── LOGIN SCREEN ─── -->
+        <div id="loginScreen" class="login-container">
+            <div class="login-card">
+                <div class="logo">
+                    <i class="fas fa-store-alt"></i>
+                    <h2>Sahyadri Park</h2>
+                    <p>Shop Management System</p>
+                </div>
+                <form id="loginForm" onsubmit="handleLogin(event)">
+                    <div class="form-group">
+                        <label for="loginMobile"><i class="fas fa-phone"></i> Mobile Number</label>
+                        <input type="text" id="loginMobile" placeholder="Enter registered mobile" required />
+                    </div>
+                    <div class="form-group">
+                        <label for="loginPassword"><i class="fas fa-lock"></i> Password</label>
+                        <input type="password" id="loginPassword" placeholder="Enter password" required />
+                    </div>
+                    <div id="loginError" class="error-text"></div>
+                    <button type="submit" class="btn btn-primary btn-block" id="loginBtn">
+                        <i class="fas fa-sign-in-alt"></i> Sign In
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- ─── DASHBOARD ─── -->
+        <div id="dashboard" class="hidden">
+            <!-- Stats -->
+            <div class="card-grid" id="statsGrid">
+                <div class="stat-card">
+                    <div class="icon"><i class="fas fa-building"></i></div>
+                    <div class="info"><h4>Complexes</h4><div class="value" id="statComplexes">0</div></div>
+                </div>
+                <div class="stat-card">
+                    <div class="icon"><i class="fas fa-store"></i></div>
+                    <div class="info"><h4>Shops</h4><div class="value" id="statShops">0</div></div>
+                </div>
+                <div class="stat-card">
+                    <div class="icon"><i class="fas fa-users"></i></div>
+                    <div class="info"><h4>Users</h4><div class="value" id="statUsers">0</div></div>
+                </div>
+                <div class="stat-card">
+                    <div class="icon"><i class="fas fa-file-invoice"></i></div>
+                    <div class="info"><h4>Bills</h4><div class="value" id="statBills">0</div></div>
+                </div>
+                <div class="stat-card">
+                    <div class="icon"><i class="fas fa-coins"></i></div>
+                    <div class="info"><h4>Payments</h4><div class="value" id="statPayments">0</div></div>
+                </div>
+                <div class="stat-card">
+                    <div class="icon"><i class="fas fa-exclamation-triangle"></i></div>
+                    <div class="info"><h4>Pending Bills</h4><div class="value" id="statPending">0</div></div>
+                </div>
+            </div>
+
+            <!-- Tabs -->
+            <div class="tabs" id="mainTabs">
+                <button class="tab active" data-tab="tabComplexes"><i class="fas fa-building"></i> Complexes</button>
+                <button class="tab" data-tab="tabShops"><i class="fas fa-store"></i> Shops</button>
+                <button class="tab" data-tab="tabUsers"><i class="fas fa-users"></i> Users</button>
+                <button class="tab" data-tab="tabBills"><i class="fas fa-file-invoice"></i> Bills</button>
+                <button class="tab" data-tab="tabPayments"><i class="fas fa-coins"></i> Payments</button>
+                <!-- Tenant-only tabs -->
+                <button class="tab tenant-tab" data-tab="tabMyShops"><i class="fas fa-store-alt"></i> My Shops</button>
+                <button class="tab tenant-tab" data-tab="tabMyBills"><i class="fas fa-file-invoice"></i> My Bills</button>
+                <button class="tab tenant-tab" data-tab="tabMyPayments"><i class="fas fa-receipt"></i> My Payments</button>
+            </div>
+
+            <!-- ─── TAB: Complexes ─── -->
+            <div id="tabComplexes" class="tab-content active">
+                <div class="section-header">
+                    <h2><i class="fas fa-building"></i> Complexes</h2>
+                    <div class="actions">
+                        <button class="btn btn-primary btn-sm" onclick="openModal('complexModal')">
+                            <i class="fas fa-plus"></i> Add Complex
+                        </button>
+                    </div>
+                </div>
+                <div class="data-card">
+                    <div class="card-body" id="complexList"><div class="empty-state"><i class="fas fa-building"></i><p>No complexes found</p></div></div>
+                </div>
+            </div>
+
+            <!-- ─── TAB: Shops ─── -->
+            <div id="tabShops" class="tab-content">
+                <div class="section-header">
+                    <h2><i class="fas fa-store"></i> Shops</h2>
+                    <div class="actions">
+                        <button class="btn btn-primary btn-sm" onclick="openModal('shopModal')">
+                            <i class="fas fa-plus"></i> Add Shop
+                        </button>
+                    </div>
+                </div>
+                <div class="data-card">
+                    <div class="card-body" id="shopList"><div class="empty-state"><i class="fas fa-store"></i><p>No shops found</p></div></div>
+                </div>
+            </div>
+
+            <!-- ─── TAB: Users ─── -->
+            <div id="tabUsers" class="tab-content">
+                <div class="section-header">
+                    <h2><i class="fas fa-users"></i> Users</h2>
+                    <div class="actions">
+                        <button class="btn btn-primary btn-sm" onclick="openModal('userModal')">
+                            <i class="fas fa-user-plus"></i> Add User
+                        </button>
+                    </div>
+                </div>
+                <div class="data-card">
+                    <div class="card-body" id="userList"><div class="empty-state"><i class="fas fa-users"></i><p>No users found</p></div></div>
+                </div>
+            </div>
+
+            <!-- ─── TAB: Bills ─── -->
+            <div id="tabBills" class="tab-content">
+                <div class="section-header">
+                    <h2><i class="fas fa-file-invoice"></i> Bills</h2>
+                    <div class="actions">
+                        <button class="btn btn-primary btn-sm" onclick="openModal('billModal')">
+                            <i class="fas fa-plus"></i> Add Bill
+                        </button>
+                    </div>
+                </div>
+                <div class="data-card">
+                    <div class="card-body" id="billList"><div class="empty-state"><i class="fas fa-file-invoice"></i><p>No bills found</p></div></div>
+                </div>
+            </div>
+
+            <!-- ─── TAB: Payments ─── -->
+            <div id="tabPayments" class="tab-content">
+                <div class="section-header">
+                    <h2><i class="fas fa-coins"></i> Payments</h2>
+                    <div class="actions">
+                        <button class="btn btn-success btn-sm" onclick="openModal('paymentModal')">
+                            <i class="fas fa-plus"></i> Record Payment
+                        </button>
+                    </div>
+                </div>
+                <div class="data-card">
+                    <div class="card-body" id="paymentList"><div class="empty-state"><i class="fas fa-coins"></i><p>No payments found</p></div></div>
+                </div>
+            </div>
+
+            <!-- ─── TAB: My Shops (Tenant) ─── -->
+            <div id="tabMyShops" class="tab-content">
+                <div class="section-header"><h2><i class="fas fa-store-alt"></i> My Shops</h2></div>
+                <div class="data-card">
+                    <div class="card-body" id="myShopList"><div class="empty-state"><i class="fas fa-store-alt"></i><p>No shops assigned</p></div></div>
+                </div>
+            </div>
+
+            <!-- ─── TAB: My Bills (Tenant) ─── -->
+            <div id="tabMyBills" class="tab-content">
+                <div class="section-header"><h2><i class="fas fa-file-invoice"></i> My Bills</h2></div>
+                <div class="data-card">
+                    <div class="card-body" id="myBillList"><div class="empty-state"><i class="fas fa-file-invoice"></i><p>No bills found</p></div></div>
+                </div>
+            </div>
+
+            <!-- ─── TAB: My Payments (Tenant) ─── -->
+            <div id="tabMyPayments" class="tab-content">
+                <div class="section-header"><h2><i class="fas fa-receipt"></i> My Payments</h2></div>
+                <div class="data-card">
+                    <div class="card-body" id="myPaymentList"><div class="empty-state"><i class="fas fa-receipt"></i><p>No payments found</p></div></div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- ════════════════════════════════════════════════════════════
+    MODALS
+    ════════════════════════════════════════════════════════════ -->
+
+    <!-- Complex Modal -->
+    <div class="modal-overlay" id="complexModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="complexModalTitle"><i class="fas fa-building"></i> Add Complex</h3>
+                <button class="modal-close" onclick="closeModal('complexModal')">&times;</button>
+            </div>
+            <form id="complexForm" onsubmit="handleComplexSubmit(event)">
+                <input type="hidden" id="complexId" />
+                <div class="form-group">
+                    <label>Name *</label>
+                    <input type="text" id="complexName" placeholder="e.g., Sunrise Complex" required />
+                </div>
+                <div class="form-group">
+                    <label>Address</label>
+                    <input type="text" id="complexAddress" placeholder="Street, City, State" />
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <textarea id="complexDescription" placeholder="Additional details..."></textarea>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('complexModal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="complexSubmitBtn">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Shop Modal -->
+    <div class="modal-overlay" id="shopModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="shopModalTitle"><i class="fas fa-store"></i> Add Shop</h3>
+                <button class="modal-close" onclick="closeModal('shopModal')">&times;</button>
+            </div>
+            <form id="shopForm" onsubmit="handleShopSubmit(event)">
+                <input type="hidden" id="shopId" />
+                <div class="form-group">
+                    <label>Shop Number *</label>
+                    <input type="text" id="shopNumber" placeholder="e.g., A-101" required />
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Area (sq ft)</label>
+                        <input type="number" id="shopArea" step="0.5" placeholder="450" />
+                    </div>
+                    <div class="form-group">
+                        <label>Status</label>
+                        <select id="shopStatus">
+                            <option value="available">Available</option>
+                            <option value="occupied">Occupied</option>
+                            <option value="maintenance">Maintenance</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Complex</label>
+                    <select id="shopComplex"><option value="">None</option></select>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('shopModal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="shopSubmitBtn">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- User Modal -->
+    <div class="modal-overlay" id="userModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="userModalTitle"><i class="fas fa-user"></i> Add User</h3>
+                <button class="modal-close" onclick="closeModal('userModal')">&times;</button>
+            </div>
+            <form id="userForm" onsubmit="handleUserSubmit(event)">
+                <input type="hidden" id="userId" />
+                <div class="form-group">
+                    <label>Full Name *</label>
+                    <input type="text" id="userName" placeholder="e.g., Rahul Sharma" required />
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Mobile *</label>
+                        <input type="text" id="userMobile" placeholder="9876543210" required />
+                    </div>
+                    <div class="form-group">
+                        <label>Email</label>
+                        <input type="email" id="userEmail" placeholder="user@example.com" />
+                    </div>
+                </div>
+                <div class="form-group" id="userPasswordGroup">
+                    <label>Password *</label>
+                    <input type="password" id="userPassword" placeholder="Min 6 characters" />
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Role</label>
+                        <select id="userRole">
+                            <option value="tenant">Tenant</option>
+                            <option value="admin">Admin</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="userActiveGroup">
+                        <label>Status</label>
+                        <select id="userActive">
+                            <option value="true">Active</option>
+                            <option value="false">Inactive</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group" id="userShopsGroup">
+                    <label>Assign Shops (Ctrl+Click to multi-select)</label>
+                    <select id="userShops" multiple style="height:80px;"></select>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('userModal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="userSubmitBtn">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Bill Modal -->
+    <div class="modal-overlay" id="billModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3><i class="fas fa-file-invoice"></i> Add Bill</h3>
+                <button class="modal-close" onclick="closeModal('billModal')">&times;</button>
+            </div>
+            <form id="billForm" onsubmit="handleBillSubmit(event)">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>User *</label>
+                        <select id="billUser" required></select>
+                    </div>
+                    <div class="form-group">
+                        <label>Shop *</label>
+                        <select id="billShop" required></select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Bill Type *</label>
+                    <input type="text" id="billType" placeholder="e.g., Maintenance, Electricity" required />
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Amount (₹) *</label>
+                        <input type="number" id="billAmount" step="0.01" placeholder="5000" required />
+                    </div>
+                    <div class="form-group">
+                        <label>Due Date</label>
+                        <input type="datetime-local" id="billDueDate" />
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <textarea id="billDescription" placeholder="Additional details..."></textarea>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('billModal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create Bill</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Payment Modal -->
+    <div class="modal-overlay" id="paymentModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3><i class="fas fa-coins"></i> Record Payment</h3>
+                <button class="modal-close" onclick="closeModal('paymentModal')">&times;</button>
+            </div>
+            <form id="paymentForm" onsubmit="handlePaymentSubmit(event)">
+                <div class="form-group">
+                    <label>Bill *</label>
+                    <select id="paymentBill" required></select>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Amount (₹) *</label>
+                        <input type="number" id="paymentAmount" step="0.01" placeholder="2500" required />
+                    </div>
+                    <div class="form-group">
+                        <label>Payment Method *</label>
+                        <select id="paymentMethod" required>
+                            <option value="Cash">Cash</option>
+                            <option value="UPI">UPI</option>
+                            <option value="Bank Transfer">Bank Transfer</option>
+                            <option value="Cheque">Cheque</option>
+                            <option value="Credit Card">Credit Card</option>
+                            <option value="Debit Card">Debit Card</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Remarks</label>
+                    <input type="text" id="paymentRemarks" placeholder="Optional notes" />
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('paymentModal')">Cancel</button>
+                    <button type="submit" class="btn btn-success">Record Payment</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Assign Shop to User Modal -->
+    <div class="modal-overlay" id="assignShopModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3><i class="fas fa-store"></i> Assign Shops to User</h3>
+                <button class="modal-close" onclick="closeModal('assignShopModal')">&times;</button>
+            </div>
+            <form id="assignShopForm" onsubmit="handleAssignShopSubmit(event)">
+                <input type="hidden" id="assignUserId" />
+                <div class="form-group">
+                    <label>Select Shops (Ctrl+Click to multi-select)</label>
+                    <select id="assignShopSelect" multiple style="height:120px;"></select>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('assignShopModal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Assign</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+
+    <!-- ════════════════════════════════════════════════════════════
+    JAVASCRIPT
+    ════════════════════════════════════════════════════════════ -->
+    <script>
+        // ──────────────────────────────────────────────────────────
+        // 🔧 CONFIGURATION - CHANGE BACKEND IP HERE
+        // ──────────────────────────────────────────────────────────
+        const API_BASE_URL = 'http://13.205.70.46:8000';
+        // ──────────────────────────────────────────────────────────
+
+        // ──────────────────────────────────────────────────────────
+        // STATE
+        // ──────────────────────────────────────────────────────────
+        let currentUser = null;
+        let currentRole = null;
+        let token = null;
+
+        // ──────────────────────────────────────────────────────────
+        // HELPERS
+        // ──────────────────────────────────────────────────────────
+        function apiUrl(path) {
+            return `${API_BASE_URL}${path}`;
+        }
+
+        function getHeaders() {
+            return {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            };
+        }
+
+        function showToast(message, type = 'info') {
+            const t = document.getElementById('toast');
+            t.textContent = message;
+            t.className = `toast ${type}`;
+            t.classList.add('show');
+            clearTimeout(t._timer);
+            t._timer = setTimeout(() => t.classList.remove('show'), 4000);
+        }
+
+        function formatDate(d) {
+            if (!d) return '-';
+            const dt = new Date(d);
+            return dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+        }
+
+        function formatDateTime(d) {
+            if (!d) return '-';
+            const dt = new Date(d);
+            return dt.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit',
+                minute: '2-digit' });
+        }
+
+        function getStatusBadge(status) {
+            const cls = status ? status.toLowerCase() : '';
+            return `<span class="status-badge ${cls}">${status || 'Unknown'}</span>`;
+        }
+
+        function getBoolBadge(val) {
+            return val ? '<span class="status-badge active">Active</span>' :
+                '<span class="status-badge inactive">Inactive</span>';
+        }
+
+        function getRoleBadge(role) {
+            return `<span class="status-badge ${role}">${role}</span>`;
+        }
+
+        function getSelectOptions(data, idField, labelField, placeholder = 'Select...') {
+            let html = `<option value="">${placeholder}</option>`;
+            data.forEach(item => {
+                html += `<option value="${item[idField]}">${item[labelField]}</option>`;
+            });
+            return html;
+        }
+
+        function getSelectMultipleOptions(data, idField, labelField, selectedIds = []) {
+            let html = '';
+            data.forEach(item => {
+                const sel = selectedIds.includes(item[idField]) ? 'selected' : '';
+                html += `<option value="${item[idField]}" ${sel}>${item[labelField]}</option>`;
+            });
+            return html;
+        }
+
+        // ──────────────────────────────────────────────────────────
+        // MODAL HELPERS
+        // ──────────────────────────────────────────────────────────
+        function openModal(id) {
+            document.getElementById(id).classList.add('open');
+        }
+
+        function closeModal(id) {
+            document.getElementById(id).classList.remove('open');
+        }
+
+        // Close modal on overlay click
+        document.querySelectorAll('.modal-overlay').forEach(el => {
+            el.addEventListener('click', (e) => {
+                if (e.target === el) el.classList.remove('open');
+            });
+        });
+
+        // ──────────────────────────────────────────────────────────
+        // TABS
+        // ──────────────────────────────────────────────────────────
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                document.getElementById(tab.dataset.tab).classList.add('active');
+            });
+        });
+
+        // ──────────────────────────────────────────────────────────
+        // AUTH
+        // ──────────────────────────────────────────────────────────
+        async function handleLogin(e) {
+            e.preventDefault();
+            const mobile = document.getElementById('loginMobile').value.trim();
+            const password = document.getElementById('loginPassword').value;
+            const errorEl = document.getElementById('loginError');
+            const btn = document.getElementById('loginBtn');
+
+            errorEl.classList.remove('show');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Signing in...';
+
+            try {
+                const resp = await fetch(apiUrl('/api/login'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mobile, password })
+                });
+
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    throw new Error(err.detail || 'Login failed');
+                }
+
+                const data = await resp.json();
+                token = data.token;
+                currentRole = data.role;
+                currentUser = mobile;
+
+                localStorage.setItem('token', token);
+                localStorage.setItem('role', currentRole);
+                localStorage.setItem('user', mobile);
+
+                showToast(`Welcome, ${mobile}!`, 'success');
+                loadDashboard();
+            } catch (err) {
+                errorEl.textContent = err.message;
+                errorEl.classList.add('show');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Sign In';
+            }
+        }
+
+        function logout() {
+            token = null;
+            currentUser = null;
+            currentRole = null;
+            localStorage.clear();
+            document.getElementById('loginScreen').classList.remove('hidden');
+            document.getElementById('dashboard').classList.add('hidden');
+            showToast('Logged out', 'info');
+        }
+
+        function checkAuth() {
+            const savedToken = localStorage.getItem('token');
+            const savedRole = localStorage.getItem('role');
+            const savedUser = localStorage.getItem('user');
+            if (savedToken && savedRole) {
+                token = savedToken;
+                currentRole = savedRole;
+                currentUser = savedUser;
+                loadDashboard();
+                return true;
+            }
+            return false;
+        }
+
+        // ──────────────────────────────────────────────────────────
+        // DASHBOARD LOAD
+        // ──────────────────────────────────────────────────────────
+        function showDashboard() {
+            document.getElementById('loginScreen').classList.add('hidden');
+            document.getElementById('dashboard').classList.remove('hidden');
+
+            // Show/hide tenant tabs
+            const isAdmin = currentRole === 'admin';
+            document.querySelectorAll('.tenant-tab').forEach(el => {
+                el.style.display = isAdmin ? 'none' : 'inline-block';
+            });
+
+            // Show/hide admin-only action buttons
+            document.querySelectorAll('.admin-only').forEach(el => {
+                el.style.display = isAdmin ? 'flex' : 'none';
+            });
+
+            // Update header
+            document.getElementById('userName').textContent = currentUser || 'User';
+            document.getElementById('userRoleBadge').textContent = currentRole || 'tenant';
+
+            // Load all data
+            if (isAdmin) {
+                loadComplexes();
+                loadShops();
+                loadUsers();
+                loadBills();
+                loadPayments();
+                loadStats();
+            } else {
+                loadMyShops();
+                loadMyBills();
+                loadMyPayments();
+                loadTenantStats();
+            }
+        }
+
+        function loadDashboard() {
+            showDashboard();
+        }
+
+        // ──────────────────────────────────────────────────────────
+        // API CALLS
+        // ──────────────────────────────────────────────────────────
+        async function fetchAPI(path, options = {}) {
+            const resp = await fetch(apiUrl(path), {
+                ...options,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
+                    ...(options.headers || {})
+                }
+            });
+
+            if (resp.status === 401 || resp.status === 403) {
+                showToast('Session expired. Please login again.', 'error');
+                logout();
+                throw new Error('Unauthorized');
+            }
+
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({ detail: 'Request failed' }));
+                throw new Error(err.detail || 'Request failed');
+            }
+
+            return resp.json();
+        }
+
+        // ──────────────────────────────────────────────────────────
+        // STATS
+        // ──────────────────────────────────────────────────────────
+        async function loadStats() {
+            try {
+                const [complexes, shops, users, bills, payments] = await Promise.all([
+                    fetchAPI('/api/complex'),
+                    fetchAPI('/api/shop'),
+                    fetchAPI('/api/user'),
+                    fetchAPI('/api/bill'),
+                    fetchAPI('/api/payment')
+                ]);
+
+                document.getElementById('statComplexes').textContent = complexes.length || 0;
+                document.getElementById('statShops').textContent = shops.length || 0;
+                document.getElementById('statUsers').textContent = users.length || 0;
+                document.getElementById('statBills').textContent = bills.length || 0;
+                document.getElementById('statPayments').textContent = payments.length || 0;
+
+                const pending = bills.filter(b => b.status === 'pending' || b.status === 'partial').length;
+                document.getElementById('statPending').textContent = pending;
+            } catch (e) {
+                console.error('Stats error:', e);
+            }
+        }
+
+        async function loadTenantStats() {
+            try {
+                const [shops, bills, payments] = await Promise.all([
+                    fetchAPI('/api/tenant/shops'),
+                    fetchAPI('/api/tenant/bills'),
+                    fetchAPI('/api/tenant/payments')
+                ]);
+
+                document.getElementById('statComplexes').textContent = '-';
+                document.getElementById('statShops').textContent = shops.length || 0;
+                document.getElementById('statUsers').textContent = '-';
+                document.getElementById('statBills').textContent = bills.length || 0;
+                document.getElementById('statPayments').textContent = payments.length || 0;
+
+                const pending = bills.filter(b => b.status === 'pending' || b.status === 'partial').length;
+                document.getElementById('statPending').textContent = pending;
+            } catch (e) {
+                console.error('Tenant stats error:', e);
+            }
+        }
+
+        // ──────────────────────────────────────────────────────────
+        // COMPLEXES
+        // ──────────────────────────────────────────────────────────
+        async function loadComplexes() {
+            try {
+                const data = await fetchAPI('/api/complex');
+                const container = document.getElementById('complexList');
+
+                if (!data || data.length === 0) {
+                    container.innerHTML = '<div class="empty-state"><i class="fas fa-building"></i><p>No complexes found</p></div>';
+                    return;
+                }
+
+                let html = `<table>
+                    <thead><tr>
+                        <th>ID</th><th>Name</th><th>Address</th><th>Description</th><th>Created</th><th>Actions</th>
+                    </tr></thead><tbody>`;
+                data.forEach(c => {
+                    html += `<tr>
+                        <td>${c.id}</td>
+                        <td><strong>${c.name}</strong></td>
+                        <td>${c.address || '-'}</td>
+                        <td>${c.description || '-'}</td>
+                        <td>${formatDate(c.created_at)}</td>
+                        <td class="actions-cell">
+                            <button class="btn btn-secondary btn-sm" onclick="editComplex(${c.id})"><i class="fas fa-edit"></i></button>
+                            <button class="btn btn-danger btn-sm" onclick="deleteComplex(${c.id})"><i class="fas fa-trash"></i></button>
+                        </td>
+                    </tr>`;
+                });
+                html += `</tbody></table>`;
+                container.innerHTML = html;
+            } catch (e) {
+                console.error('Load complexes error:', e);
+            }
+        }
+
+        async function handleComplexSubmit(e) {
+            e.preventDefault();
+            const id = document.getElementById('complexId').value;
+            const payload = {
+                name: document.getElementById('complexName').value.trim(),
+                address: document.getElementById('complexAddress').value.trim() || null,
+                description: document.getElementById('complexDescription').value.trim() || null
+            };
+
+            const btn = document.getElementById('complexSubmitBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+
+            try {
+                if (id) {
+                    await fetchAPI(`/api/complex/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+                    showToast('Complex updated successfully!', 'success');
+                } else {
+                    await fetchAPI('/api/complex', { method: 'POST', body: JSON.stringify(payload) });
+                    showToast('Complex created successfully!', 'success');
+                }
+                closeModal('complexModal');
+                document.getElementById('complexForm').reset();
+                document.getElementById('complexId').value = '';
+                loadComplexes();
+                loadStats();
+            } catch (e) {
+                showToast(e.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = 'Save';
+            }
+        }
+
+        function editComplex(id) {
+            // Fetch and populate
+            fetchAPI(`/api/complex/${id}`).then(data => {
+                document.getElementById('complexId').value = data.id;
+                document.getElementById('complexName').value = data.name;
+                document.getElementById('complexAddress').value = data.address || '';
+                document.getElementById('complexDescription').value = data.description || '';
+                document.getElementById('complexModalTitle').innerHTML = '<i class="fas fa-building"></i> Edit Complex';
+                document.getElementById('complexSubmitBtn').textContent = 'Update';
+                openModal('complexModal');
+            }).catch(e => showToast(e.message, 'error'));
+        }
+
+        async function deleteComplex(id) {
+            if (!confirm('Delete this complex? This will also remove associated shops.')) return;
+            try {
+                await fetchAPI(`/api/complex/${id}`, { method: 'DELETE' });
+                showToast('Complex deleted', 'success');
+                loadComplexes();
+                loadStats();
+            } catch (e) {
+                showToast(e.message, 'error');
+            }
+        }
+
+        // Reset complex modal on close
+        document.getElementById('complexModal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                document.getElementById('complexForm').reset();
+                document.getElementById('complexId').value = '';
+                document.getElementById('complexModalTitle').innerHTML = '<i class="fas fa-building"></i> Add Complex';
+                document.getElementById('complexSubmitBtn').textContent = 'Save';
+            }
+        });
+
+        // ──────────────────────────────────────────────────────────
+        // SHOPS
+        // ──────────────────────────────────────────────────────────
+        async function loadShops() {
+            try {
+                const [shops, complexes] = await Promise.all([
+                    fetchAPI('/api/shop'),
+                    fetchAPI('/api/complex')
+                ]);
+
+                const container = document.getElementById('shopList');
+                if (!shops || shops.length === 0) {
+                    container.innerHTML = '<div class="empty-state"><i class="fas fa-store"></i><p>No shops found</p></div>';
+                    return;
+                }
+
+                const complexMap = {};
+                complexes.forEach(c => complexMap[c.id] = c.name);
+
+                let html = `<table>
+                    <thead><tr>
+                        <th>ID</th><th>Shop No</th><th>Area (sq ft)</th><th>Status</th><th>Complex</th><th>Created</th><th>Actions</th>
+                    </tr></thead><tbody>`;
+                shops.forEach(s => {
+                    html += `<tr>
+                        <td>${s.id}</td>
+                        <td><strong>${s.shop_number}</strong></td>
+                        <td>${s.area_sqft || '-'}</td>
+                        <td>${getStatusBadge(s.status)}</td>
+                        <td>${s.complex_id ? complexMap[s.complex_id] || s.complex_id : '-'}</td>
+                        <td>${formatDate(s.created_at)}</td>
+                        <td class="actions-cell">
+                            <button class="btn btn-secondary btn-sm" onclick="editShop(${s.id})"><i class="fas fa-edit"></i></button>
+                            <button class="btn btn-danger btn-sm" onclick="deleteShop(${s.id})"><i class="fas fa-trash"></i></button>
+                        </td>
+                    </tr>`;
+                });
+                html += `</tbody></table>`;
+                container.innerHTML = html;
+            } catch (e) {
+                console.error('Load shops error:', e);
+            }
+        }
+
+        async function loadShopComplexes() {
+            try {
+                const data = await fetchAPI('/api/complex');
+                document.getElementById('shopComplex').innerHTML = getSelectOptions(data, 'id', 'name', 'None');
+            } catch (e) { /* ignore */ }
+        }
+
+        async function handleShopSubmit(e) {
+            e.preventDefault();
+            const id = document.getElementById('shopId').value;
+            const payload = {
+                shop_number: document.getElementById('shopNumber').value.trim(),
+                area_sqft: parseFloat(document.getElementById('shopArea').value) || null,
+                status: document.getElementById('shopStatus').value,
+                complex_id: parseInt(document.getElementById('shopComplex').value) || null
+            };
+
+            const btn = document.getElementById('shopSubmitBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+
+            try {
+                if (id) {
+                    await fetchAPI(`/api/shop/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+                    showToast('Shop updated successfully!', 'success');
+                } else {
+                    await fetchAPI('/api/shop', { method: 'POST', body: JSON.stringify(payload) });
+                    showToast('Shop created successfully!', 'success');
+                }
+                closeModal('shopModal');
+                document.getElementById('shopForm').reset();
+                document.getElementById('shopId').value = '';
+                loadShops();
+                loadStats();
+            } catch (e) {
+                showToast(e.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = 'Save';
+            }
+        }
+
+        function editShop(id) {
+            Promise.all([
+                fetchAPI(`/api/shop/${id}`),
+                fetchAPI('/api/complex')
+            ]).then(([shop, complexes]) => {
+                document.getElementById('shopId').value = shop.id;
+                document.getElementById('shopNumber').value = shop.shop_number;
+                document.getElementById('shopArea').value = shop.area_sqft || '';
+                document.getElementById('shopStatus').value = shop.status;
+                document.getElementById('shopComplex').innerHTML = getSelectOptions(complexes, 'id', 'name', 'None');
+                document.getElementById('shopComplex').value = shop.complex_id || '';
+                document.getElementById('shopModalTitle').innerHTML = '<i class="fas fa-store"></i> Edit Shop';
+                document.getElementById('shopSubmitBtn').textContent = 'Update';
+                openModal('shopModal');
+            }).catch(e => showToast(e.message, 'error'));
+        }
+
+        async function deleteShop(id) {
+            if (!confirm('Delete this shop?')) return;
+            try {
+                await fetchAPI(`/api/shop/${id}`, { method: 'DELETE' });
+                showToast('Shop deleted', 'success');
+                loadShops();
+                loadStats();
+            } catch (e) {
+                showToast(e.message, 'error');
+            }
+        }
+
+        // ──────────────────────────────────────────────────────────
+        // USERS
+        // ──────────────────────────────────────────────────────────
+        async function loadUsers() {
+            try {
+                const [users, shops, userShopMap] = await Promise.all([
+                    fetchAPI('/api/user'),
+                    fetchAPI('/api/shop'),
+                    // We'll get assignments via a separate call or from user data
+                    // For simplicity, we'll show shops assigned in the table
+                ]);
+
+                const container = document.getElementById('userList');
+                if (!users || users.length === 0) {
+                    container.innerHTML = '<div class="empty-state"><i class="fas fa-users"></i><p>No users found</p></div>';
+                    return;
+                }
+
+                let html = `<table>
+                    <thead><tr>
+                        <th>ID</th><th>Name</th><th>Mobile</th><th>Email</th><th>Role</th><th>Status</th><th>Created</th><th>Actions</th>
+                    </tr></thead><tbody>`;
+                for (const u of users) {
+                    // Get assigned shops for this user
+                    let assignedShops = [];
+                    try {
+                        // This endpoint doesn't exist directly, but we can infer from user's shops
+                        // We'll use the tenant shops endpoint if tenant, or we can use a different approach
+                        // For admin, we'll show a count
+                        const resp = await fetch(apiUrl(`/api/tenant/shops`), {
+                            headers: { 'Authorization': `Bearer ${token}` }
+                        });
+                        if (resp.ok) {
+                            const data = await resp.json();
+                            // This only works for current user, not arbitrary user
+                            // We'll just show a placeholder
+                        }
+                    } catch (e) { /* ignore */ }
+
+                    html += `<tr>
+                        <td>${u.id}</td>
+                        <td><strong>${u.name}</strong></td>
+                        <td>${u.mobile}</td>
+                        <td>${u.email || '-'}</td>
+                        <td>${getRoleBadge(u.role)}</td>
+                        <td>${getBoolBadge(u.is_active)}</td>
+                        <td>${formatDate(u.created_at)}</td>
+                        <td class="actions-cell">
+                            <button class="btn btn-secondary btn-sm" onclick="editUser(${u.id})"><i class="fas fa-edit"></i></button>
+                            <button class="btn btn-primary btn-sm" onclick="openAssignShops(${u.id})"><i class="fas fa-store"></i></button>
+                            <button class="btn btn-danger btn-sm" onclick="deleteUser(${u.id})"><i class="fas fa-trash"></i></button>
+                        </td>
+                    </tr>`;
+                }
+                html += `</tbody></table>`;
+                container.innerHTML = html;
+            } catch (e) {
+                console.error('Load users error:', e);
+            }
+        }
+
+        async function loadUserFormShops() {
+            try {
+                const shops = await fetchAPI('/api/shop');
+                document.getElementById('userShops').innerHTML = getSelectMultipleOptions(shops, 'id', 'shop_number');
+            } catch (e) { /* ignore */ }
+        }
+
+        async function handleUserSubmit(e) {
+            e.preventDefault();
+            const id = document.getElementById('userId').value;
+            const isEdit = !!id;
+
+            const payload = {
+                name: document.getElementById('userName').value.trim(),
+                mobile: document.getElementById('userMobile').value.trim(),
+                email: document.getElementById('userEmail').value.trim() || null,
+                role: document.getElementById('userRole').value,
+            };
+
+            if (!isEdit) {
+                const password = document.getElementById('userPassword').value;
+                if (!password || password.length < 6) {
+                    showToast('Password must be at least 6 characters', 'error');
+                    return;
+                }
+                payload.password = password;
+            } else {
+                const password = document.getElementById('userPassword').value;
+                if (password) payload.password = password;
+                payload.is_active = document.getElementById('userActive').value === 'true';
+            }
+
+            const btn = document.getElementById('userSubmitBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+
+            try {
+                let userData;
+                if (isEdit) {
+                    userData = await fetchAPI(`/api/user/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+                    showToast('User updated successfully!', 'success');
+                } else {
+                    userData = await fetchAPI('/api/user', { method: 'POST', body: JSON.stringify(payload) });
+                    showToast('User created successfully!', 'success');
+
+                    // Assign selected shops
+                    const shopSelect = document.getElementById('userShops');
+                    const selectedShops = Array.from(shopSelect.selectedOptions).map(o => parseInt(o.value));
+                    if (selectedShops.length > 0) {
+                        await fetchAPI(`/api/user/${userData.id}/assign-shops`, {
+                            method: 'POST',
+                            body: JSON.stringify({ shop_ids: selectedShops })
+                        });
+                    }
+                }
+
+                closeModal('userModal');
+                document.getElementById('userForm').reset();
+                document.getElementById('userId').value = '';
+                document.getElementById('userModalTitle').innerHTML = '<i class="fas fa-user"></i> Add User';
+                document.getElementById('userSubmitBtn').textContent = 'Save';
+                loadUsers();
+                loadStats();
+            } catch (e) {
+                showToast(e.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = 'Save';
+            }
+        }
+
+        function editUser(id) {
+            Promise.all([
+                fetchAPI(`/api/user/${id}`),
+                fetchAPI('/api/shop')
+            ]).then(([user, shops]) => {
+                document.getElementById('userId').value = user.id;
+                document.getElementById('userName').value = user.name;
+                document.getElementById('userMobile').value = user.mobile;
+                document.getElementById('userEmail').value = user.email || '';
+                document.getElementById('userRole').value = user.role;
+                document.getElementById('userActive').value = user.is_active ? 'true' : 'false';
+                document.getElementById('userPassword').placeholder = 'Leave blank to keep current';
+
+                document.getElementById('userShops').innerHTML = getSelectMultipleOptions(shops, 'id', 'shop_number');
+
+                document.getElementById('userModalTitle').innerHTML = '<i class="fas fa-user"></i> Edit User';
+                document.getElementById('userSubmitBtn').textContent = 'Update';
+                document.getElementById('userPasswordGroup').querySelector('label').textContent = 'Password (optional)';
+                document.getElementById('userPassword').required = false;
+                document.getElementById('userActiveGroup').style.display = 'block';
+                openModal('userModal');
+            }).catch(e => showToast(e.message, 'error'));
+        }
+
+        async function deleteUser(id) {
+            if (!confirm('Delete this user?')) return;
+            try {
+                await fetchAPI(`/api/user/${id}`, { method: 'DELETE' });
+                showToast('User deleted', 'success');
+                loadUsers();
+                loadStats();
+            } catch (e) {
+                showToast(e.message, 'error');
+            }
+        }
+
+        async function openAssignShops(userId) {
+            try {
+                const shops = await fetchAPI('/api/shop');
+                document.getElementById('assignUserId').value = userId;
+                document.getElementById('assignShopSelect').innerHTML = getSelectMultipleOptions(shops, 'id', 'shop_number');
+                openModal('assignShopModal');
+            } catch (e) {
+                showToast(e.message, 'error');
+            }
+        }
+
+        async function handleAssignShopSubmit(e) {
+            e.preventDefault();
+            const userId = document.getElementById('assignUserId').value;
+            const select = document.getElementById('assignShopSelect');
+            const shopIds = Array.from(select.selectedOptions).map(o => parseInt(o.value));
+
+            if (shopIds.length === 0) {
+                showToast('Please select at least one shop', 'error');
+                return;
+            }
+
+            try {
+                await fetchAPI(`/api/user/${userId}/assign-shops`, {
+                    method: 'POST',
+                    body: JSON.stringify({ shop_ids: shopIds })
+                });
+                showToast('Shops assigned successfully!', 'success');
+                closeModal('assignShopModal');
+                loadUsers();
+            } catch (e) {
+                showToast(e.message, 'error');
+            }
+        }
+
+        // ──────────────────────────────────────────────────────────
+        // BILLS
+        // ──────────────────────────────────────────────────────────
+        async function loadBills() {
+            try {
+                const [bills, users, shops] = await Promise.all([
+                    fetchAPI('/api/bill'),
+                    fetchAPI('/api/user'),
+                    fetchAPI('/api/shop')
+                ]);
+
+                const container = document.getElementById('billList');
+                if (!bills || bills.length === 0) {
+                    container.innerHTML = '<div class="empty-state"><i class="fas fa-file-invoice"></i><p>No bills found</p></div>';
+                    return;
+                }
+
+                const userMap = {};
+                users.forEach(u => userMap[u.id] = u.name);
+
+                let html = `<table>
+                    <thead><tr>
+                        <th>ID</th><th>User</th><th>Shop</th><th>Type</th><th>Amount (₹)</th><th>Paid (₹)</th><th>Pending (₹)</th><th>Due Date</th><th>Status</th>
+                    </tr></thead><tbody>`;
+                bills.forEach(b => {
+                    const shop = shops.find(s => s.id === b.shop_id);
+                    html += `<tr>
+                        <td>${b.id}</td>
+                        <td>${userMap[b.user_id] || b.user_id}</td>
+                        <td>${shop ? shop.shop_number : b.shop_id}</td>
+                        <td>${b.bill_type}</td>
+                        <td>₹${b.amount.toFixed(2)}</td>
+                        <td>₹${b.paid_amount.toFixed(2)}</td>
+                        <td>₹${b.pending_amount.toFixed(2)}</td>
+                        <td>${formatDate(b.due_date)}</td>
+                        <td>${getStatusBadge(b.status)}</td>
+                    </tr>`;
+                });
+                html += `</tbody></table>`;
+                container.innerHTML = html;
+            } catch (e) {
+                console.error('Load bills error:', e);
+            }
+        }
+
+        async function loadBillFormData() {
+            try {
+                const [users, shops] = await Promise.all([
+                    fetchAPI('/api/user'),
+                    fetchAPI('/api/shop')
+                ]);
+                document.getElementById('billUser').innerHTML = getSelectOptions(users, 'id', 'name');
+                document.getElementById('billShop').innerHTML = getSelectOptions(shops, 'id', 'shop_number');
+            } catch (e) { /* ignore */ }
+        }
+
+        async function handleBillSubmit(e) {
+            e.preventDefault();
+            const payload = {
+                user_id: parseInt(document.getElementById('billUser').value),
+                shop_id: parseInt(document.getElementById('billShop').value),
+                bill_type: document.getElementById('billType').value.trim(),
+                amount: parseFloat(document.getElementById('billAmount').value),
+                description: document.getElementById('billDescription').value.trim() || null,
+                due_date: document.getElementById('billDueDate').value || null
+            };
+
+            if (!payload.user_id || !payload.shop_id) {
+                showToast('Please select both user and shop', 'error');
+                return;
+            }
+
+            const btn = document.querySelector('#billModal .btn-primary');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating...';
+
+            try {
+                await fetchAPI('/api/bill', { method: 'POST', body: JSON.stringify(payload) });
+                showToast('Bill created successfully!', 'success');
+                closeModal('billModal');
+                document.getElementById('billForm').reset();
+                loadBills();
+                loadStats();
+            } catch (e) {
+                showToast(e.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = 'Create Bill';
+            }
+        }
+
+        // ──────────────────────────────────────────────────────────
+        // PAYMENTS
+        // ──────────────────────────────────────────────────────────
+        async function loadPayments() {
+            try {
+                const [payments, bills] = await Promise.all([
+                    fetchAPI('/api/payment'),
+                    fetchAPI('/api/bill')
+                ]);
+
+                const container = document.getElementById('paymentList');
+                if (!payments || payments.length === 0) {
+                    container.innerHTML = '<div class="empty-state"><i class="fas fa-coins"></i><p>No payments found</p></div>';
+                    return;
+                }
+
+                let html = `<table>
+                    <thead><tr>
+                        <th>ID</th><th>Bill</th><th>Amount (₹)</th><th>Method</th><th>Date</th><th>Remarks</th>
+                    </tr></thead><tbody>`;
+                payments.forEach(p => {
+                    const bill = bills.find(b => b.id === p.bill_id);
+                    html += `<tr>
+                        <td>${p.id}</td>
+                        <td>#${p.bill_id} ${bill ? `(${bill.bill_type})` : ''}</td>
+                        <td><strong>₹${p.amount.toFixed(2)}</strong></td>
+                        <td>${p.payment_method}</td>
+                        <td>${formatDateTime(p.payment_date)}</td>
+                        <td>${p.remarks || '-'}</td>
+                    </tr>`;
+                });
+                html += `</tbody></table>`;
+                container.innerHTML = html;
+            } catch (e) {
+                console.error('Load payments error:', e);
+            }
+        }
+
+        async function loadPaymentFormData() {
+            try {
+                const bills = await fetchAPI('/api/bill');
+                const pendingBills = bills.filter(b => b.status !== 'paid');
+                document.getElementById('paymentBill').innerHTML = getSelectOptions(
+                    pendingBills,
+                    'id',
+                    item => `#${item.id} - ${item.bill_type} (₹${item.pending_amount.toFixed(2)} pending)`
+                );
+            } catch (e) { /* ignore */ }
+        }
+
+        async function handlePaymentSubmit(e) {
+            e.preventDefault();
+            const payload = {
+                bill_id: parseInt(document.getElementById('paymentBill').value),
+                amount: parseFloat(document.getElementById('paymentAmount').value),
+                payment_method: document.getElementById('paymentMethod').value,
+                remarks: document.getElementById('paymentRemarks').value.trim() || null
+            };
+
+            if (!payload.bill_id) {
+                showToast('Please select a bill', 'error');
+                return;
+            }
+
+            const btn = document.querySelector('#paymentModal .btn-success');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Recording...';
+
+            try {
+                await fetchAPI('/api/payment', { method: 'POST', body: JSON.stringify(payload) });
+                showToast('Payment recorded successfully!', 'success');
+                closeModal('paymentModal');
+                document.getElementById('paymentForm').reset();
+                loadPayments();
+                loadBills();
+                loadStats();
+            } catch (e) {
+                showToast(e.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = 'Record Payment';
+            }
+        }
+
+        // ──────────────────────────────────────────────────────────
+        // TENANT PORTAL
+        // ──────────────────────────────────────────────────────────
+        async function loadMyShops() {
+            try {
+                const data = await fetchAPI('/api/tenant/shops');
+                const container = document.getElementById('myShopList');
+                if (!data || data.length === 0) {
+                    container.innerHTML = '<div class="empty-state"><i class="fas fa-store-alt"></i><p>No shops assigned</p></div>';
+                    return;
+                }
+
+                let html = `<table>
+                    <thead><tr><th>ID</th><th>Shop Number</th><th>Area (sq ft)</th><th>Status</th><th>Complex</th></tr></thead><tbody>`;
+                data.forEach(s => {
+                    html += `<tr>
+                        <td>${s.id}</td>
+                        <td><strong>${s.shop_number}</strong></td>
+                        <td>${s.area_sqft || '-'}</td>
+                        <td>${getStatusBadge(s.status)}</td>
+                        <td>${s.complex_id || '-'}</td>
+                    </tr>`;
+                });
+                html += `</tbody></table>`;
+                container.innerHTML = html;
+            } catch (e) {
+                console.error('Load my shops error:', e);
+            }
+        }
+
+        async function loadMyBills() {
+            try {
+                const data = await fetchAPI('/api/tenant/bills');
+                const container = document.getElementById('myBillList');
+                if (!data || data.length === 0) {
+                    container.innerHTML = '<div class="empty-state"><i class="fas fa-file-invoice"></i><p>No bills found</p></div>';
+                    return;
+                }
+
+                let html = `<table>
+                    <thead><tr>
+                        <th>ID</th><th>Type</th><th>Amount (₹)</th><th>Paid (₹)</th><th>Pending (₹)</th><th>Due Date</th><th>Status</th>
+                    </tr></thead><tbody>`;
+                data.forEach(b => {
+                    html += `<tr>
+                        <td>${b.id}</td>
+                        <td>${b.bill_type}</td>
+                        <td>₹${b.amount.toFixed(2)}</td>
+                        <td>₹${b.paid_amount.toFixed(2)}</td>
+                        <td>₹${b.pending_amount.toFixed(2)}</td>
+                        <td>${formatDate(b.due_date)}</td>
+                        <td>${getStatusBadge(b.status)}</td>
+                    </tr>`;
+                });
+                html += `</tbody></table>`;
+                container.innerHTML = html;
+            } catch (e) {
+                console.error('Load my bills error:', e);
+            }
+        }
+
+        async function loadMyPayments() {
+            try {
+                const data = await fetchAPI('/api/tenant/payments');
+                const container = document.getElementById('myPaymentList');
+                if (!data || data.length === 0) {
+                    container.innerHTML = '<div class="empty-state"><i class="fas fa-receipt"></i><p>No payments found</p></div>';
+                    return;
+                }
+
+                let html = `<table>
+                    <thead><tr>
+                        <th>ID</th><th>Bill</th><th>Amount (₹)</th><th>Method</th><th>Date</th><th>Remarks</th>
+                    </tr></thead><tbody>`;
+                data.forEach(p => {
+                    html += `<tr>
+                        <td>${p.id}</td>
+                        <td>#${p.bill_id}</td>
+                        <td><strong>₹${p.amount.toFixed(2)}</strong></td>
+                        <td>${p.payment_method}</td>
+                        <td>${formatDateTime(p.payment_date)}</td>
+                        <td>${p.remarks || '-'}</td>
+                    </tr>`;
+                });
+                html += `</tbody></table>`;
+                container.innerHTML = html;
+            } catch (e) {
+                console.error('Load my payments error:', e);
+            }
+        }
+
+        // ──────────────────────────────────────────────────────────
+        // MODAL OPEN HANDLERS
+        // ──────────────────────────────────────────────────────────
+        // When opening Complex modal
+        document.querySelector('#complexModal .modal-close').addEventListener('click', () => {
+            document.getElementById('complexForm').reset();
+            document.getElementById('complexId').value = '';
+            document.getElementById('complexModalTitle').innerHTML = '<i class="fas fa-building"></i> Add Complex';
+            document.getElementById('complexSubmitBtn').textContent = 'Save';
+        });
+
+        // When opening Shop modal
+        document.querySelector('#shopModal .modal-close').addEventListener('click', () => {
+            document.getElementById('shopForm').reset();
+            document.getElementById('shopId').value = '';
+            document.getElementById('shopModalTitle').innerHTML = '<i class="fas fa-store"></i> Add Shop';
+            document.getElementById('shopSubmitBtn').textContent = 'Save';
+        });
+
+        // When opening User modal
+        document.querySelector('#userModal .modal-close').addEventListener('click', () => {
+            document.getElementById('userForm').reset();
+            document.getElementById('userId').value = '';
+            document.getElementById('userModalTitle').innerHTML = '<i class="fas fa-user"></i> Add User';
+            document.getElementById('userSubmitBtn').textContent = 'Save';
+            document.getElementById('userPasswordGroup').querySelector('label').textContent = 'Password *';
+            document.getElementById('userPassword').required = true;
+            document.getElementById('userActiveGroup').style.display = 'none';
+        });
+
+        // ──────────────────────────────────────────────────────────
+        // INIT
+        // ──────────────────────────────────────────────────────────
+        // Pre-load data for modals
+        document.addEventListener('DOMContentLoaded', () => {
+            // Load complex dropdown for shop modal
+            loadShopComplexes();
+
+            // Load user/shop dropdowns for bill modal
+            loadBillFormData();
+
+            // Load payment form data
+            loadPaymentFormData();
+
+            // Load user form shops
+            loadUserFormShops();
+
+            // Check auth
+            if (!checkAuth()) {
+                // Show login
+                document.getElementById('loginScreen').classList.remove('hidden');
+                document.getElementById('dashboard').classList.add('hidden');
+            }
+        });
+
+        // Auto-login if credentials saved (for dev)
+        console.log('🔧 Sahyadri Park Shop Management');
+        console.log(`📡 API Base URL: ${API_BASE_URL}`);
+        console.log('💡 Change API_BASE_URL variable at the top of the script if needed.');
+    </script>
+</body>
+</html>

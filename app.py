@@ -53,6 +53,31 @@ app = FastAPI(
 # Register request-logging middleware
 app.middleware("http")(log_request_middleware)
 
+# ══════════════════════════════════════════════════════════════════════════════
+# FastAPI App
+# ══════════════════════════════════════════════════════════════════════════════
+app = FastAPI(
+    title="Tenant Management System",
+    description="REST API for managing tenants, shops, complexes, bills, and payments.",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+)
+
+# ──────────────────────────────────────────────
+# CORS Configuration - Allow frontend access
+# ──────────────────────────────────────────────
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # For development - allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods (GET, POST, PUT, DELETE, OPTIONS)
+    allow_headers=["*"],  # Allows all headers
+)
+
+# Register request-logging middleware
+#app.middleware("http")(log_request_middleware)
+
 # ──────────────────────────────────────────────
 # JWT Settings
 # ──────────────────────────────────────────────
