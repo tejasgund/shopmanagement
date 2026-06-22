@@ -1,19 +1,20 @@
 """
-app.py - Main FastAPI Application
-Sahyadri Business Park — Tenant Management System
+    app.py - Main FastAPI Application
+    Sahyadri Business Park — Tenant Management System
 
-Features:
-    - JWT Authentication (HS256)
-    - Role-Based Access Control (admin / tenant)
-    - Full CRUD for complexes (with owner details), shops, users
-    - Bill management: Rent auto-fill from agreed_rent; Other with free-text
-    - Agreed rent stored on UserShop (monthly_rent field)
-    - Payment reconciliation
-    - Tenant read-only portal (shows complex owner contact details)
-    - Complex reports (per-complex summary) + Bill reports
-    - Users view shows assigned shops
-    - Audit logging on every mutating operation
-"""
+    Features:
+        - JWT Authentication (HS256)
+        - Role-Based Access Control (admin / tenant)
+        - Full CRUD for complexes (with owner details), shops, users
+        - Bill management: Rent auto-fill from agreed_rent; Other with free-text
+        - Agreed rent stored on UserShop (monthly_rent field)
+        - Payment reconciliation
+        - Tenant read-only portal (shows complex owner contact details)
+        - Complex reports (per-complex summary) + Bill reports
+        - Users view shows assigned shops
+        - Complaint management system with status tracking
+        - Audit logging on every mutating operation
+    """
 
 import json
 import os
@@ -34,7 +35,7 @@ from log import get_logger, log_request_middleware
 from fastapi.middleware.cors import CORSMiddleware
 
 from create_tables import (
-    AuditLog, Bill, Complex, Payment, Shop, User, UserShop,
+    AuditLog, Bill, Complex, Payment, Shop, User, UserShop, Complaint,
 )
 
 logger = get_logger("app")
@@ -65,8 +66,8 @@ app.middleware("http")(log_request_middleware)
 # ──────────────────────────────────────────────
 # JWT Settings
 # ──────────────────────────────────────────────
-JWT_SECRET         = os.getenv("JWT_SECRET",         "CHANGE_ME_IN_PRODUCTION_SECRET_KEY")
-JWT_ALGORITHM      = os.getenv("JWT_ALGORITHM",      "HS256")
+JWT_SECRET = os.getenv("JWT_SECRET", "CHANGE_ME_IN_PRODUCTION_SECRET_KEY")
+JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "1440"))
 
 security = HTTPBearer()
@@ -95,8 +96,8 @@ def decode_token(token: str) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db),
+        credentials: HTTPAuthorizationCredentials = Depends(security),
+        db: Session = Depends(get_db),
 ) -> User:
     payload = decode_token(credentials.credentials)
     user_id = payload.get("sub")
@@ -123,21 +124,21 @@ def require_tenant(current_user: User = Depends(get_current_user)) -> User:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def write_audit(
-    db: Session,
-    actor_id: int,
-    action: str,
-    table_name: str,
-    record_id: Optional[int] = None,
-    old_data: Optional[dict] = None,
-    new_data: Optional[dict] = None,
+        db: Session,
+        actor_id: int,
+        action: str,
+        table_name: str,
+        record_id: Optional[int] = None,
+        old_data: Optional[dict] = None,
+        new_data: Optional[dict] = None,
 ):
     entry = AuditLog(
-        user_id    = actor_id,
-        action     = action,
-        table_name = table_name,
-        record_id  = record_id,
-        old_data   = json.dumps(old_data,  default=str) if old_data  else None,
-        new_data   = json.dumps(new_data,  default=str) if new_data  else None,
+        user_id=actor_id,
+        action=action,
+        table_name=table_name,
+        record_id=record_id,
+        old_data=json.dumps(old_data, default=str) if old_data else None,
+        new_data=json.dumps(new_data, default=str) if new_data else None,
     )
     db.add(entry)
 
@@ -148,42 +149,45 @@ def write_audit(
 
 # ── Auth ──────────────────────────────────────
 class LoginRequest(BaseModel):
-    mobile:   str = Field(..., example="9999999999")
+    mobile: str = Field(..., example="9999999999")
     password: str = Field(..., example="admin@123")
+
 
 class LoginResponse(BaseModel):
     success: bool
-    token:   str
-    role:    str
+    token: str
+    role: str
 
 
 # ── Complex ───────────────────────────────────
 class ComplexCreate(BaseModel):
-    name:             str            = Field(..., min_length=1, max_length=150)
-    address:          Optional[str]  = None
-    description:      Optional[str]  = None
-    owner_name:       Optional[str]  = Field(None, max_length=150)
-    owner_contact:    Optional[str]  = Field(None, max_length=20)
-    owner_address:    Optional[str]  = None
+    name: str = Field(..., min_length=1, max_length=150)
+    address: Optional[str] = None
+    description: Optional[str] = None
+    owner_name: Optional[str] = Field(None, max_length=150)
+    owner_contact: Optional[str] = Field(None, max_length=20)
+    owner_address: Optional[str] = None
+
 
 class ComplexUpdate(BaseModel):
-    name:             Optional[str]  = Field(None, min_length=1, max_length=150)
-    address:          Optional[str]  = None
-    description:      Optional[str]  = None
-    owner_name:       Optional[str]  = Field(None, max_length=150)
-    owner_contact:    Optional[str]  = Field(None, max_length=20)
-    owner_address:    Optional[str]  = None
+    name: Optional[str] = Field(None, min_length=1, max_length=150)
+    address: Optional[str] = None
+    description: Optional[str] = None
+    owner_name: Optional[str] = Field(None, max_length=150)
+    owner_contact: Optional[str] = Field(None, max_length=20)
+    owner_address: Optional[str] = None
+
 
 class ComplexResponse(BaseModel):
-    id:             int
-    name:           str
-    address:        Optional[str]
-    description:    Optional[str]
-    owner_name:     Optional[str]
-    owner_contact:  Optional[str]
-    owner_address:  Optional[str]
-    created_at:     datetime
-    updated_at:     datetime
+    id: int
+    name: str
+    address: Optional[str]
+    description: Optional[str]
+    owner_name: Optional[str]
+    owner_contact: Optional[str]
+    owner_address: Optional[str]
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True
@@ -191,34 +195,38 @@ class ComplexResponse(BaseModel):
 
 # ── Shop ──────────────────────────────────────
 class ShopCreate(BaseModel):
-    shop_number: str             = Field(..., min_length=1, max_length=50)
-    area_sqft:   Optional[float] = None
-    status:      Optional[str]   = Field("available", pattern="^(available|occupied|maintenance)$")
-    complex_id:  Optional[int]   = None
+    shop_number: str = Field(..., min_length=1, max_length=50)
+    area_sqft: Optional[float] = None
+    status: Optional[str] = Field("available", pattern="^(available|occupied|maintenance)$")
+    complex_id: Optional[int] = None
+
 
 class ShopUpdate(BaseModel):
-    shop_number: Optional[str]   = Field(None, min_length=1, max_length=50)
-    area_sqft:   Optional[float] = None
-    status:      Optional[str]   = Field(None, pattern="^(available|occupied|maintenance)$")
-    complex_id:  Optional[int]   = None
+    shop_number: Optional[str] = Field(None, min_length=1, max_length=50)
+    area_sqft: Optional[float] = None
+    status: Optional[str] = Field(None, pattern="^(available|occupied|maintenance)$")
+    complex_id: Optional[int] = None
+
 
 class ShopOwnerInfo(BaseModel):
-    id:     int
-    name:   str
+    id: int
+    name: str
     mobile: str
 
+
 class ShopResponse(BaseModel):
-    id:          int
+    id: int
     shop_number: str
-    area_sqft:   Optional[float]
-    status:      str
-    complex_id:  Optional[int]
-    created_at:  datetime
-    updated_at:  datetime
+    area_sqft: Optional[float]
+    status: str
+    complex_id: Optional[int]
+    created_at: datetime
+    updated_at: datetime
     assigned_to: Optional[ShopOwnerInfo] = None
 
     class Config:
         from_attributes = True
+
 
 class AssignComplexRequest(BaseModel):
     complex_id: int
@@ -226,37 +234,41 @@ class AssignComplexRequest(BaseModel):
 
 # ── User ──────────────────────────────────────
 class UserCreate(BaseModel):
-    name:     str            = Field(..., min_length=1, max_length=120)
-    mobile:   str            = Field(..., min_length=10, max_length=15)
-    email:    Optional[str]  = None
-    password: str            = Field(..., min_length=6)
-    role:     Optional[str]  = Field("tenant", pattern="^(admin|tenant)$")
+    name: str = Field(..., min_length=1, max_length=120)
+    mobile: str = Field(..., min_length=10, max_length=15)
+    email: Optional[str] = None
+    password: str = Field(..., min_length=6)
+    role: Optional[str] = Field("tenant", pattern="^(admin|tenant)$")
+
 
 class UserUpdate(BaseModel):
-    name:      Optional[str]  = Field(None, min_length=1, max_length=120)
-    mobile:    Optional[str]  = Field(None, min_length=10, max_length=15)
-    email:     Optional[str]  = None
-    password:  Optional[str]  = Field(None, min_length=6)
-    role:      Optional[str]  = Field(None, pattern="^(admin|tenant)$")
+    name: Optional[str] = Field(None, min_length=1, max_length=120)
+    mobile: Optional[str] = Field(None, min_length=10, max_length=15)
+    email: Optional[str] = None
+    password: Optional[str] = Field(None, min_length=6)
+    role: Optional[str] = Field(None, pattern="^(admin|tenant)$")
     is_active: Optional[bool] = None
 
+
 class UserResponse(BaseModel):
-    id:        int
-    name:      str
-    mobile:    str
-    email:     Optional[str]
-    role:      str
+    id: int
+    name: str
+    mobile: str
+    email: Optional[str]
+    role: str
     is_active: bool
-    created_at:datetime
-    updated_at:datetime
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True
 
+
 class AssignShopsRequest(BaseModel):
-    shop_ids:     List[int] = Field(..., min_length=1)
-    force:        bool      = Field(False)
+    shop_ids: List[int] = Field(..., min_length=1)
+    force: bool = Field(False)
     monthly_rent: Optional[float] = Field(None, description="Agreed monthly rent for the assigned shop(s).")
+
 
 class DetachShopsRequest(BaseModel):
     shop_ids: List[int] = Field(..., min_length=1)
@@ -264,26 +276,27 @@ class DetachShopsRequest(BaseModel):
 
 # ── Bill ──────────────────────────────────────
 class BillCreate(BaseModel):
-    user_id:     int
-    shop_id:     int
-    bill_type:   str            = Field(..., min_length=1, max_length=80)
-    amount:      Optional[float] = Field(None, gt=0)   # nullable — auto-filled for Rent
-    description: Optional[str]  = None
-    due_date:    Optional[datetime] = None
+    user_id: int
+    shop_id: int
+    bill_type: str = Field(..., min_length=1, max_length=80)
+    amount: Optional[float] = Field(None, gt=0)  # nullable — auto-filled for Rent
+    description: Optional[str] = None
+    due_date: Optional[datetime] = None
+
 
 class BillResponse(BaseModel):
-    id:             int
-    user_id:        int
-    shop_id:        int
-    bill_type:      str
-    description:    Optional[str]
-    amount:         float
-    paid_amount:    float
+    id: int
+    user_id: int
+    shop_id: int
+    bill_type: str
+    description: Optional[str]
+    amount: float
+    paid_amount: float
     pending_amount: float
-    bill_date:      datetime
-    due_date:       Optional[datetime]
-    status:         str
-    created_at:     datetime
+    bill_date: datetime
+    due_date: Optional[datetime]
+    status: str
+    created_at: datetime
 
     class Config:
         from_attributes = True
@@ -291,19 +304,51 @@ class BillResponse(BaseModel):
 
 # ── Payment ───────────────────────────────────
 class PaymentCreate(BaseModel):
-    bill_id:        int
-    amount:         float  = Field(..., gt=0)
-    payment_method: str    = Field(..., min_length=1, max_length=60)
-    remarks:        Optional[str] = None
+    bill_id: int
+    amount: float = Field(..., gt=0)
+    payment_method: str = Field(..., min_length=1, max_length=60)
+    remarks: Optional[str] = None
+
 
 class PaymentResponse(BaseModel):
-    id:             int
-    bill_id:        int
-    amount:         float
+    id: int
+    bill_id: int
+    amount: float
     payment_method: str
-    payment_date:   datetime
-    remarks:        Optional[str]
-    created_at:     datetime
+    payment_date: datetime
+    remarks: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ── Complaint ─────────────────────────────────
+class ComplaintCreate(BaseModel):
+    shop_id: Optional[int] = None
+    category: str = Field(..., min_length=1, max_length=80)
+    subject: str = Field(..., min_length=1, max_length=200)
+    description: str = Field(..., min_length=1)
+
+
+class ComplaintUpdate(BaseModel):
+    status: Optional[str] = Field(None, pattern="^(pending|in_progress|resolved|rejected)$")
+    admin_remarks: Optional[str] = None
+
+
+class ComplaintResponse(BaseModel):
+    id: int
+    user_id: int
+    shop_id: Optional[int]
+    category: str
+    subject: str
+    description: str
+    status: str
+    admin_remarks: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+    user_name: Optional[str] = None
+    shop_number: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -336,9 +381,9 @@ def _shop_to_response(shop: Shop, owner_map: dict) -> ShopResponse:
 
 
 def _reconcile_bill(bill: Bill):
-    total_paid     = sum(_decimal_to_float(p.amount) for p in bill.payments)
-    bill_amount    = _decimal_to_float(bill.amount)
-    bill.paid_amount    = Decimal(str(total_paid))
+    total_paid = sum(_decimal_to_float(p.amount) for p in bill.payments)
+    bill_amount = _decimal_to_float(bill.amount)
+    bill.paid_amount = Decimal(str(total_paid))
     bill.pending_amount = Decimal(str(max(0.0, bill_amount - total_paid)))
     if total_paid <= 0:
         bill.status = "pending"
@@ -420,7 +465,7 @@ def delete_complex(id: int, db: Session = Depends(get_db), actor: User = Depends
     return {"success": True, "message": "Complex deleted"}
 
 
-# ── NEW: per-complex report ────────────────────────────────────────────────
+# ── per-complex report ────────────────────────────────────────────────
 
 @app.get("/api/complex/{id}/report", tags=["Complex"])
 def complex_report(id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
@@ -442,13 +487,13 @@ def complex_report(id: int, db: Session = Depends(get_db), _: User = Depends(req
     tenant_ids = list({us.user_id for us in user_shops})
 
     tenants = db.query(User).filter(User.id.in_(tenant_ids)).all() if tenant_ids else []
-    active_tenants   = [t for t in tenants if t.is_active]
+    active_tenants = [t for t in tenants if t.is_active]
     inactive_tenants = [t for t in tenants if not t.is_active]
 
     # Bills/payments for shops in this complex
     bills = db.query(Bill).filter(Bill.shop_id.in_(shop_ids)).all() if shop_ids else []
-    total_billed      = sum(_decimal_to_float(b.amount) for b in bills)
-    total_collected   = sum(_decimal_to_float(b.paid_amount) for b in bills)
+    total_billed = sum(_decimal_to_float(b.amount) for b in bills)
+    total_collected = sum(_decimal_to_float(b.paid_amount) for b in bills)
     total_outstanding = sum(_decimal_to_float(b.pending_amount) for b in bills if b.status != "paid")
 
     # Build tenant-shop mapping
@@ -460,42 +505,43 @@ def complex_report(id: int, db: Session = Depends(get_db), _: User = Depends(req
         s = shop_map.get(us.shop_id)
         if t and s:
             tenant_detail.append({
-                "user_id":      t.id,
-                "name":         t.name,
-                "mobile":       t.mobile,
-                "is_active":    t.is_active,
-                "shop_id":      s.id,
-                "shop_number":  s.shop_number,
-                "monthly_rent": _decimal_to_float(us.monthly_rent) if hasattr(us, "monthly_rent") and us.monthly_rent else None,
-                "assigned_at":  us.assigned_at,
+                "user_id": t.id,
+                "name": t.name,
+                "mobile": t.mobile,
+                "is_active": t.is_active,
+                "shop_id": s.id,
+                "shop_number": s.shop_number,
+                "monthly_rent": _decimal_to_float(us.monthly_rent) if hasattr(us,
+                                                                              "monthly_rent") and us.monthly_rent else None,
+                "assigned_at": us.assigned_at,
             })
 
     return {
         "complex": {
-            "id":            complex_obj.id,
-            "name":          complex_obj.name,
-            "address":       complex_obj.address,
-            "owner_name":    complex_obj.owner_name,
+            "id": complex_obj.id,
+            "name": complex_obj.name,
+            "address": complex_obj.address,
+            "owner_name": complex_obj.owner_name,
             "owner_contact": complex_obj.owner_contact,
             "owner_address": complex_obj.owner_address,
         },
         "shops": {
-            "total":      len(shops),
-            "assigned":   len(assigned_shop_ids),
+            "total": len(shops),
+            "assigned": len(assigned_shop_ids),
             "unassigned": len(shops) - len(assigned_shop_ids),
-            "occupied":   sum(1 for s in shops if s.status == "occupied"),
-            "available":  sum(1 for s in shops if s.status == "available"),
-            "maintenance":sum(1 for s in shops if s.status == "maintenance"),
+            "occupied": sum(1 for s in shops if s.status == "occupied"),
+            "available": sum(1 for s in shops if s.status == "available"),
+            "maintenance": sum(1 for s in shops if s.status == "maintenance"),
         },
         "tenants": {
-            "total":    len(tenants),
-            "active":   len(active_tenants),
+            "total": len(tenants),
+            "active": len(active_tenants),
             "inactive": len(inactive_tenants),
-            "details":  tenant_detail,
+            "details": tenant_detail,
         },
         "financials": {
-            "total_billed":      round(total_billed, 2),
-            "total_collected":   round(total_collected, 2),
+            "total_billed": round(total_billed, 2),
+            "total_collected": round(total_collected, 2),
             "total_outstanding": round(total_outstanding, 2),
         },
     }
@@ -562,7 +608,8 @@ def delete_shop(id: int, db: Session = Depends(get_db), actor: User = Depends(re
 
 
 @app.post("/api/shop/{shop_id}/assign-complex", tags=["Shop"])
-def assign_complex_to_shop(shop_id: int, body: AssignComplexRequest, db: Session = Depends(get_db), actor: User = Depends(require_admin)):
+def assign_complex_to_shop(shop_id: int, body: AssignComplexRequest, db: Session = Depends(get_db),
+                           actor: User = Depends(require_admin)):
     shop = db.query(Shop).filter(Shop.id == shop_id).first()
     if not shop:
         raise HTTPException(404, detail="Shop not found")
@@ -631,15 +678,16 @@ def get_user_shops(id: int, db: Session = Depends(get_db), _: User = Depends(req
     result = []
     for us, shop, complex_obj in rows:
         result.append({
-            "user_shop_id":  us.id,
-            "shop_id":       shop.id,
-            "shop_number":   shop.shop_number,
-            "area_sqft":     _decimal_to_float(shop.area_sqft),
-            "status":        shop.status,
-            "complex_id":    shop.complex_id,
-            "complex_name":  complex_obj.name if complex_obj else None,
-            "monthly_rent":  _decimal_to_float(us.monthly_rent) if hasattr(us, "monthly_rent") and us.monthly_rent else None,
-            "assigned_at":   us.assigned_at,
+            "user_shop_id": us.id,
+            "shop_id": shop.id,
+            "shop_number": shop.shop_number,
+            "area_sqft": _decimal_to_float(shop.area_sqft),
+            "status": shop.status,
+            "complex_id": shop.complex_id,
+            "complex_name": complex_obj.name if complex_obj else None,
+            "monthly_rent": _decimal_to_float(us.monthly_rent) if hasattr(us,
+                                                                          "monthly_rent") and us.monthly_rent else None,
+            "assigned_at": us.assigned_at,
         })
     return result
 
@@ -668,7 +716,7 @@ def update_user(id: int, body: UserUpdate, db: Session = Depends(get_db), actor:
     write_audit(db, actor.id, "UPDATE", "users", id, old_data=old,
                 new_data={**{k: v for k, v in update_data.items() if k != "password"},
                           "released_shops": released_shops} if released_shops
-                          else {k: v for k, v in update_data.items() if k != "password"})
+                else {k: v for k, v in update_data.items() if k != "password"})
     db.commit()
     db.refresh(obj)
     return obj
@@ -689,10 +737,10 @@ def delete_user(id: int, db: Session = Depends(get_db), actor: User = Depends(re
 
 @app.post("/api/user/{user_id}/assign-shops", tags=["User"])
 def assign_shops_to_user(
-    user_id: int,
-    body:    AssignShopsRequest,
-    db:      Session = Depends(get_db),
-    actor:   User    = Depends(require_admin),
+        user_id: int,
+        body: AssignShopsRequest,
+        db: Session = Depends(get_db),
+        actor: User = Depends(require_admin),
 ):
     """
     Assign shops to a user.
@@ -769,7 +817,8 @@ def assign_shops_to_user(
 
 
 @app.post("/api/user/{user_id}/detach-shops", tags=["User"])
-def detach_shops_from_user(user_id: int, body: DetachShopsRequest, db: Session = Depends(get_db), actor: User = Depends(require_admin)):
+def detach_shops_from_user(user_id: int, body: DetachShopsRequest, db: Session = Depends(get_db),
+                           actor: User = Depends(require_admin)):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(404, detail="User not found")
@@ -782,12 +831,13 @@ def detach_shops_from_user(user_id: int, body: DetachShopsRequest, db: Session =
             shop = db.query(Shop).filter(Shop.id == shop_id).first()
             if shop:
                 shop.status = "available"
-    write_audit(db, actor.id, "DETACH_SHOPS", "user_shops", user_id, old_data={"user_id": user_id, "shop_ids": detached})
+    write_audit(db, actor.id, "DETACH_SHOPS", "user_shops", user_id,
+                old_data={"user_id": user_id, "shop_ids": detached})
     db.commit()
     return {"success": True, "message": f"Detached shops {detached} from user {user_id}"}
 
 
-# ── NEW: get agreed rent for a user+shop ─────────────────────────────────────
+# ── get agreed rent for a user+shop ─────────────────────────────────────
 
 @app.get("/api/user/{user_id}/shop/{shop_id}/rent", tags=["User"])
 def get_agreed_rent(user_id: int, shop_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
@@ -827,7 +877,8 @@ def create_bill(body: BillCreate, db: Session = Depends(get_db), actor: User = D
         if us_row and hasattr(us_row, "monthly_rent") and us_row.monthly_rent:
             final_amount = _decimal_to_float(us_row.monthly_rent)
         elif final_amount is None:
-            raise HTTPException(400, detail="No agreed rent found for this tenant-shop. Please set monthly_rent when assigning the shop, or enter the amount manually.")
+            raise HTTPException(400,
+                                detail="No agreed rent found for this tenant-shop. Please set monthly_rent when assigning the shop, or enter the amount manually.")
 
     if final_amount is None or final_amount <= 0:
         raise HTTPException(400, detail="Amount is required and must be greater than 0.")
@@ -841,7 +892,8 @@ def create_bill(body: BillCreate, db: Session = Depends(get_db), actor: User = D
     )
     db.add(bill)
     db.flush()
-    write_audit(db, actor.id, "CREATE", "bills", bill.id, new_data={**body.model_dump(), "resolved_amount": float(amount)})
+    write_audit(db, actor.id, "CREATE", "bills", bill.id,
+                new_data={**body.model_dump(), "resolved_amount": float(amount)})
     db.commit()
     db.refresh(bill)
     return bill
@@ -891,22 +943,187 @@ def list_payments(db: Session = Depends(get_db), _: User = Depends(require_admin
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# ── ROUTES: Complaints
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/complaint", response_model=ComplaintResponse, status_code=201, tags=["Complaint"])
+def create_complaint(
+        body: ComplaintCreate,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(require_tenant),
+):
+    """Tenant raises a new complaint."""
+    # Verify shop exists if provided
+    if body.shop_id:
+        shop = db.query(Shop).filter(Shop.id == body.shop_id).first()
+        if not shop:
+            raise HTTPException(400, detail="Shop not found")
+        # Verify the shop belongs to the tenant
+        assignment = db.query(UserShop).filter(
+            UserShop.user_id == current_user.id,
+            UserShop.shop_id == body.shop_id
+        ).first()
+        if not assignment:
+            raise HTTPException(400, detail="You are not assigned to this shop")
+
+    complaint = Complaint(
+        user_id=current_user.id,
+        shop_id=body.shop_id,
+        category=body.category,
+        subject=body.subject,
+        description=body.description,
+        status="pending",
+    )
+    db.add(complaint)
+    db.flush()
+    write_audit(db, current_user.id, "CREATE", "complaints", complaint.id, new_data=body.model_dump())
+    db.commit()
+    db.refresh(complaint)
+
+    # Enrich response with user/shop info
+    result = ComplaintResponse.model_validate(complaint)
+    result.user_name = current_user.name
+    if body.shop_id:
+        shop = db.query(Shop).filter(Shop.id == body.shop_id).first()
+        result.shop_number = shop.shop_number if shop else None
+    return result
+
+
+@app.get("/api/complaint", response_model=List[ComplaintResponse], tags=["Complaint"])
+def list_complaints(
+        db: Session = Depends(get_db),
+        _: User = Depends(require_admin),
+):
+    """Admin sees all complaints."""
+    complaints = db.query(Complaint).order_by(Complaint.created_at.desc()).all()
+    result = []
+    user_ids = {c.user_id for c in complaints}
+    shop_ids = {c.shop_id for c in complaints if c.shop_id}
+    users = {u.id: u for u in db.query(User).filter(User.id.in_(user_ids)).all()}
+    shops = {s.id: s for s in db.query(Shop).filter(Shop.id.in_(shop_ids)).all()} if shop_ids else {}
+
+    for c in complaints:
+        r = ComplaintResponse.model_validate(c)
+        r.user_name = users.get(c.user_id).name if users.get(c.user_id) else None
+        if c.shop_id and c.shop_id in shops:
+            r.shop_number = shops[c.shop_id].shop_number
+        result.append(r)
+    return result
+
+
+@app.get("/api/complaint/tenant", response_model=List[ComplaintResponse], tags=["Complaint"])
+def tenant_list_complaints(
+        db: Session = Depends(get_db),
+        current_user: User = Depends(require_tenant),
+):
+    """Tenant sees only their own complaints."""
+    complaints = db.query(Complaint).filter(
+        Complaint.user_id == current_user.id
+    ).order_by(Complaint.created_at.desc()).all()
+
+    result = []
+    shop_ids = {c.shop_id for c in complaints if c.shop_id}
+    shops = {s.id: s for s in db.query(Shop).filter(Shop.id.in_(shop_ids)).all()} if shop_ids else {}
+
+    for c in complaints:
+        r = ComplaintResponse.model_validate(c)
+        r.user_name = current_user.name
+        if c.shop_id and c.shop_id in shops:
+            r.shop_number = shops[c.shop_id].shop_number
+        result.append(r)
+    return result
+
+
+@app.get("/api/complaint/{id}", response_model=ComplaintResponse, tags=["Complaint"])
+def get_complaint(
+        id: int,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user),
+):
+    """Get a single complaint. Admins can see any; tenants only their own."""
+    complaint = db.query(Complaint).filter(Complaint.id == id).first()
+    if not complaint:
+        raise HTTPException(404, detail="Complaint not found")
+
+    # Check access
+    if current_user.role != "admin" and complaint.user_id != current_user.id:
+        raise HTTPException(403, detail="Access denied")
+
+    result = ComplaintResponse.model_validate(complaint)
+    user = db.query(User).filter(User.id == complaint.user_id).first()
+    result.user_name = user.name if user else None
+    if complaint.shop_id:
+        shop = db.query(Shop).filter(Shop.id == complaint.shop_id).first()
+        result.shop_number = shop.shop_number if shop else None
+    return result
+
+
+@app.put("/api/complaint/{id}", response_model=ComplaintResponse, tags=["Complaint"])
+def update_complaint(
+        id: int,
+        body: ComplaintUpdate,
+        db: Session = Depends(get_db),
+        actor: User = Depends(require_admin),
+):
+    """Admin updates complaint status and adds remarks."""
+    complaint = db.query(Complaint).filter(Complaint.id == id).first()
+    if not complaint:
+        raise HTTPException(404, detail="Complaint not found")
+
+    old_data = {"status": complaint.status, "admin_remarks": complaint.admin_remarks}
+
+    if body.status is not None:
+        complaint.status = body.status
+    if body.admin_remarks is not None:
+        complaint.admin_remarks = body.admin_remarks
+
+    write_audit(db, actor.id, "UPDATE", "complaints", id, old_data=old_data, new_data=body.model_dump())
+    db.commit()
+    db.refresh(complaint)
+
+    result = ComplaintResponse.model_validate(complaint)
+    user = db.query(User).filter(User.id == complaint.user_id).first()
+    result.user_name = user.name if user else None
+    if complaint.shop_id:
+        shop = db.query(Shop).filter(Shop.id == complaint.shop_id).first()
+        result.shop_number = shop.shop_number if shop else None
+    return result
+
+
+@app.delete("/api/complaint/{id}", tags=["Complaint"])
+def delete_complaint(
+        id: int,
+        db: Session = Depends(get_db),
+        actor: User = Depends(require_admin),
+):
+    """Admin can delete a complaint."""
+    complaint = db.query(Complaint).filter(Complaint.id == id).first()
+    if not complaint:
+        raise HTTPException(404, detail="Complaint not found")
+
+    write_audit(db, actor.id, "DELETE", "complaints", id, old_data={"subject": complaint.subject})
+    db.delete(complaint)
+    db.commit()
+    return {"success": True, "message": "Complaint deleted"}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # ── ROUTES: Reports
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.get("/api/reports/summary", tags=["Reports"])
 def reports_summary(
-    start_date: Optional[datetime] = None,
-    end_date:   Optional[datetime] = None,
-    db:         Session = Depends(get_db),
-    _:          User    = Depends(require_admin),
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        db: Session = Depends(get_db),
+        _: User = Depends(require_admin),
 ):
     """Bill-level business summary report. Admin only."""
     shops = db.query(Shop).all()
-    total_shops  = len(shops)
-    occupied     = sum(1 for s in shops if s.status == "occupied")
-    available    = sum(1 for s in shops if s.status == "available")
-    maintenance  = sum(1 for s in shops if s.status == "maintenance")
+    total_shops = len(shops)
+    occupied = sum(1 for s in shops if s.status == "occupied")
+    available = sum(1 for s in shops if s.status == "available")
+    maintenance = sum(1 for s in shops if s.status == "maintenance")
 
     bill_q = db.query(Bill)
     if start_date:
@@ -915,7 +1132,7 @@ def reports_summary(
         bill_q = bill_q.filter(Bill.bill_date <= end_date)
     bills_in_range = bill_q.all()
 
-    total_billed          = sum(_decimal_to_float(b.amount) for b in bills_in_range)
+    total_billed = sum(_decimal_to_float(b.amount) for b in bills_in_range)
     total_pending_in_range = sum(_decimal_to_float(b.pending_amount) for b in bills_in_range)
 
     pay_q = db.query(Payment)
@@ -941,23 +1158,23 @@ def reports_summary(
     ]
 
     return {
-        "range":    {"start_date": start_date, "end_date": end_date},
+        "range": {"start_date": start_date, "end_date": end_date},
         "occupancy": {
             "total_shops": total_shops, "occupied": occupied,
             "available": available, "maintenance": maintenance,
         },
         "collections": {
-            "total_billed_in_range":    round(total_billed, 2),
+            "total_billed_in_range": round(total_billed, 2),
             "total_collected_in_range": round(total_collected, 2),
-            "total_pending_in_range":   round(total_pending_in_range, 2),
-            "bills_raised_count":       len(bills_in_range),
-            "payments_received_count":  len(payments_in_range),
-            "collected_by_method":      {k: round(v, 2) for k, v in by_method.items()},
+            "total_pending_in_range": round(total_pending_in_range, 2),
+            "bills_raised_count": len(bills_in_range),
+            "payments_received_count": len(payments_in_range),
+            "collected_by_method": {k: round(v, 2) for k, v in by_method.items()},
         },
         "outstanding_dues": {
             "total_outstanding": round(sum(o["pending_amount"] for o in outstanding), 2),
-            "bill_count":        len(outstanding),
-            "bills":             outstanding,
+            "bill_count": len(outstanding),
+            "bills": outstanding,
         },
     }
 
@@ -975,17 +1192,17 @@ def reports_all_complexes(db: Session = Depends(get_db), _: User = Depends(requi
         tenants = db.query(User).filter(User.id.in_(tenant_ids)).all() if tenant_ids else []
         bills = db.query(Bill).filter(Bill.shop_id.in_(shop_ids)).all() if shop_ids else []
         result.append({
-            "complex_id":    c.id,
-            "complex_name":  c.name,
-            "owner_name":    c.owner_name,
+            "complex_id": c.id,
+            "complex_name": c.name,
+            "owner_name": c.owner_name,
             "owner_contact": c.owner_contact,
-            "total_shops":   len(shops),
-            "assigned_shops":len({us.shop_id for us in user_shops}),
+            "total_shops": len(shops),
+            "assigned_shops": len({us.shop_id for us in user_shops}),
             "total_tenants": len(tenants),
-            "active_tenants":sum(1 for t in tenants if t.is_active),
-            "total_billed":  round(sum(_decimal_to_float(b.amount) for b in bills), 2),
-            "total_collected":round(sum(_decimal_to_float(b.paid_amount) for b in bills), 2),
-            "outstanding":   round(sum(_decimal_to_float(b.pending_amount) for b in bills if b.status != "paid"), 2),
+            "active_tenants": sum(1 for t in tenants if t.is_active),
+            "total_billed": round(sum(_decimal_to_float(b.amount) for b in bills), 2),
+            "total_collected": round(sum(_decimal_to_float(b.paid_amount) for b in bills), 2),
+            "outstanding": round(sum(_decimal_to_float(b.pending_amount) for b in bills if b.status != "paid"), 2),
         })
     return result
 
@@ -1012,17 +1229,18 @@ def tenant_shops(db: Session = Depends(get_db), current_user: User = Depends(req
     result = []
     for us, s, c in rows:
         result.append({
-            "id":              s.id,
-            "shop_number":     s.shop_number,
-            "area_sqft":       _decimal_to_float(s.area_sqft),
-            "status":          s.status,
-            "complex_id":      s.complex_id,
-            "complex_name":    c.name          if c else None,
-            "complex_address": c.address       if c else None,
-            "owner_name":      c.owner_name    if c else None,
-            "owner_contact":   c.owner_contact if c else None,
-            "owner_address":   c.owner_address if c else None,
-            "monthly_rent":    _decimal_to_float(us.monthly_rent) if hasattr(us, "monthly_rent") and us.monthly_rent else None,
+            "id": s.id,
+            "shop_number": s.shop_number,
+            "area_sqft": _decimal_to_float(s.area_sqft),
+            "status": s.status,
+            "complex_id": s.complex_id,
+            "complex_name": c.name if c else None,
+            "complex_address": c.address if c else None,
+            "owner_name": c.owner_name if c else None,
+            "owner_contact": c.owner_contact if c else None,
+            "owner_address": c.owner_address if c else None,
+            "monthly_rent": _decimal_to_float(us.monthly_rent) if hasattr(us,
+                                                                          "monthly_rent") and us.monthly_rent else None,
         })
     return result
 
@@ -1072,4 +1290,5 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
