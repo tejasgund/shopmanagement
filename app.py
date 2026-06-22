@@ -28,6 +28,8 @@ from sqlalchemy.orm import Session
 
 from db_config import get_db
 from log import get_logger, log_request_middleware
+from fastapi.middleware.cors import CORSMiddleware
+
 
 # Import ORM models from create_tables so we have a single schema source-of-truth
 from create_tables import (
@@ -76,7 +78,7 @@ app.add_middleware(
 )
 
 # Register request-logging middleware
-#app.middleware("http")(log_request_middleware)
+app.middleware("http")(log_request_middleware)
 
 # ──────────────────────────────────────────────
 # JWT Settings
