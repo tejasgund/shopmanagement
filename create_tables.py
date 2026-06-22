@@ -263,7 +263,7 @@ def main():
     try:
         DEFAULT_MOBILE   = "8177809890"
         DEFAULT_PASSWORD = "Sujata8@Tekale8@"
-        DEFAULT_NAME     = "Super Admin"
+        DEFAULT_NAME     = "Tejas Gund"
 
         existing = db.query(User).filter(User.mobile == DEFAULT_MOBILE).first()
         if existing:
