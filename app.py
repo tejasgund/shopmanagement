@@ -545,7 +545,7 @@ def update_shop(
     db.refresh(obj)
     owner_map = _shop_owner_map(db, [id])
     return _shop_to_response(obj, owner_map)
-def delete_shop(id: int, db: Session = Depends(get_db), actor: User = Depends(require_admin)):
+"""def delete_shop(id: int, db: Session = Depends(get_db), actor: User = Depends(require_admin)):
     """Delete a shop. Admin only."""
     obj = db.query(Shop).filter(Shop.id == id).first()
     if not obj:
@@ -555,7 +555,80 @@ def delete_shop(id: int, db: Session = Depends(get_db), actor: User = Depends(re
     db.delete(obj)
     db.commit()
     return {"success": True, "message": "Shop deleted"}
+"""
+@app.delete("/api/shop/{id}", tags=["Shop"])
+def delete_shop(
+    id: int,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_admin)
+):
+    """
+    Delete a shop.
 
+    Flow:
+    1. Verify shop exists.
+    2. Write audit log.
+    3. Delete shop record.
+    4. Commit transaction.
+    5. Return success message.
+
+    Admin only.
+    """
+
+    # Find shop by ID
+    obj = db.query(Shop).filter(Shop.id == id).first()
+
+    if not obj:
+        raise HTTPException(
+            status_code=404,
+            detail="Shop not found"
+        )
+
+    try:
+        # Store data for audit before deleting
+        write_audit(
+            db=db,
+            actor_id=actor.id,
+            action="DELETE",
+            table_name="shops",
+            record_id=id,
+            old_data={
+                "shop_number": obj.shop_number,
+                "status": obj.status,
+                "complex_id": obj.complex_id
+            }
+        )
+
+        # Delete shop
+        db.delete(obj)
+
+        # Save changes
+        db.commit()
+
+        logger.info(
+            "SHOP_DELETED | shop_id=%s | deleted_by=%s",
+            id,
+            actor.id
+        )
+
+        return {
+            "success": True,
+            "message": f"Shop {id} deleted successfully"
+        }
+
+    except Exception as e:
+        db.rollback()
+
+        logger.exception(
+            "SHOP_DELETE_FAILED | shop_id=%s | error=%s",
+            id,
+            str(e)
+        )
+
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unable to delete shop: {str(e)}"
+        )
 
 @app.post("/api/shop/{shop_id}/assign-complex", tags=["Shop"])
 def assign_complex_to_shop(
