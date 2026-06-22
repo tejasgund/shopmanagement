@@ -53,11 +53,11 @@ RUN mkdir -p /app/logs
 # Environment variables – override at runtime via
 # docker run -e or docker-compose environment block
 # ──────────────────────────────────────────────
-ENV DB_HOST=host.docker.internal \
+ENV DB_HOST=172.31.52.221 \
     DB_PORT=3306 \
     DB_NAME=tenant_management \
-    DB_USER=root \
-    DB_PASSWORD=root \
+    DB_USER=admin \
+    DB_PASSWORD=admin \
     JWT_SECRET=CHANGE_ME_IN_PRODUCTION_SECRET_KEY \
     JWT_ALGORITHM=HS256 \
     JWT_EXPIRE_MINUTES=1440 \
