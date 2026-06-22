@@ -562,73 +562,25 @@ def delete_shop(
     db: Session = Depends(get_db),
     actor: User = Depends(require_admin)
 ):
-    """
-    Delete a shop.
+    shop = db.query(Shop).filter(Shop.id == id).first()
 
-    Flow:
-    1. Verify shop exists.
-    2. Write audit log.
-    3. Delete shop record.
-    4. Commit transaction.
-    5. Return success message.
+    if not shop:
+        raise HTTPException(status_code=404, detail="Shop not found")
 
-    Admin only.
-    """
-
-    # Find shop by ID
-    obj = db.query(Shop).filter(Shop.id == id).first()
-
-    if not obj:
-        raise HTTPException(
-            status_code=404,
-            detail="Shop not found"
-        )
-
-    try:
-        # Store data for audit before deleting
-        write_audit(
-            db=db,
-            actor_id=actor.id,
-            action="DELETE",
-            table_name="shops",
-            record_id=id,
-            old_data={
-                "shop_number": obj.shop_number,
-                "status": obj.status,
-                "complex_id": obj.complex_id
-            }
-        )
-
-        # Delete shop
-        db.delete(obj)
-
-        # Save changes
-        db.commit()
-
-        logger.info(
-            "SHOP_DELETED | shop_id=%s | deleted_by=%s",
-            id,
-            actor.id
-        )
-
-        return {
-            "success": True,
-            "message": f"Shop {id} deleted successfully"
-        }
-
-    except Exception as e:
-        db.rollback()
-
-        logger.exception(
-            "SHOP_DELETE_FAILED | shop_id=%s | error=%s",
-            id,
-            str(e)
-        )
-
+    # Prevent deleting a shop that has bills
+    if shop.bills:
         raise HTTPException(
             status_code=400,
-            detail=f"Unable to delete shop: {str(e)}"
+            detail=f"Cannot delete shop. {len(shop.bills)} bill(s) exist for this shop."
         )
+
+    db.delete(shop)
+    db.commit()
+
+    return {
+        "success": True,
+        "message": f"Shop {id} deleted successfully"
+    }
 
 @app.post("/api/shop/{shop_id}/assign-complex", tags=["Shop"])
 def assign_complex_to_shop(
