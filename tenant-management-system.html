@@ -648,7 +648,12 @@ const state = {
   loaded: { complexes:false, shops:false, users:false, bills:false, payments:false },
 };
 
-document.getElementById('apiBaseDisplay').textContent = API_BASE_URL;
+const apiDisplay = document.getElementById('apiBaseDisplay');
+if (apiDisplay) {
+  apiDisplay.textContent = API_BASE_URL;
+} else {
+  console.warn('⚠️ Element #apiBaseDisplay not found – login may fail.');
+}
 
 /* ================================================================
    API LAYER
