@@ -546,7 +546,7 @@ def update_shop(
     owner_map = _shop_owner_map(db, [id])
     return _shop_to_response(obj, owner_map)
 """def delete_shop(id: int, db: Session = Depends(get_db), actor: User = Depends(require_admin)):
-    """Delete a shop. Admin only."""
+ #a shop. Admin only.
     obj = db.query(Shop).filter(Shop.id == id).first()
     if not obj:
         raise HTTPException(404, detail="Shop not found")
