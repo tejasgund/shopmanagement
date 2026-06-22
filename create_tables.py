@@ -30,7 +30,7 @@ logger = get_logger("app")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ORM MODELS
-# These are imported by app.py.backup as well – define them here so create_tables.py
+# These are imported by app.py as well – define them here so create_tables.py
 # is the single source of truth for schema.
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -59,7 +59,6 @@ class User(Base):
     user_shops = relationship("UserShop",   back_populates="user", cascade="all, delete-orphan")
     bills      = relationship("Bill",       back_populates="user")
     audit_logs = relationship("AuditLog",   back_populates="user")
-    complaints = relationship("Complaint",  back_populates="user", cascade="all, delete-orphan")
 
 
 # ──────────────────────────────────────────────
@@ -163,34 +162,6 @@ class Payment(Base):
 
     # Relationships
     bill = relationship("Bill", back_populates="payments")
-
-
-# ──────────────────────────────────────────────
-# complaints
-# ──────────────────────────────────────────────
-class Complaint(Base):
-    __tablename__ = "complaints"
-
-    id          = Column(Integer, primary_key=True, autoincrement=True)
-    user_id     = Column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)
-    shop_id     = Column(Integer, ForeignKey("shops.id", ondelete="RESTRICT"), nullable=True, index=True)
-    category    = Column(String(80), nullable=False)  # e.g., "Water", "Electricity", "Infrastructure", "Other"
-    subject     = Column(String(200), nullable=False)
-    description = Column(Text, nullable=False)
-    status      = Column(Enum("pending", "in_progress", "resolved", "rejected", name="complaint_status"),
-                         nullable=False, default="pending")
-    admin_remarks = Column(Text, nullable=True)
-    created_at  = Column(DateTime, nullable=False, default=now_utc)
-    updated_at  = Column(DateTime, nullable=False, default=now_utc, onupdate=now_utc)
-
-    # Relationships
-    user = relationship("User", back_populates="complaints")
-
-    __table_args__ = (
-        Index("idx_complaints_user_id", "user_id"),
-        Index("idx_complaints_status", "status"),
-        Index("idx_complaints_created_at", "created_at"),
-    )
 
 
 # ──────────────────────────────────────────────

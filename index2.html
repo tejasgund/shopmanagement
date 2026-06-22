@@ -229,7 +229,7 @@ input,select,textarea{font-family:var(--font-body);}
   border-radius:var(--radius-sm); font-size:13.5px; background:var(--paper-raised) url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="%236B6457" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>') no-repeat 12px center;
 }
 .search-input:focus{ border-color:var(--green); outline:none; }
-.filter-chips{ display:flex; gap:6px; flex-wrap:wrap; }
+.filter-chips{ display:flex; gap:6px; }
 .chip{
   padding:7px 13px; border-radius:999px; border:1.5px solid var(--line); background:var(--paper-raised);
   font-size:12.5px; font-weight:600; color:var(--muted); transition:all .12s ease;
@@ -277,16 +277,6 @@ td .row-actions{ display:flex; gap:6px; justify-content:flex-end; }
 .pill.inactive-pill .pill-dot{ background:var(--danger); }
 .pill.role-admin{ background:#FDEBD8; color:#9A5A12; }
 .pill.role-tenant{ background:#E3EEFB; color:#1E5C9A; }
-.pill.partial-soft{ background:var(--partial-soft); color:var(--partial); }
-.pill.partial-soft .pill-dot{ background:var(--partial); }
-.pill.danger-soft{ background:var(--danger-soft); color:var(--danger); }
-.pill.danger-soft .pill-dot{ background:var(--danger); }
-.pill.in-progress{ background:var(--partial-soft); color:var(--partial); }
-.pill.in-progress .pill-dot{ background:var(--partial); }
-.pill.resolved{ background:var(--success-soft); color:var(--success); }
-.pill.resolved .pill-dot{ background:var(--success); }
-.pill.rejected{ background:var(--danger-soft); color:var(--danger); }
-.pill.rejected .pill-dot{ background:var(--danger); }
 
 /* stamp badge — signature element for bill/payment status */
 .stamp{
@@ -491,14 +481,6 @@ td .row-actions{ display:flex; gap:6px; justify-content:flex-end; }
         </button>
       </div>
       <div class="nav-group">
-        <div class="nav-label">Support</div>
-        <button class="nav-item" data-view="complaints">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-          Complaints
-          <span class="nav-badge" id="complaintBadge" style="display:none;">0</span>
-        </button>
-      </div>
-      <div class="nav-group">
         <div class="nav-label">Insights</div>
         <button class="nav-item" data-view="reports">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 9l-5 5-3-3-4 4"/></svg>
@@ -602,8 +584,8 @@ const state = {
   role: localStorage.getItem('tms_role') || null,
   currentUser: null,
   view: 'dashboard',
-  cache: { complexes: [], shops: [], users: [], bills: [], payments: [], complaints: [] },
-  loaded: { complexes:false, shops:false, users:false, bills:false, payments:false, complaints:false },
+  cache: { complexes: [], shops: [], users: [], bills: [], payments: [] },
+  loaded: { complexes:false, shops:false, users:false, bills:false, payments:false },
 };
 
 document.getElementById('apiBaseDisplay').textContent = API_BASE_URL;
@@ -641,7 +623,6 @@ async function api(path, { method = 'GET', body = null, auth = true } = {}) {
     if (data) {
       if (typeof data.detail === 'string') msg = data.detail;
       else if (Array.isArray(data.detail)) msg = data.detail.map(d => d.msg).join(', ');
-      else if (data.message) msg = data.message;
     }
     if (res.status === 401) { handleAuthExpired(); }
     throw new ApiError(msg, res.status);
@@ -764,6 +745,7 @@ async function initAdminUser(){
   try {
     const users = await api('/api/user');
     state.cache.users = users; state.loaded.users = true;
+    // We don't have a "me" endpoint, so just show role generically.
     document.getElementById('sidebarUserName').textContent = 'Admin';
     document.getElementById('sidebarUserRole').textContent = state.role;
     document.getElementById('sidebarAvatar').textContent = 'A';
@@ -797,7 +779,6 @@ const viewMeta = {
   bills:     { title:'Bills', crumb:'Charges raised to tenants', action:'Add bill' },
   payments:  { title:'Payments', crumb:'Payments recorded against bills', action:'Record payment' },
   reports:   { title:'Reports', crumb:'Occupancy, collections and outstanding dues', action:null },
-  complaints:{ title:'Complaints', crumb:'Manage tenant complaints and issues', action:'Resolve' },
 };
 
 document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
@@ -839,7 +820,6 @@ async function renderView(view){
       case 'bills': content.innerHTML = await billsView(); attachBillHandlers(); break;
       case 'payments': content.innerHTML = await paymentsView(); attachPaymentHandlers(); break;
       case 'reports': content.innerHTML = await reportsView(); attachReportsHandlers(); break;
-      case 'complaints': content.innerHTML = await complaintsView(); attachComplaintHandlers(); break;
     }
     attachSearchFilter();
   } catch (err) {
@@ -885,22 +865,19 @@ function attachSearchFilter(){
    DASHBOARD VIEW
    ================================================================ */
 async function dashboardView(){
-  const [complexes, shops, users, bills, complaints] = await Promise.all([
+  const [complexes, shops, users, bills] = await Promise.all([
     ensureLoaded('complexes','/api/complex'),
     ensureLoaded('shops','/api/shop'),
     ensureLoaded('users','/api/user'),
     ensureLoaded('bills','/api/bill'),
-    api('/api/complaint'),
   ]);
 
   const occupied = shops.filter(s => s.status === 'occupied').length;
   const pendingBills = bills.filter(b => b.status !== 'paid');
   const pendingTotal = pendingBills.reduce((sum,b) => sum + Number(b.pending_amount||0), 0);
   const collectedTotal = bills.reduce((sum,b) => sum + Number(b.paid_amount||0), 0);
-  const pendingComplaints = complaints.filter(c => c.status === 'pending' || c.status === 'in_progress').length;
 
   updatePendingBadge(pendingBills.length);
-  updateComplaintBadge(pendingComplaints);
 
   const recentBills = [...bills].sort((a,b) => new Date(b.bill_date) - new Date(a.bill_date)).slice(0,6);
 
@@ -911,11 +888,6 @@ async function dashboardView(){
     <div class="card stat-card"><div class="label">Users</div><div class="value">${users.length}</div><div class="sub">${users.filter(u=>u.role==='tenant').length} tenants</div></div>
     <div class="card stat-card accent-rust"><div class="label">Pending dues</div><div class="value mono">${currency(pendingTotal)}</div><div class="sub">${pendingBills.length} bills outstanding</div></div>
     <div class="card stat-card accent-green"><div class="label">Collected</div><div class="value mono">${currency(collectedTotal)}</div><div class="sub">across all bills</div></div>
-    <div class="card stat-card" style="${pendingComplaints > 0 ? 'border-color:var(--rust);' : ''}">
-      <div class="label">Pending complaints</div>
-      <div class="value">${pendingComplaints}</div>
-      <div class="sub">${pendingComplaints > 0 ? 'requires attention' : 'all resolved'}</div>
-    </div>
   </div>
 
   <div class="card">
@@ -944,12 +916,6 @@ async function dashboardView(){
 
 function updatePendingBadge(count){
   const badge = document.getElementById('pendingBadge');
-  if (count > 0){ badge.style.display='inline-block'; badge.textContent = count; }
-  else badge.style.display = 'none';
-}
-
-function updateComplaintBadge(count){
-  const badge = document.getElementById('complaintBadge');
   if (count > 0){ badge.style.display='inline-block'; badge.textContent = count; }
   else badge.style.display = 'none';
 }
@@ -1091,6 +1057,7 @@ async function usersView(){
     ensureLoaded('shops','/api/shop'),
   ]);
 
+  // Build a map: user_id -> [shop_number, ...]
   const userShopMap = {};
   shops.forEach(s => {
     if (s.assigned_to) {
@@ -1208,77 +1175,7 @@ async function paymentsView(){
 function attachPaymentHandlers(){}
 
 /* ================================================================
-   COMPLAINTS VIEW
-   ================================================================ */
-async function complaintsView(){
-  const complaints = await api('/api/complaint');
-  const pendingCount = complaints.filter(c => c.status === 'pending' || c.status === 'in_progress').length;
-  updateComplaintBadge(pendingCount);
-
-  return `
-  <div class="toolbar">
-    <input class="search-input" id="tableSearch" placeholder="Search complaints…">
-    <div class="filter-chips" id="compFilterChips">
-      <button class="chip active" data-filter="all">All (${complaints.length})</button>
-      <button class="chip" data-filter="pending">Pending (${complaints.filter(c=>c.status==='pending').length})</button>
-      <button class="chip" data-filter="in_progress">In Progress (${complaints.filter(c=>c.status==='in_progress').length})</button>
-      <button class="chip" data-filter="resolved">Resolved (${complaints.filter(c=>c.status==='resolved').length})</button>
-      <button class="chip" data-filter="rejected">Rejected (${complaints.filter(c=>c.status==='rejected').length})</button>
-    </div>
-  </div>
-  ${complaints.length === 0 ? emptyStateHtml('No complaints yet', 'Tenant complaints will appear here.', emptyIcon()) : `
-  <div class="table-wrap">
-    <table>
-      <thead><tr>
-        <th>#</th>
-        <th>Tenant</th>
-        <th>Shop</th>
-        <th>Category</th>
-        <th>Subject</th>
-        <th>Status</th>
-        <th>Raised</th>
-        <th></th>
-      </tr></thead>
-      <tbody>
-        ${complaints.map(c => `
-          <tr data-search="${escapeHtml((c.user_name||'')+' '+(c.shop_number||'')+' '+c.category+' '+c.subject)}" data-status="${c.status}">
-            <td class="mono">#${c.id}</td>
-            <td><strong>${escapeHtml(c.user_name || 'User #'+c.user_id)}</strong></td>
-            <td class="mono">${escapeHtml(c.shop_number || '—')}</td>
-            <td><span style="background:var(--paper); padding:2px 8px; border-radius:4px; font-size:12px;">${escapeHtml(c.category)}</span></td>
-            <td style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(c.subject)}</td>
-            <td><span class="pill ${c.status}"><span class="pill-dot"></span>${c.status.replace('_', ' ')}</span></td>
-            <td>${dateFmt(c.created_at)}</td>
-            <td><div class="row-actions">
-              <button class="btn-icon" data-view-complaint="${c.id}" aria-label="View details" title="View/Update">${editIcon()}</button>
-              <button class="btn-icon" data-delete-complaint="${c.id}" data-name="${escapeHtml(c.subject)}" aria-label="Delete">${trashIcon()}</button>
-            </div></td>
-          </tr>`).join('')}
-      </tbody>
-    </table>
-  </div>`}`;
-}
-
-function attachComplaintHandlers(){
-  document.querySelectorAll('[data-view-complaint]').forEach(btn =>
-    btn.addEventListener('click', () => openComplaintDetailModal(Number(btn.dataset.viewComplaint)))
-  );
-  document.querySelectorAll('[data-delete-complaint]').forEach(btn =>
-    btn.addEventListener('click', () => confirmDeleteComplaint(Number(btn.dataset.deleteComplaint), btn.dataset.name))
-  );
-  const chips = document.querySelectorAll('#compFilterChips .chip');
-  chips.forEach(chip => chip.addEventListener('click', () => {
-    chips.forEach(c => c.classList.remove('active'));
-    chip.classList.add('active');
-    const filter = chip.dataset.filter;
-    document.querySelectorAll('tbody tr[data-status]').forEach(tr => {
-      tr.style.display = (filter === 'all' || tr.dataset.status === filter) ? '' : 'none';
-    });
-  }));
-}
-
-/* ================================================================
-   REPORTS VIEW
+   REPORTS VIEW — two tabs: Bill Reports & Complex Reports
    ================================================================ */
 let reportDateRange = { start: null, end: null };
 let activeReportTab = 'bills';
@@ -1299,6 +1196,7 @@ async function reportsView(){
     </button>
   </div>
 
+  <!-- Bill Reports Panel -->
   <div id="billReportPanel" style="display:${activeReportTab==='bills'?'block':'none'};">
     <div class="card card-pad" style="margin-bottom:18px;">
       <div style="display:flex; gap:14px; align-items:flex-end; flex-wrap:wrap;">
@@ -1317,6 +1215,7 @@ async function reportsView(){
     <div id="reportResults"><div class="empty-state">${emptyIcon()}<h3>No report generated yet</h3><p>Choose a date range and generate a report to see occupancy, collections and outstanding dues.</p></div></div>
   </div>
 
+  <!-- Complex Reports Panel -->
   <div id="complexReportPanel" style="display:${activeReportTab==='complex'?'block':'none'};">
     <div id="complexReportResults"><div class="empty-state">${emptyIcon()}<h3>Loading complex reports…</h3><p>Please wait.</p></div></div>
   </div>
@@ -1324,10 +1223,12 @@ async function reportsView(){
 }
 
 function attachReportsHandlers(){
+  // Tab switching
   document.querySelectorAll('.report-tab').forEach(btn => {
     btn.addEventListener('click', async () => {
       activeReportTab = btn.dataset.tab;
       await renderView('reports');
+      // auto-load complex report on tab switch
       if (activeReportTab === 'complex') generateComplexReport();
     });
   });
@@ -1408,6 +1309,61 @@ async function generateComplexReport(){
     );
   } catch(err) {
     el.innerHTML = errorBannerHtml(err.message);
+  }
+}
+
+/* ---- Complex detail report modal ---- */
+async function openComplexReportModal(complexId, complexName){
+  openModal(`Report — ${complexName}`, `<div style="text-align:center; padding:24px;">${skeletonHtml()}</div>`, `<button class="btn btn-ghost" id="closeRepBtn">Close</button>`);
+  document.getElementById('closeRepBtn').addEventListener('click', closeModal);
+  try {
+    const r = await api(`/api/complex/${complexId}/report`);
+    const c = r.complex, s = r.shops, t = r.tenants, f = r.financials;
+    document.getElementById('modalBody').innerHTML = `
+      ${c.owner_name ? `
+      <div class="card card-pad" style="margin-bottom:14px; background:var(--success-soft); border-color:var(--success);">
+        <div style="font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--success); font-weight:700; margin-bottom:6px;">Owner Contact</div>
+        <div style="font-weight:600;">${escapeHtml(c.owner_name)}</div>
+        ${c.owner_contact ? `<div class="mono" style="color:var(--green-deep); font-size:13.5px; margin-top:2px;">📞 ${escapeHtml(c.owner_contact)}</div>` : ''}
+        ${c.owner_address ? `<div style="color:var(--muted); font-size:12.5px; margin-top:3px;">📍 ${escapeHtml(c.owner_address)}</div>` : ''}
+      </div>` : ''}
+
+      <div class="stat-row" style="grid-template-columns:repeat(3,1fr); margin-bottom:14px;">
+        <div class="card stat-card"><div class="label">Total Shops</div><div class="value">${s.total}</div></div>
+        <div class="card stat-card"><div class="label">Assigned</div><div class="value" style="color:var(--success);">${s.assigned}</div></div>
+        <div class="card stat-card"><div class="label">Unassigned</div><div class="value" style="color:var(--muted);">${s.unassigned}</div></div>
+      </div>
+      <div class="stat-row" style="grid-template-columns:repeat(3,1fr); margin-bottom:14px;">
+        <div class="card stat-card"><div class="label">Total Tenants</div><div class="value">${t.total}</div></div>
+        <div class="card stat-card"><div class="label">Active</div><div class="value" style="color:var(--success);">${t.active}</div></div>
+        <div class="card stat-card"><div class="label">Inactive</div><div class="value" style="color:var(--rust);">${t.inactive}</div></div>
+      </div>
+      <div class="stat-row" style="grid-template-columns:repeat(3,1fr); margin-bottom:14px;">
+        <div class="card stat-card"><div class="label">Total Billed</div><div class="value mono" style="font-size:18px;">${currency(f.total_billed)}</div></div>
+        <div class="card stat-card accent-green"><div class="label">Collected</div><div class="value mono" style="font-size:18px;">${currency(f.total_collected)}</div></div>
+        <div class="card stat-card accent-rust"><div class="label">Outstanding</div><div class="value mono" style="font-size:18px;">${currency(f.total_outstanding)}</div></div>
+      </div>
+
+      ${t.details.length > 0 ? `
+      <div style="font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin-bottom:10px;">Tenant Details</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Tenant</th><th>Mobile</th><th>Shop</th><th class="num">Monthly Rent</th><th>Status</th><th>Assigned</th></tr></thead>
+          <tbody>
+            ${t.details.map(td => `<tr>
+              <td><strong>${escapeHtml(td.name)}</strong></td>
+              <td class="mono">${escapeHtml(td.mobile)}</td>
+              <td class="mono">${escapeHtml(td.shop_number)}</td>
+              <td class="num">${td.monthly_rent ? currency(td.monthly_rent) : '<span style="color:var(--muted);">—</span>'}</td>
+              <td><span class="pill ${td.is_active?'active-pill':'inactive-pill'}"><span class="pill-dot"></span>${td.is_active?'Active':'Inactive'}</span></td>
+              <td style="font-size:12px; color:var(--muted);">${dateFmt(td.assigned_at)}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>` : '<div style="font-size:13.5px; color:var(--muted); padding:8px 0;">No tenants assigned to shops in this complex yet.</div>'}
+    `;
+  } catch(err) {
+    document.getElementById('modalBody').innerHTML = errorBannerHtml(err.message);
   }
 }
 
@@ -1545,7 +1501,6 @@ function openCreateModal(view){
     case 'users': return openUserModal();
     case 'bills': return openBillModal();
     case 'payments': return openPaymentModal();
-    case 'complaints': return openComplaintModal();
   }
 }
 
@@ -1757,6 +1712,7 @@ function renderUserForm(existing){
     }
     if (!ok) return;
 
+    // If deactivating a user who currently owns shops, confirm first
     if (isEdit && existing.is_active && body.is_active === false){
       const shops = await ensureLoaded('shops','/api/shop');
       const ownedShops = shops.filter(s => s.assigned_to?.id === existing.id);
@@ -1876,6 +1832,7 @@ async function submitAssignShops(userId, userName, force){
 }
 
 function renderReassignConfirm(userId, userName, ids, monthly_rent){
+  // Re-fetch conflict details from current cache (already loaded shop list)
   const conflicts = ids
     .map(id => state.cache.shops.find(s => s.id === id))
     .filter(s => s && s.assigned_to && s.assigned_to.id !== userId);
@@ -1962,6 +1919,7 @@ async function openBillModal(){
   `);
   document.getElementById('cancelBtn').addEventListener('click', closeModal);
 
+  // Bill type change handler — auto-fill rent or clear
   async function onBillTypeChange(){
     const billType = document.getElementById('bType').value;
     const amountEl = document.getElementById('bAmount');
@@ -2106,234 +2064,6 @@ async function renderPaymentForm(preselectedBill){
   });
 }
 
-/* ---- COMPLAINT modal (admin create / edit) ---- */
-function openComplaintModal(){ renderComplaintForm(null); }
-
-async function renderComplaintForm(existing){
-  const isEdit = !!existing;
-  const users = await ensureLoaded('users','/api/user');
-  const shops = await ensureLoaded('shops','/api/shop');
-  const tenants = users.filter(u => u.role === 'tenant');
-
-  const statusOptions = ['pending', 'in_progress', 'resolved', 'rejected'];
-
-  openModal(isEdit ? 'Edit complaint' : 'Raise complaint (Admin)', `
-    <form id="complaintForm">
-      <div class="form-grid">
-        ${!isEdit ? `
-        <div class="field full">
-          <label for="compUser">Tenant</label>
-          <select id="compUser">
-            ${tenants.map(u => `<option value="${u.id}">${escapeHtml(u.name)} — ${escapeHtml(u.mobile)}</option>`).join('')}
-          </select>
-        </div>
-        ` : ''}
-        <div class="field full">
-          <label for="compShop">Shop (optional)</label>
-          <select id="compShop">
-            <option value="">— Select a shop —</option>
-            ${shops.map(s => `<option value="${s.id}" ${existing?.shop_id===s.id?'selected':''}>${escapeHtml(s.shop_number)}</option>`).join('')}
-          </select>
-        </div>
-        <div class="field full">
-          <label for="compCategory">Category</label>
-          <select id="compCategory">
-            <option value="Water" ${existing?.category==='Water'?'selected':''}>Water</option>
-            <option value="Electricity" ${existing?.category==='Electricity'?'selected':''}>Electricity</option>
-            <option value="Infrastructure" ${existing?.category==='Infrastructure'?'selected':''}>Infrastructure</option>
-            <option value="Security" ${existing?.category==='Security'?'selected':''}>Security</option>
-            <option value="Maintenance" ${existing?.category==='Maintenance'?'selected':''}>Maintenance</option>
-            <option value="Other" ${existing?.category==='Other'?'selected':''}>Other</option>
-          </select>
-        </div>
-        <div class="field full">
-          <label for="compSubject">Subject</label>
-          <input id="compSubject" required value="${existing ? escapeHtml(existing.subject) : ''}" placeholder="Brief title of the complaint">
-          ${fieldErrorHtml('compSubjectErr')}
-        </div>
-        <div class="field full">
-          <label for="compDescription">Description</label>
-          <textarea id="compDescription" required placeholder="Please describe the issue in detail..." rows="4">${existing ? escapeHtml(existing.description) : ''}</textarea>
-          ${fieldErrorHtml('compDescErr')}
-        </div>
-        <div class="field full">
-          <label for="compStatus">Status</label>
-          <select id="compStatus">
-            ${statusOptions.map(s => `<option value="${s}" ${existing?.status===s?'selected':''}>${s.replace('_', ' ')}</option>`).join('')}
-          </select>
-        </div>
-        <div class="field full">
-          <label for="compRemarks">Admin Remarks</label>
-          <textarea id="compRemarks" placeholder="Add notes about resolution or action taken..." rows="3">${existing ? escapeHtml(existing.admin_remarks||'') : ''}</textarea>
-        </div>
-      </div>
-    </form>
-  `, `
-    <button class="btn btn-ghost" id="cancelBtn">Cancel</button>
-    <button class="btn btn-primary" id="saveBtn">${isEdit ? 'Update' : 'Create complaint'}</button>
-  `);
-
-  document.getElementById('cancelBtn').addEventListener('click', closeModal);
-  document.getElementById('saveBtn').addEventListener('click', async () => {
-    const form = document.getElementById('complaintForm');
-    clearFieldErrors(form);
-    const user_id = isEdit ? existing.user_id : Number(document.getElementById('compUser').value);
-    const shop_id = document.getElementById('compShop').value ? Number(document.getElementById('compShop').value) : null;
-    const category = document.getElementById('compCategory').value;
-    const subject = document.getElementById('compSubject').value.trim();
-    const description = document.getElementById('compDescription').value.trim();
-    const status = document.getElementById('compStatus').value;
-    const admin_remarks = document.getElementById('compRemarks').value.trim();
-
-    let ok = true;
-    if (!subject){ showFieldError('compSubjectErr','Subject is required'); document.getElementById('compSubject').classList.add('invalid'); ok=false; }
-    if (!description){ showFieldError('compDescErr','Description is required'); document.getElementById('compDescription').classList.add('invalid'); ok=false; }
-    if (!isEdit && !user_id){ showToast('Please select a tenant', 'error'); ok=false; }
-    if (!ok) return;
-
-    await withSavingState('saveBtn', async () => {
-      const body = { category, subject, description, status, admin_remarks };
-      if (shop_id) body.shop_id = shop_id;
-      if (isEdit) {
-        await api(`/api/complaint/${existing.id}`, { method:'PUT', body });
-      } else {
-        body.user_id = user_id;
-        await api('/api/complaint', { method:'POST', body });
-      }
-      state.loaded.complaints = false;
-      closeModal();
-      showToast(isEdit ? 'Complaint updated' : 'Complaint created', 'success');
-      await renderView('complaints');
-    });
-  });
-}
-
-/* ---- COMPLAINT Detail Modal (Admin view + update) ---- */
-async function openComplaintDetailModal(complaintId){
-  const complaint = await api(`/api/complaint/${complaintId}`);
-  const statusOptions = ['pending', 'in_progress', 'resolved', 'rejected'];
-
-  openModal(`Complaint #${complaint.id}`, `
-    <form id="complaintDetailForm">
-      <div style="display:grid; gap:12px;">
-        <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; background:var(--paper); padding:12px 14px; border-radius:var(--radius-sm);">
-          <div><strong>Tenant:</strong> ${escapeHtml(complaint.user_name || 'User #'+complaint.user_id)}</div>
-          ${complaint.shop_number ? `<div><strong>Shop:</strong> ${escapeHtml(complaint.shop_number)}</div>` : ''}
-          <div><strong>Category:</strong> ${escapeHtml(complaint.category)}</div>
-          <div><strong>Raised:</strong> ${dateFmt(complaint.created_at)}</div>
-        </div>
-        <div><strong>Subject:</strong> ${escapeHtml(complaint.subject)}</div>
-        <div><strong>Description:</strong><br>${escapeHtml(complaint.description)}</div>
-        <div class="field" style="margin-bottom:0;">
-          <label for="detailStatus">Status</label>
-          <select id="detailStatus">
-            ${statusOptions.map(s => `<option value="${s}" ${complaint.status===s?'selected':''}>${s.replace('_', ' ')}</option>`).join('')}
-          </select>
-        </div>
-        <div class="field" style="margin-bottom:0;">
-          <label for="detailRemarks">Admin Remarks</label>
-          <textarea id="detailRemarks" placeholder="Add notes about resolution or action taken..." rows="3">${escapeHtml(complaint.admin_remarks||'')}</textarea>
-        </div>
-      </div>
-    </form>
-  `, `
-    <button class="btn btn-ghost" id="cancelBtn">Close</button>
-    <button class="btn btn-primary" id="updateDetailBtn">Update</button>
-  `);
-
-  document.getElementById('cancelBtn').addEventListener('click', closeModal);
-  document.getElementById('updateDetailBtn').addEventListener('click', async () => {
-    const status = document.getElementById('detailStatus').value;
-    const admin_remarks = document.getElementById('detailRemarks').value.trim();
-
-    await withSavingState('updateDetailBtn', async () => {
-      await api(`/api/complaint/${complaint.id}`, {
-        method:'PUT',
-        body: { status, admin_remarks }
-      });
-      state.loaded.complaints = false;
-      closeModal();
-      showToast('Complaint updated', 'success');
-      await renderView('complaints');
-    }, 'Updating…');
-  });
-}
-
-/* ---- DELETE Complaint ---- */
-function confirmDeleteComplaint(id, name){
-  openModal('Delete complaint', `
-    <div class="confirm-body">Are you sure you want to delete complaint <strong>"${escapeHtml(name)}"</strong>? This can't be undone.</div>
-  `, `
-    <button class="btn btn-ghost" id="cancelBtn">Cancel</button>
-    <button class="btn btn-danger-ghost" id="confirmDeleteBtn">Delete</button>
-  `);
-  document.getElementById('cancelBtn').addEventListener('click', closeModal);
-  document.getElementById('confirmDeleteBtn').addEventListener('click', async () => {
-    await withSavingState('confirmDeleteBtn', async () => {
-      await api(`/api/complaint/${id}`, { method:'DELETE' });
-      state.loaded.complaints = false;
-      closeModal();
-      showToast('Complaint deleted', 'success');
-      await renderView('complaints');
-    }, 'Deleting…');
-  });
-}
-
-/* ---- Complex Report Modal ---- */
-async function openComplexReportModal(complexId, complexName){
-  openModal(`Report — ${complexName}`, `<div style="text-align:center; padding:24px;">${skeletonHtml()}</div>`, `<button class="btn btn-ghost" id="closeRepBtn">Close</button>`);
-  document.getElementById('closeRepBtn').addEventListener('click', closeModal);
-  try {
-    const r = await api(`/api/complex/${complexId}/report`);
-    const c = r.complex, s = r.shops, t = r.tenants, f = r.financials;
-    document.getElementById('modalBody').innerHTML = `
-      ${c.owner_name ? `
-      <div class="card card-pad" style="margin-bottom:14px; background:var(--success-soft); border-color:var(--success);">
-        <div style="font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--success); font-weight:700; margin-bottom:6px;">Owner Contact</div>
-        <div style="font-weight:600;">${escapeHtml(c.owner_name)}</div>
-        ${c.owner_contact ? `<div class="mono" style="color:var(--green-deep); font-size:13.5px; margin-top:2px;">📞 ${escapeHtml(c.owner_contact)}</div>` : ''}
-        ${c.owner_address ? `<div style="color:var(--muted); font-size:12.5px; margin-top:3px;">📍 ${escapeHtml(c.owner_address)}</div>` : ''}
-      </div>` : ''}
-
-      <div class="stat-row" style="grid-template-columns:repeat(3,1fr); margin-bottom:14px;">
-        <div class="card stat-card"><div class="label">Total Shops</div><div class="value">${s.total}</div></div>
-        <div class="card stat-card"><div class="label">Assigned</div><div class="value" style="color:var(--success);">${s.assigned}</div></div>
-        <div class="card stat-card"><div class="label">Unassigned</div><div class="value" style="color:var(--muted);">${s.unassigned}</div></div>
-      </div>
-      <div class="stat-row" style="grid-template-columns:repeat(3,1fr); margin-bottom:14px;">
-        <div class="card stat-card"><div class="label">Total Tenants</div><div class="value">${t.total}</div></div>
-        <div class="card stat-card"><div class="label">Active</div><div class="value" style="color:var(--success);">${t.active}</div></div>
-        <div class="card stat-card"><div class="label">Inactive</div><div class="value" style="color:var(--rust);">${t.inactive}</div></div>
-      </div>
-      <div class="stat-row" style="grid-template-columns:repeat(3,1fr); margin-bottom:14px;">
-        <div class="card stat-card"><div class="label">Total Billed</div><div class="value mono" style="font-size:18px;">${currency(f.total_billed)}</div></div>
-        <div class="card stat-card accent-green"><div class="label">Collected</div><div class="value mono" style="font-size:18px;">${currency(f.total_collected)}</div></div>
-        <div class="card stat-card accent-rust"><div class="label">Outstanding</div><div class="value mono" style="font-size:18px;">${currency(f.total_outstanding)}</div></div>
-      </div>
-
-      ${t.details.length > 0 ? `
-      <div style="font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin-bottom:10px;">Tenant Details</div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Tenant</th><th>Mobile</th><th>Shop</th><th class="num">Monthly Rent</th><th>Status</th><th>Assigned</th></tr></thead>
-          <tbody>
-            ${t.details.map(td => `<tr>
-              <td><strong>${escapeHtml(td.name)}</strong></td>
-              <td class="mono">${escapeHtml(td.mobile)}</td>
-              <td class="mono">${escapeHtml(td.shop_number)}</td>
-              <td class="num">${td.monthly_rent ? currency(td.monthly_rent) : '<span style="color:var(--muted);">—</span>'}</td>
-              <td><span class="pill ${td.is_active?'active-pill':'inactive-pill'}"><span class="pill-dot"></span>${td.is_active?'Active':'Inactive'}</span></td>
-              <td style="font-size:12px; color:var(--muted);">${dateFmt(td.assigned_at)}</td>
-            </tr>`).join('')}
-          </tbody>
-        </table>
-      </div>` : '<div style="font-size:13.5px; color:var(--muted); padding:8px 0;">No tenants assigned to shops in this complex yet.</div>'}
-    `;
-  } catch(err) {
-    document.getElementById('modalBody').innerHTML = errorBannerHtml(err.message);
-  }
-}
-
 /* ---- DELETE confirm ---- */
 function confirmDelete(type, id, name){
   const endpoints = { complex:'/api/complex', shop:'/api/shop', user:'/api/user' };
@@ -2358,7 +2088,6 @@ function confirmDelete(type, id, name){
 /* ---- Saving-state helper for buttons ---- */
 async function withSavingState(btnId, fn, label){
   const btn = document.getElementById(btnId);
-  if (!btn) return;
   const original = btn.innerHTML;
   btn.disabled = true;
   btn.innerHTML = `<span class="spinner${btn.classList.contains('btn-ghost')||btn.classList.contains('btn-danger-ghost') ? ' dark':''}"></span> ${label || 'Saving…'}`;
@@ -2379,27 +2108,20 @@ async function loadTenantPortal(){
   const content = document.getElementById('tenantContent');
   content.innerHTML = skeletonHtml();
   try {
-    const [profile, shops, bills, payments, complaints] = await Promise.all([
+    const [profile, shops, bills, payments] = await Promise.all([
       api('/api/tenant/profile'),
       api('/api/tenant/shops'),
       api('/api/tenant/bills'),
       api('/api/tenant/payments'),
-      api('/api/complaint/tenant'),
     ]);
     document.getElementById('tenantName').textContent = profile.name;
 
     const pendingTotal = bills.reduce((sum,b)=>sum+Number(b.pending_amount||0),0);
-    const pendingComplaints = complaints.filter(c => c.status !== 'resolved' && c.status !== 'rejected').length;
 
     content.innerHTML = `
-      <div class="stat-row" style="grid-template-columns:repeat(3,1fr);">
+      <div class="stat-row" style="grid-template-columns:repeat(2,1fr);">
         <div class="card stat-card"><div class="label">Your shops</div><div class="value">${shops.length}</div></div>
         <div class="card stat-card accent-rust"><div class="label">Pending dues</div><div class="value mono">${currency(pendingTotal)}</div></div>
-        <div class="card stat-card" style="${pendingComplaints > 0 ? 'border-color:var(--rust);' : ''}">
-          <div class="label">Complaints</div>
-          <div class="value">${pendingComplaints}</div>
-          <div class="sub">${pendingComplaints > 0 ? 'pending resolution' : 'all resolved'}</div>
-        </div>
       </div>
 
       <div class="section-title">Your shops</div>
@@ -2438,119 +2160,12 @@ async function loadTenantPortal(){
           <div class="row1"><span class="title mono">${currency(p.amount)}</span><span class="meta">${escapeHtml(p.payment_method)}</span></div>
           <div class="meta">${dateFmt(p.payment_date)}${p.remarks ? ' · '+escapeHtml(p.remarks) : ''}</div>
         </div>`).join('')}
-
-      <div class="section-title" style="display:flex; justify-content:space-between; align-items:center;">
-        <span>My Complaints</span>
-        <button class="btn btn-primary btn-sm" id="raiseComplaintBtn">+ Raise Complaint</button>
-      </div>
-      ${complaints.length === 0 ? emptyStateHtml('No complaints raised', 'Use the button above to raise a complaint.', emptyIcon()) :
-        complaints.map(c => `
-        <div class="tenant-card" style="border-left: 4px solid ${c.status === 'resolved' ? 'var(--success)' : c.status === 'rejected' ? 'var(--danger)' : c.status === 'in_progress' ? 'var(--partial)' : 'var(--muted)'};">
-          <div class="row1">
-            <span class="title">${escapeHtml(c.subject)}</span>
-            <span class="pill ${c.status}"><span class="pill-dot"></span>${c.status.replace('_', ' ')}</span>
-          </div>
-          <div class="meta"><strong>Category:</strong> ${escapeHtml(c.category)}</div>
-          <div class="meta">${escapeHtml(c.description)}</div>
-          ${c.shop_number ? `<div class="meta"><strong>Shop:</strong> ${escapeHtml(c.shop_number)}</div>` : ''}
-          <div class="meta" style="font-size:11px; color:var(--muted);">Raised: ${dateFmt(c.created_at)}</div>
-          ${c.admin_remarks ? `<div style="margin-top:8px; padding-top:8px; border-top:1px dashed var(--line); font-size:13px; background:var(--paper); padding:8px 10px; border-radius:var(--radius-sm);"><strong>Admin response:</strong> ${escapeHtml(c.admin_remarks)}</div>` : ''}
-        </div>`).join('')}
     `;
-
-    document.getElementById('raiseComplaintBtn')?.addEventListener('click', openTenantComplaintModal);
-
   } catch (err) {
     content.innerHTML = errorBannerHtml(err.message);
     document.getElementById('retryBtn')?.addEventListener('click', loadTenantPortal);
   }
 }
-
-/* ---- Tenant Raise Complaint Modal ---- */
-function openTenantComplaintModal(){
-  openModal('Raise a Complaint', `
-    <form id="complaintForm">
-      <div class="form-grid">
-        <div class="field full">
-          <label for="compShop">Shop (optional)</label>
-          <select id="compShop">
-            <option value="">— Select a shop —</option>
-          </select>
-          <div class="hint">Select the shop this complaint is about, or leave blank for general issues.</div>
-        </div>
-        <div class="field full">
-          <label for="compCategory">Category</label>
-          <select id="compCategory">
-            <option value="Water">Water</option>
-            <option value="Electricity">Electricity</option>
-            <option value="Infrastructure">Infrastructure</option>
-            <option value="Security">Security</option>
-            <option value="Maintenance">Maintenance</option>
-            <option value="Other">Other</option>
-          </select>
-        </div>
-        <div class="field full">
-          <label for="compSubject">Subject</label>
-          <input id="compSubject" required placeholder="Brief title of your complaint">
-          ${fieldErrorHtml('compSubjectErr')}
-        </div>
-        <div class="field full">
-          <label for="compDescription">Description</label>
-          <textarea id="compDescription" required placeholder="Please describe the issue in detail..." rows="4"></textarea>
-          ${fieldErrorHtml('compDescErr')}
-        </div>
-      </div>
-    </form>
-  `, `
-    <button class="btn btn-ghost" id="cancelBtn">Cancel</button>
-    <button class="btn btn-primary" id="submitCompBtn">Submit Complaint</button>
-  `);
-
-  loadTenantShopsForComplaint();
-
-  document.getElementById('cancelBtn').addEventListener('click', closeModal);
-  document.getElementById('submitCompBtn').addEventListener('click', submitTenantComplaint);
-}
-
-async function loadTenantShopsForComplaint(){
-  try {
-    const shops = await api('/api/tenant/shops');
-    const select = document.getElementById('compShop');
-    if (shops.length === 0) {
-      select.innerHTML = '<option value="">— No shops assigned —</option>';
-    } else {
-      select.innerHTML = '<option value="">— Select a shop —</option>' +
-        shops.map(s => `<option value="${s.id}">${escapeHtml(s.shop_number)}${s.complex_name ? ' (' + escapeHtml(s.complex_name) + ')' : ''}</option>`).join('');
-    }
-  } catch (err) {
-    // Silently fail - allow complaint without shop
-  }
-}
-
-async function submitTenantComplaint(){
-  const form = document.getElementById('complaintForm');
-  clearFieldErrors(form);
-
-  const shop_id = document.getElementById('compShop').value ? Number(document.getElementById('compShop').value) : null;
-  const category = document.getElementById('compCategory').value;
-  const subject = document.getElementById('compSubject').value.trim();
-  const description = document.getElementById('compDescription').value.trim();
-
-  let ok = true;
-  if (!subject){ showFieldError('compSubjectErr','Subject is required'); document.getElementById('compSubject').classList.add('invalid'); ok=false; }
-  if (!description){ showFieldError('compDescErr','Please describe the issue'); document.getElementById('compDescription').classList.add('invalid'); ok=false; }
-  if (!ok) return;
-
-  await withSavingState('submitCompBtn', async () => {
-    const body = { category, subject, description };
-    if (shop_id) body.shop_id = shop_id;
-    await api('/api/complaint', { method:'POST', body });
-    closeModal();
-    showToast('Complaint submitted successfully', 'success');
-    await loadTenantPortal();
-  }, 'Submitting…');
-}
-
 </script>
 </body>
 </html>
