@@ -38,8 +38,7 @@ RUN pip install --no-cache-dir --upgrade pip \
 # ──────────────────────────────────────────────
 # Copy application source files
 # ──────────────────────────────────────────────
-COPY
-app.py .
+COPY app.py .
 COPY db_config.py .
 COPY log.py .
 COPY create_tables.py .
