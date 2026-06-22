@@ -324,8 +324,8 @@ td .row-actions{ display:flex; gap:6px; justify-content:flex-end; }
 .modal-overlay.show{ display:flex; animation:fade-in .15s ease; }
 @keyframes fade-in{ from{opacity:0;} to{opacity:1;} }
 .modal{
-  background:var(--paper-raised); border-radius:var(--radius); box-shadow:var(--shadow-lg); width:100%; max-width:480px;
-  max-height:88vh; overflow-y:auto; animation:modal-in .2s ease both;
+  background:var(--paper-raised); border-radius:var(--radius); box-shadow:var(--shadow-lg); width:100%; max-width:520px;
+  max-height:90vh; overflow-y:auto; animation:modal-in .2s ease both;
 }
 @keyframes modal-in{ from{opacity:0; transform:translateY(12px) scale(0.98);} to{opacity:1; transform:translateY(0) scale(1);} }
 .modal-head{ padding:20px 22px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; }
@@ -340,6 +340,7 @@ td .row-actions{ display:flex; gap:6px; justify-content:flex-end; }
 .field select, .field textarea{
   width:100%; padding:11px 13px; border:1.5px solid var(--line); border-radius:var(--radius-sm); font-size:14.5px; background:var(--paper-raised);
 }
+.field select:disabled{ background:#F4F1E9; color:var(--muted); cursor:not-allowed; }
 .field textarea{ resize:vertical; min-height:64px; font-family:var(--font-body); }
 .field .hint{ font-size:11.5px; color:var(--muted); margin-top:5px; }
 .field-error{ font-size:12px; color:var(--danger); margin-top:5px; font-weight:600; }
@@ -347,6 +348,64 @@ td .row-actions{ display:flex; gap:6px; justify-content:flex-end; }
 
 .confirm-body{ padding:22px; font-size:14.5px; }
 .confirm-body strong{ font-weight:700; }
+
+/* ---- Info card used inside modals ---- */
+.info-card{
+  background:var(--paper); border:1.5px solid var(--line); border-radius:var(--radius-sm);
+  padding:12px 14px; margin-top:4px; font-size:13px;
+}
+.info-card .info-row{ display:flex; justify-content:space-between; align-items:center; gap:10px; padding:3px 0; }
+.info-card .info-label{ color:var(--muted); font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.03em; }
+.info-card .info-val{ font-weight:600; font-family:var(--font-mono); font-size:13px; }
+.info-card .info-val.good{ color:var(--success); }
+.info-card .info-val.warn{ color:var(--rust); }
+
+/* ---- Step / path toggle inside modal ---- */
+.path-toggle{
+  display:flex; gap:0; border:1.5px solid var(--line); border-radius:var(--radius-sm); overflow:hidden; margin-bottom:18px;
+}
+.path-btn{
+  flex:1; padding:10px 12px; background:var(--paper-raised); border:none; font-size:13.5px; font-weight:600;
+  color:var(--muted); cursor:pointer; transition:background .12s, color .12s; border-right:1.5px solid var(--line);
+  display:flex; align-items:center; justify-content:center; gap:7px;
+}
+.path-btn:last-child{ border-right:none; }
+.path-btn.active{ background:var(--ink); color:#fff; }
+.path-btn:hover:not(.active){ background:var(--paper); color:var(--ink); }
+
+/* ---- Bill section inside payment modal ---- */
+.bill-list{ display:flex; flex-direction:column; gap:8px; margin-top:6px; }
+.bill-row{
+  border:1.5px solid var(--line); border-radius:var(--radius-sm); padding:11px 13px;
+  cursor:pointer; transition:border-color .12s, background .12s; display:flex; align-items:center; gap:12px;
+}
+.bill-row:hover{ border-color:var(--green); background:#F2F9F5; }
+.bill-row.selected{ border-color:var(--green); background:#E8F4EE; }
+.bill-row input[type=radio]{ accent-color:var(--green); width:15px; height:15px; flex-shrink:0; }
+.bill-row-info{ flex:1; min-width:0; }
+.bill-row-info .btype{ font-weight:700; font-size:13.5px; }
+.bill-row-info .bmeta{ font-size:12px; color:var(--muted); margin-top:2px; }
+.bill-row-amt{ text-align:right; flex-shrink:0; }
+.bill-row-amt .bpending{ font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--rust); }
+.bill-row-amt .bdue{ font-size:11.5px; color:var(--muted); margin-top:2px; }
+
+/* ---- Unoccupied warning ---- */
+.warn-box{
+  background:var(--rust-soft); border:1.5px solid #E8C4A8; border-radius:var(--radius-sm);
+  padding:11px 14px; font-size:13px; color:#7A3A18; display:flex; align-items:flex-start; gap:9px; margin-top:4px;
+}
+.warn-box svg{ flex-shrink:0; margin-top:1px; }
+
+/* ---- Payment summary before save ---- */
+.pay-summary{
+  background:var(--success-soft); border:1.5px solid #A8D9C4; border-radius:var(--radius-sm);
+  padding:13px 15px; margin-top:6px;
+}
+.pay-summary .ps-title{ font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--success); margin-bottom:8px; }
+.pay-summary .ps-row{ display:flex; justify-content:space-between; font-size:13px; padding:3px 0; }
+.pay-summary .ps-row .ps-key{ color:var(--muted); }
+.pay-summary .ps-row .ps-val{ font-weight:600; }
+.pay-summary .ps-row.ps-total .ps-val{ font-family:var(--font-mono); font-size:15px; color:var(--green-deep); }
 
 /* Tenant portal (read-only, simplified) */
 .tenant-shell{ width:100%; }
@@ -574,7 +633,7 @@ td .row-actions{ display:flex; gap:6px; justify-content:flex-end; }
 /* ================================================================
    CONFIG — set your backend URL here
    ================================================================ */
-const API_BASE_URL = "http://13.205.70.46:8000"; // <-- put your backend IP/URL here, e.g. "http://192.168.1.50:8000"
+const API_BASE_URL = "http://13.205.70.46:8000";
 
 /* ================================================================
    STATE
@@ -745,7 +804,6 @@ async function initAdminUser(){
   try {
     const users = await api('/api/user');
     state.cache.users = users; state.loaded.users = true;
-    // We don't have a "me" endpoint, so just show role generically.
     document.getElementById('sidebarUserName').textContent = 'Admin';
     document.getElementById('sidebarUserRole').textContent = state.role;
     document.getElementById('sidebarAvatar').textContent = 'A';
@@ -926,6 +984,9 @@ function stampHtml(status){
 }
 function emptyIcon(){
   return `<svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg>`;
+}
+function warnIcon(){
+  return `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
 }
 
 /* ================================================================
@@ -1122,19 +1183,31 @@ function attachBillHandlers(){
    PAYMENTS VIEW
    ================================================================ */
 async function paymentsView(){
-  const [payments, bills] = await Promise.all([ensureLoaded('payments','/api/payment'), ensureLoaded('bills','/api/bill')]);
+  const [payments, bills, users, shops] = await Promise.all([
+    ensureLoaded('payments','/api/payment'),
+    ensureLoaded('bills','/api/bill'),
+    ensureLoaded('users','/api/user'),
+    ensureLoaded('shops','/api/shop'),
+  ]);
+  const userName = (id) => users.find(u=>u.id===id)?.name || `#${id}`;
+  const shopNum = (id) => shops.find(s=>s.id===id)?.shop_number || `#${id}`;
   const billRef = (id) => { const b = bills.find(x=>x.id===id); return b ? `#${b.id} · ${b.bill_type}` : `#${id}`; };
+  const billTenant = (id) => { const b = bills.find(x=>x.id===id); return b ? userName(b.user_id) : '—'; };
+  const billShop = (id) => { const b = bills.find(x=>x.id===id); return b ? shopNum(b.shop_id) : '—'; };
+
   return `
   <div class="toolbar"><input class="search-input" id="tableSearch" placeholder="Search payments…"></div>
   ${payments.length === 0 ? emptyStateHtml('No payments recorded', 'Payments you record against bills will appear here.', emptyIcon()) : `
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Payment</th><th>Bill</th><th class="num">Amount</th><th>Method</th><th>Date</th><th>Remarks</th></tr></thead>
+      <thead><tr><th>Payment</th><th>Bill</th><th>Tenant</th><th>Shop</th><th class="num">Amount</th><th>Method</th><th>Date</th><th>Remarks</th></tr></thead>
       <tbody>
         ${payments.map(p => `
-          <tr data-search="${escapeHtml(billRef(p.bill_id)+' '+p.payment_method)}">
+          <tr data-search="${escapeHtml(billRef(p.bill_id)+' '+billTenant(p.bill_id)+' '+billShop(p.bill_id)+' '+p.payment_method)}">
             <td class="mono">#${p.id}</td>
             <td class="mono">${escapeHtml(billRef(p.bill_id))}</td>
+            <td>${escapeHtml(billTenant(p.bill_id))}</td>
+            <td class="mono">${escapeHtml(billShop(p.bill_id))}</td>
             <td class="num">${currency(p.amount)}</td>
             <td>${escapeHtml(p.payment_method)}</td>
             <td>${dateFmt(p.payment_date)}</td>
@@ -1534,7 +1607,6 @@ function renderUserForm(existing){
     }
     if (!ok) return;
 
-    // If deactivating a user who currently owns shops, confirm first
     if (isEdit && existing.is_active && body.is_active === false){
       const shops = await ensureLoaded('shops','/api/shop');
       const ownedShops = shops.filter(s => s.assigned_to?.id === existing.id);
@@ -1592,9 +1664,6 @@ async function openAssignShopsModal(userId, userName){
   const shops = await ensureLoaded('shops','/api/shop');
   const complexes = await ensureLoaded('complexes','/api/complex');
   const complexName = (id) => complexes.find(c=>c.id===id)?.name || `#${id}`;
-  const available = shops.filter(s => !s.assigned_to || s.assigned_to.id === userId);
-  const owned = shops.filter(s => s.assigned_to?.id === userId);
-  const takenByOthers = shops.filter(s => s.assigned_to && s.assigned_to.id !== userId);
 
   openModal(`Assign shops — ${userName}`, `
     <p style="font-size:13.5px; color:var(--muted); margin:0 0 14px;">Each shop can have one tenant at a time. Shops already owned by someone else are shown but flagged — selecting one will ask to confirm a reassignment.</p>
@@ -1645,7 +1714,6 @@ async function submitAssignShops(userId, userName, force){
 }
 
 function renderReassignConfirm(userId, userName, ids){
-  // Re-fetch conflict details from current cache (already loaded shop list)
   const conflicts = ids
     .map(id => state.cache.shops.find(s => s.id === id))
     .filter(s => s && s.assigned_to && s.assigned_to.id !== userId);
@@ -1674,70 +1742,179 @@ function renderReassignConfirm(userId, userName, ids){
   });
 }
 
-/* ---- BILL modal (create) ---- */
+/* ================================================================
+   BILL MODAL — Smart cascade: Complex → Shop → Tenant (auto-locked)
+   ================================================================ */
 async function openBillModal(){
-  const [users, shops] = await Promise.all([ensureLoaded('users','/api/user'), ensureLoaded('shops','/api/shop')]);
-  const tenants = users.filter(u => u.role === 'tenant');
+  await Promise.all([
+    ensureLoaded('complexes','/api/complex'),
+    ensureLoaded('shops','/api/shop'),
+    ensureLoaded('users','/api/user'),
+  ]);
+
+  const complexes = state.cache.complexes;
   const today = new Date(); const due = new Date(); due.setDate(today.getDate()+14);
 
   openModal('Add bill', `
+    <div style="font-size:12px; color:var(--muted); background:var(--paper); border-radius:var(--radius-sm); padding:8px 11px; margin-bottom:16px; display:flex; align-items:center; gap:7px;">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      Select a complex and shop first — only the assigned tenant can be billed for that shop.
+    </div>
     <form id="billForm">
-      <div class="form-grid">
-        <div class="field full">
-          <label for="bUser">Tenant</label>
-          <select id="bUser">
-            ${tenants.map(u => `<option value="${u.id}">${escapeHtml(u.name)} — ${escapeHtml(u.mobile)}</option>`).join('')}
-          </select>
-          ${tenants.length===0 ? '<div class="hint">No tenants found. Add a tenant user first.</div>' : ''}
-        </div>
-        <div class="field full">
-          <label for="bShop">Shop</label>
-          <select id="bShop">
-            ${shops.map(s => `<option value="${s.id}">${escapeHtml(s.shop_number)}</option>`).join('')}
-          </select>
-        </div>
+      <div class="field">
+        <label for="bComplex">Complex</label>
+        <select id="bComplex">
+          <option value="">— select complex —</option>
+          ${complexes.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field">
+        <label for="bShop">Shop</label>
+        <select id="bShop" disabled>
+          <option value="">— select complex first —</option>
+        </select>
+      </div>
+      <div id="bTenantWrap" style="display:none;">
         <div class="field">
-          <label for="bType">Bill type</label>
-          <input id="bType" required placeholder="Maintenance / Electricity / Rent">
-          ${fieldErrorHtml('bTypeErr')}
+          <label>Tenant</label>
+          <div class="info-card" id="bTenantCard"></div>
         </div>
-        <div class="field">
-          <label for="bAmount">Amount (₹)</label>
-          <input id="bAmount" type="number" step="0.01" min="0.01" required placeholder="5000.00">
-          ${fieldErrorHtml('bAmountErr')}
-        </div>
-        <div class="field full">
-          <label for="bDesc">Description</label>
-          <input id="bDesc" placeholder="Monthly maintenance charges">
-        </div>
-        <div class="field full">
-          <label for="bDue">Due date</label>
-          <input id="bDue" type="date" value="${due.toISOString().slice(0,10)}">
+      </div>
+      <div id="bUnoccupiedWarn" style="display:none;" class="warn-box">
+        ${warnIcon()}
+        <span>This shop has no tenant assigned. Assign a tenant to this shop before raising a bill.</span>
+      </div>
+      <div id="bBillFields" style="display:none;">
+        <div class="form-grid" style="margin-top:4px;">
+          <div class="field">
+            <label for="bType">Bill type</label>
+            <input id="bType" required placeholder="Maintenance / Electricity / Rent">
+            ${fieldErrorHtml('bTypeErr')}
+          </div>
+          <div class="field">
+            <label for="bAmount">Amount (₹)</label>
+            <input id="bAmount" type="number" step="0.01" min="0.01" required placeholder="5000.00">
+            ${fieldErrorHtml('bAmountErr')}
+          </div>
+          <div class="field full">
+            <label for="bDesc">Description</label>
+            <input id="bDesc" placeholder="e.g. Monthly maintenance charges">
+          </div>
+          <div class="field full">
+            <label for="bDue">Due date</label>
+            <input id="bDue" type="date" value="${due.toISOString().slice(0,10)}">
+          </div>
         </div>
       </div>
     </form>
   `, `
     <button class="btn btn-ghost" id="cancelBtn">Cancel</button>
-    <button class="btn btn-primary" id="saveBtn" ${tenants.length===0||shops.length===0?'disabled':''}>Add bill</button>
+    <button class="btn btn-primary" id="saveBtn" disabled>Add bill</button>
   `);
+
   document.getElementById('cancelBtn').addEventListener('click', closeModal);
+
+  // Complex → filter shops
+  document.getElementById('bComplex').addEventListener('change', () => {
+    const complexId = Number(document.getElementById('bComplex').value);
+    const shopSel = document.getElementById('bShop');
+    const tenantWrap = document.getElementById('bTenantWrap');
+    const billFields = document.getElementById('bBillFields');
+    const warnEl = document.getElementById('bUnoccupiedWarn');
+    const saveBtn = document.getElementById('saveBtn');
+
+    tenantWrap.style.display = 'none';
+    billFields.style.display = 'none';
+    warnEl.style.display = 'none';
+    saveBtn.disabled = true;
+
+    if (!complexId){
+      shopSel.innerHTML = '<option value="">— select complex first —</option>';
+      shopSel.disabled = true;
+      return;
+    }
+
+    const shopsInComplex = state.cache.shops.filter(s => s.complex_id === complexId);
+    if (shopsInComplex.length === 0){
+      shopSel.innerHTML = '<option value="">No shops in this complex</option>';
+      shopSel.disabled = true;
+      return;
+    }
+
+    shopSel.disabled = false;
+    shopSel.innerHTML = '<option value="">— select shop —</option>' +
+      shopsInComplex.map(s => {
+        const tenant = s.assigned_to ? ` · ${s.assigned_to.name}` : ' · unoccupied';
+        return `<option value="${s.id}" data-tenant-id="${s.assigned_to?.id || ''}">${escapeHtml(s.shop_number)}${escapeHtml(tenant)}</option>`;
+      }).join('');
+
+    // Trigger shop change to reset downstream
+    shopSel.dispatchEvent(new Event('change'));
+  });
+
+  // Shop → lock tenant + show bill fields
+  document.getElementById('bShop').addEventListener('change', () => {
+    const shopId = Number(document.getElementById('bShop').value);
+    const tenantWrap = document.getElementById('bTenantWrap');
+    const tenantCard = document.getElementById('bTenantCard');
+    const billFields = document.getElementById('bBillFields');
+    const warnEl = document.getElementById('bUnoccupiedWarn');
+    const saveBtn = document.getElementById('saveBtn');
+
+    tenantWrap.style.display = 'none';
+    billFields.style.display = 'none';
+    warnEl.style.display = 'none';
+    saveBtn.disabled = true;
+
+    if (!shopId) return;
+
+    const shop = state.cache.shops.find(s => s.id === shopId);
+    if (!shop) return;
+
+    if (!shop.assigned_to){
+      warnEl.style.display = 'flex';
+      return;
+    }
+
+    const user = state.cache.users.find(u => u.id === shop.assigned_to.id);
+    tenantCard.innerHTML = `
+      <div class="info-row"><span class="info-label">Name</span><span class="info-val">${escapeHtml(shop.assigned_to.name)}</span></div>
+      <div class="info-row"><span class="info-label">Mobile</span><span class="info-val">${escapeHtml(user?.mobile || '—')}</span></div>
+      <div class="info-row"><span class="info-label">Shop</span><span class="info-val">${escapeHtml(shop.shop_number)}</span></div>
+    `;
+    tenantWrap.style.display = 'block';
+    billFields.style.display = 'block';
+    saveBtn.disabled = false;
+  });
+
   document.getElementById('saveBtn').addEventListener('click', async () => {
     const form = document.getElementById('billForm');
     clearFieldErrors(form);
-    const user_id = Number(document.getElementById('bUser').value);
-    const shop_id = Number(document.getElementById('bShop').value);
+    const shopId = Number(document.getElementById('bShop').value);
     const bill_type = document.getElementById('bType').value.trim();
     const amount = parseFloat(document.getElementById('bAmount').value);
     const description = document.getElementById('bDesc').value.trim();
     const due_date = document.getElementById('bDue').value;
+
+    if (!shopId){ showToast('Select a shop first', 'error'); return; }
+    const shop = state.cache.shops.find(s => s.id === shopId);
+    if (!shop || !shop.assigned_to){ showToast('This shop has no tenant assigned', 'error'); return; }
+
     let ok = true;
     if (!bill_type){ showFieldError('bTypeErr','Bill type is required'); document.getElementById('bType').classList.add('invalid'); ok=false; }
     if (isNaN(amount) || amount <= 0){ showFieldError('bAmountErr','Enter a valid amount'); document.getElementById('bAmount').classList.add('invalid'); ok=false; }
     if (!ok) return;
 
+    // Final conflict check: make sure user_id actually owns this shop right now
+    const user_id = shop.assigned_to.id;
+
     await withSavingState('saveBtn', async () => {
       await api('/api/bill', { method:'POST', body:{
-        user_id, shop_id, bill_type, amount, description,
+        user_id,
+        shop_id: shopId,
+        bill_type,
+        amount,
+        description,
         due_date: due_date ? new Date(due_date).toISOString() : null
       }});
       state.loaded.bills = false;
@@ -1748,63 +1925,494 @@ async function openBillModal(){
   });
 }
 
-/* ---- PAYMENT modal (create / record against specific bill) ---- */
-async function openPaymentModal(){ renderPaymentForm(null); }
+/* ================================================================
+   PAYMENT MODAL — Guided: Complex → By Shop OR By Tenant → Bills
+   ================================================================ */
+async function openPaymentModal(){ await renderPaymentForm(null); }
 async function openRecordPaymentModal(billId){
-  const bills = await ensureLoaded('bills','/api/bill');
-  renderPaymentForm(bills.find(b=>b.id===billId));
+  await Promise.all([
+    ensureLoaded('complexes','/api/complex'),
+    ensureLoaded('shops','/api/shop'),
+    ensureLoaded('users','/api/user'),
+    ensureLoaded('bills','/api/bill'),
+  ]);
+  const bill = state.cache.bills.find(b => b.id === billId);
+  if (!bill){ await renderPaymentForm(null); return; }
+  // Find shop and complex for preselection
+  const shop = state.cache.shops.find(s => s.id === bill.shop_id);
+  await renderPaymentForm({ preselectedBillId: billId, preselectedShopId: shop?.id, preselectedComplexId: shop?.complex_id });
 }
 
-async function renderPaymentForm(preselectedBill){
-  const bills = await ensureLoaded('bills','/api/bill');
-  const payable = bills.filter(b => b.status !== 'paid');
+async function renderPaymentForm(presel){
+  await Promise.all([
+    ensureLoaded('complexes','/api/complex'),
+    ensureLoaded('shops','/api/shop'),
+    ensureLoaded('users','/api/user'),
+    ensureLoaded('bills','/api/bill'),
+  ]);
+
+  const complexes = state.cache.complexes;
+  const preComplexId = presel?.preselectedComplexId || '';
+  const preShopId = presel?.preselectedShopId || '';
+  const preBillId = presel?.preselectedBillId || '';
+
   openModal('Record payment', `
-    <form id="paymentForm">
-      <div class="field">
-        <label for="pBill">Bill</label>
-        <select id="pBill">
-          ${payable.map(b => `<option value="${b.id}" data-pending="${b.pending_amount}" ${preselectedBill?.id===b.id?'selected':''}>#${b.id} — ${escapeHtml(b.bill_type)} (pending ${currency(b.pending_amount)})</option>`).join('')}
-        </select>
-        ${payable.length===0 ? '<div class="hint">No bills with pending dues.</div>' : ''}
+    <div style="font-size:12px; color:var(--muted); background:var(--paper); border-radius:var(--radius-sm); padding:8px 11px; margin-bottom:16px; display:flex; align-items:center; gap:7px;">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      Start with the complex, then find by shop number or tenant name.
+    </div>
+
+    <div class="field">
+      <label for="pComplex">Complex</label>
+      <select id="pComplex">
+        <option value="">— select complex —</option>
+        ${complexes.map(c => `<option value="${c.id}" ${preComplexId==c.id?'selected':''}>${escapeHtml(c.name)}</option>`).join('')}
+      </select>
+    </div>
+
+    <div id="pPathSection" style="display:none;">
+      <div class="path-toggle" id="pPathToggle">
+        <button class="path-btn active" id="pathByShop" type="button">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l1-5h16l1 5M4 9v10a1 1 0 001 1h14a1 1 0 001-1V9M4 9h16"/></svg>
+          By shop number
+        </button>
+        <button class="path-btn" id="pathByUser" type="button">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="4"/><path d="M2 21v-2a4 4 0 014-4h6a4 4 0 014 4v2"/></svg>
+          By tenant name
+        </button>
       </div>
-      <div class="field">
-        <label for="pAmount">Amount (₹)</label>
-        <input id="pAmount" type="number" step="0.01" min="0.01" required value="${preselectedBill ? preselectedBill.pending_amount : ''}">
-        ${fieldErrorHtml('pAmountErr')}
+
+      <!-- BY SHOP path -->
+      <div id="pathShopFields">
+        <div class="field">
+          <label for="pShop">Shop</label>
+          <select id="pShop">
+            <option value="">— select shop —</option>
+          </select>
+        </div>
+        <div id="pShopTenantInfo" style="display:none;">
+          <div class="field">
+            <label>Tenant on this shop</label>
+            <div class="info-card" id="pShopTenantCard"></div>
+          </div>
+        </div>
+        <div id="pShopNoTenantWarn" style="display:none;" class="warn-box">
+          ${warnIcon()}
+          <span>This shop has no tenant — no bills to collect against.</span>
+        </div>
       </div>
-      <div class="field">
-        <label for="pMethod">Payment method</label>
-        <select id="pMethod">
-          <option>Cash</option><option>UPI</option><option>Bank Transfer</option><option>Cheque</option><option>Card</option>
-        </select>
+
+      <!-- BY TENANT path -->
+      <div id="pathUserFields" style="display:none;">
+        <div class="field">
+          <label for="pUser">Tenant</label>
+          <select id="pUser">
+            <option value="">— select tenant —</option>
+          </select>
+        </div>
+        <div id="pUserShopInfo" style="display:none;">
+          <div class="field">
+            <label>Shops held by this tenant (in complex)</label>
+            <div class="info-card" id="pUserShopCard"></div>
+          </div>
+        </div>
       </div>
+    </div>
+
+    <!-- BILLS section — shown after shop/tenant resolved -->
+    <div id="pBillSection" style="display:none;">
       <div class="field">
-        <label for="pRemarks">Remarks</label>
-        <input id="pRemarks" placeholder="Optional note">
+        <label>Select bill to pay</label>
+        <div id="pBillList" class="bill-list"></div>
+        <div id="pNoBillsMsg" style="display:none; font-size:13px; color:var(--muted); padding:8px 0;">
+          No pending bills found for this selection.
+        </div>
       </div>
-    </form>
+    </div>
+
+    <!-- AMOUNT + METHOD — shown after bill selected -->
+    <div id="pAmtSection" style="display:none;">
+      <div class="form-grid">
+        <div class="field">
+          <label for="pAmount">Amount paying (₹)</label>
+          <input id="pAmount" type="number" step="0.01" min="0.01" placeholder="0.00">
+          ${fieldErrorHtml('pAmountErr')}
+          <div class="hint" id="pAmountHint"></div>
+        </div>
+        <div class="field">
+          <label for="pMethod">Payment method</label>
+          <select id="pMethod">
+            <option>Cash</option><option>UPI</option><option>Bank Transfer</option><option>Cheque</option><option>Card</option>
+          </select>
+        </div>
+        <div class="field full">
+          <label for="pRemarks">Remarks</label>
+          <input id="pRemarks" placeholder="Optional note, transaction ID, etc.">
+        </div>
+      </div>
+
+      <!-- Summary card -->
+      <div id="pSummary" style="display:none;" class="pay-summary">
+        <div class="ps-title">Payment summary</div>
+        <div class="ps-row"><span class="ps-key">Tenant</span><span class="ps-val" id="psTenant">—</span></div>
+        <div class="ps-row"><span class="ps-key">Shop</span><span class="ps-val" id="psShop">—</span></div>
+        <div class="ps-row"><span class="ps-key">Bill</span><span class="ps-val" id="psBill">—</span></div>
+        <div class="ps-row"><span class="ps-key">Bill total</span><span class="ps-val" id="psBillTotal">—</span></div>
+        <div class="ps-row"><span class="ps-key">Already paid</span><span class="ps-val" id="psPaid">—</span></div>
+        <div class="ps-row ps-total"><span class="ps-key">Paying now</span><span class="ps-val" id="psNow">—</span></div>
+      </div>
+    </div>
   `, `
     <button class="btn btn-ghost" id="cancelBtn">Cancel</button>
-    <button class="btn btn-primary" id="saveBtn" ${payable.length===0?'disabled':''}>Record payment</button>
+    <button class="btn btn-primary" id="pSaveBtn" disabled>Record payment</button>
   `);
+
   document.getElementById('cancelBtn').addEventListener('click', closeModal);
-  document.getElementById('saveBtn').addEventListener('click', async () => {
-    const form = document.getElementById('paymentForm');
-    clearFieldErrors(form);
-    const bill_id = Number(document.getElementById('pBill').value);
+
+  // ---- internal state for the payment modal ----
+  let _selectedUserId = null;
+  let _selectedShopId = null;
+  let _selectedBillId = null;
+  let _currentPath = 'shop'; // 'shop' | 'user'
+
+  function resetBillSection(){
+    _selectedBillId = null;
+    document.getElementById('pBillSection').style.display = 'none';
+    document.getElementById('pAmtSection').style.display = 'none';
+    document.getElementById('pSummary').style.display = 'none';
+    document.getElementById('pSaveBtn').disabled = true;
+  }
+
+  function resetFromPath(){
+    _selectedUserId = null;
+    _selectedShopId = null;
+    resetBillSection();
+  }
+
+  function renderBills(userId, shopId){
+    _selectedUserId = userId;
+    _selectedShopId = shopId;
+    resetBillSection();
+
+    const allBills = state.cache.bills;
+    // KEY CONFLICT GUARD: only show bills that belong to this exact user AND this exact shop
+    const pending = allBills.filter(b =>
+      b.user_id === userId &&
+      b.shop_id === shopId &&
+      b.status !== 'paid'
+    );
+
+    const billSection = document.getElementById('pBillSection');
+    const billList = document.getElementById('pBillList');
+    const noBillsMsg = document.getElementById('pNoBillsMsg');
+
+    billSection.style.display = 'block';
+
+    if (pending.length === 0){
+      billList.innerHTML = '';
+      noBillsMsg.style.display = 'block';
+      return;
+    }
+
+    noBillsMsg.style.display = 'none';
+    billList.innerHTML = pending.map(b => `
+      <label class="bill-row" id="billRow_${b.id}">
+        <input type="radio" name="selectedBill" value="${b.id}">
+        <div class="bill-row-info">
+          <div class="btype">${escapeHtml(b.bill_type)}</div>
+          <div class="bmeta">Bill #${b.id} · due ${dateFmt(b.due_date)}${b.description ? ' · '+escapeHtml(b.description) : ''}</div>
+        </div>
+        <div class="bill-row-amt">
+          <div class="bpending">${currency(b.pending_amount)}</div>
+          <div class="bdue">pending</div>
+        </div>
+      </label>
+    `).join('');
+
+    // Auto-select if preselected
+    if (preBillId){
+      const radio = billList.querySelector(`input[value="${preBillId}"]`);
+      if (radio){ radio.checked = true; radio.closest('.bill-row').classList.add('selected'); onBillSelected(Number(preBillId)); }
+    }
+
+    billList.querySelectorAll('input[name=selectedBill]').forEach(radio => {
+      radio.addEventListener('change', () => {
+        billList.querySelectorAll('.bill-row').forEach(r => r.classList.remove('selected'));
+        radio.closest('.bill-row').classList.add('selected');
+        onBillSelected(Number(radio.value));
+      });
+    });
+  }
+
+  function onBillSelected(billId){
+    _selectedBillId = billId;
+    const bill = state.cache.bills.find(b => b.id === billId);
+    if (!bill) return;
+
+    const amtSection = document.getElementById('pAmtSection');
+    const amtInput = document.getElementById('pAmount');
+    const amtHint = document.getElementById('pAmountHint');
+
+    amtSection.style.display = 'block';
+    amtInput.value = Number(bill.pending_amount).toFixed(2);
+    amtHint.textContent = `Max: ${currency(bill.pending_amount)} (full pending amount)`;
+
+    // Watch amount to update summary
+    amtInput.addEventListener('input', updateSummary);
+    document.getElementById('pMethod').addEventListener('change', updateSummary);
+    updateSummary();
+    document.getElementById('pSaveBtn').disabled = false;
+  }
+
+  function updateSummary(){
+    const billId = _selectedBillId;
+    const bill = state.cache.bills.find(b => b.id === billId);
+    if (!bill) return;
+
+    const amt = parseFloat(document.getElementById('pAmount').value);
+    const shop = state.cache.shops.find(s => s.id === bill.shop_id);
+    const user = state.cache.users.find(u => u.id === bill.user_id);
+    const paidAlready = Number(bill.amount) - Number(bill.pending_amount);
+
+    const summary = document.getElementById('pSummary');
+    summary.style.display = 'block';
+    document.getElementById('psTenant').textContent = user?.name || `#${bill.user_id}`;
+    document.getElementById('psShop').textContent = shop?.shop_number || `#${bill.shop_id}`;
+    document.getElementById('psBill').textContent = `#${bill.id} · ${bill.bill_type}`;
+    document.getElementById('psBillTotal').textContent = currency(bill.amount);
+    document.getElementById('psPaid').textContent = currency(paidAlready);
+    document.getElementById('psNow').textContent = isNaN(amt) ? '—' : currency(amt);
+  }
+
+  // ---- Path toggle ----
+  document.getElementById('pathByShop').addEventListener('click', () => {
+    _currentPath = 'shop';
+    document.getElementById('pathByShop').classList.add('active');
+    document.getElementById('pathByUser').classList.remove('active');
+    document.getElementById('pathShopFields').style.display = 'block';
+    document.getElementById('pathUserFields').style.display = 'none';
+    resetFromPath();
+    // Re-trigger shop select if value set
+    const shopSel = document.getElementById('pShop');
+    if (shopSel.value) shopSel.dispatchEvent(new Event('change'));
+  });
+
+  document.getElementById('pathByUser').addEventListener('click', () => {
+    _currentPath = 'user';
+    document.getElementById('pathByUser').classList.add('active');
+    document.getElementById('pathByShop').classList.remove('active');
+    document.getElementById('pathUserFields').style.display = 'block';
+    document.getElementById('pathShopFields').style.display = 'none';
+    resetFromPath();
+    const userSel = document.getElementById('pUser');
+    if (userSel.value) userSel.dispatchEvent(new Event('change'));
+  });
+
+  // ---- Complex change: populate both shop and user lists ----
+  function onComplexChange(){
+    const complexId = Number(document.getElementById('pComplex').value);
+    const pathSection = document.getElementById('pPathSection');
+    const shopSel = document.getElementById('pShop');
+    const userSel = document.getElementById('pUser');
+
+    resetFromPath();
+    document.getElementById('pShopTenantInfo').style.display = 'none';
+    document.getElementById('pShopNoTenantWarn').style.display = 'none';
+    document.getElementById('pUserShopInfo').style.display = 'none';
+
+    if (!complexId){ pathSection.style.display = 'none'; return; }
+
+    pathSection.style.display = 'block';
+
+    // Populate shops in this complex
+    const shopsInComplex = state.cache.shops.filter(s => s.complex_id === complexId);
+    shopSel.innerHTML = '<option value="">— select shop —</option>' +
+      shopsInComplex.map(s => {
+        const suffix = s.assigned_to ? ` · ${s.assigned_to.name}` : ' · unoccupied';
+        return `<option value="${s.id}" ${preShopId==s.id?'selected':''}>${escapeHtml(s.shop_number)}${escapeHtml(suffix)}</option>`;
+      }).join('');
+
+    // Populate tenants who have shops in this complex
+    const tenantIdsInComplex = new Set(
+      shopsInComplex.filter(s => s.assigned_to).map(s => s.assigned_to.id)
+    );
+    const tenantsInComplex = state.cache.users.filter(u => u.role === 'tenant' && tenantIdsInComplex.has(u.id));
+    userSel.innerHTML = '<option value="">— select tenant —</option>' +
+      tenantsInComplex.map(u => `<option value="${u.id}">${escapeHtml(u.name)} · ${escapeHtml(u.mobile)}</option>`).join('');
+
+    if (tenantsInComplex.length === 0){
+      userSel.innerHTML = '<option value="">No tenants with shops in this complex</option>';
+    }
+
+    // If preselected shop, trigger change
+    if (preShopId && shopsInComplex.find(s => s.id == preShopId)){
+      shopSel.value = preShopId;
+      shopSel.dispatchEvent(new Event('change'));
+    }
+  }
+
+  document.getElementById('pComplex').addEventListener('change', onComplexChange);
+
+  // ---- By Shop: shop change → resolve tenant, load bills ----
+  document.getElementById('pShop').addEventListener('change', () => {
+    const shopId = Number(document.getElementById('pShop').value);
+    const tenantInfo = document.getElementById('pShopTenantInfo');
+    const tenantCard = document.getElementById('pShopTenantCard');
+    const noTenantWarn = document.getElementById('pShopNoTenantWarn');
+    resetBillSection();
+
+    tenantInfo.style.display = 'none';
+    noTenantWarn.style.display = 'none';
+
+    if (!shopId) return;
+
+    const shop = state.cache.shops.find(s => s.id === shopId);
+    if (!shop || !shop.assigned_to){
+      noTenantWarn.style.display = 'flex';
+      return;
+    }
+
+    const user = state.cache.users.find(u => u.id === shop.assigned_to.id);
+    tenantCard.innerHTML = `
+      <div class="info-row"><span class="info-label">Tenant</span><span class="info-val">${escapeHtml(shop.assigned_to.name)}</span></div>
+      <div class="info-row"><span class="info-label">Mobile</span><span class="info-val">${escapeHtml(user?.mobile || '—')}</span></div>
+    `;
+    tenantInfo.style.display = 'block';
+    // Render bills: only for this tenant + this shop (no cross-contamination)
+    renderBills(shop.assigned_to.id, shopId);
+  });
+
+  // ---- By Tenant: user change → show shops, load bills ----
+  document.getElementById('pUser').addEventListener('change', () => {
+    const userId = Number(document.getElementById('pUser').value);
+    const complexId = Number(document.getElementById('pComplex').value);
+    const shopInfo = document.getElementById('pUserShopInfo');
+    const shopCard = document.getElementById('pUserShopCard');
+    resetBillSection();
+    shopInfo.style.display = 'none';
+
+    if (!userId) return;
+
+    // Find shops this tenant holds in this complex
+    const userShops = state.cache.shops.filter(s =>
+      s.complex_id === complexId && s.assigned_to?.id === userId
+    );
+
+    if (userShops.length === 0){
+      shopCard.innerHTML = `<div class="info-row"><span class="info-label">Shops</span><span class="info-val warn">None in this complex</span></div>`;
+      shopInfo.style.display = 'block';
+      return;
+    }
+
+    shopCard.innerHTML = userShops.map(s => `
+      <div class="info-row"><span class="info-label">Shop</span><span class="info-val">${escapeHtml(s.shop_number)}</span></div>
+    `).join('');
+    shopInfo.style.display = 'block';
+
+    // If only one shop, auto-load bills for that shop+user combo
+    if (userShops.length === 1){
+      renderBills(userId, userShops[0].id);
+    } else {
+      // Multiple shops: show all pending bills across all their shops in this complex
+      // Pick the first shop with pending bills, or show combined
+      // We aggregate bills across all user's shops in this complex
+      const allUserShopIds = new Set(userShops.map(s => s.id));
+      const pending = state.cache.bills.filter(b =>
+        b.user_id === userId &&
+        allUserShopIds.has(b.shop_id) &&
+        b.status !== 'paid'
+      );
+
+      // Show bills but use actual shop_id from each bill (no conflict possible since user_id matches)
+      _selectedUserId = userId;
+      _selectedShopId = null; // multiple — will be resolved per bill
+      const billSection = document.getElementById('pBillSection');
+      const billList = document.getElementById('pBillList');
+      const noBillsMsg = document.getElementById('pNoBillsMsg');
+      billSection.style.display = 'block';
+
+      if (pending.length === 0){
+        billList.innerHTML = '';
+        noBillsMsg.style.display = 'block';
+        return;
+      }
+      noBillsMsg.style.display = 'none';
+      billList.innerHTML = pending.map(b => {
+        const billShop = state.cache.shops.find(s => s.id === b.shop_id);
+        return `
+        <label class="bill-row" id="billRow_${b.id}">
+          <input type="radio" name="selectedBill" value="${b.id}" data-shop-id="${b.shop_id}">
+          <div class="bill-row-info">
+            <div class="btype">${escapeHtml(b.bill_type)} <span style="font-size:11.5px; color:var(--muted); font-weight:400;">· Shop ${escapeHtml(billShop?.shop_number||'#'+b.shop_id)}</span></div>
+            <div class="bmeta">Bill #${b.id} · due ${dateFmt(b.due_date)}${b.description ? ' · '+escapeHtml(b.description) : ''}</div>
+          </div>
+          <div class="bill-row-amt">
+            <div class="bpending">${currency(b.pending_amount)}</div>
+            <div class="bdue">pending</div>
+          </div>
+        </label>`;
+      }).join('');
+
+      billList.querySelectorAll('input[name=selectedBill]').forEach(radio => {
+        radio.addEventListener('change', () => {
+          billList.querySelectorAll('.bill-row').forEach(r => r.classList.remove('selected'));
+          radio.closest('.bill-row').classList.add('selected');
+          _selectedShopId = Number(radio.dataset.shopId);
+          onBillSelected(Number(radio.value));
+        });
+      });
+    }
+  });
+
+  // ---- Save payment ----
+  document.getElementById('pSaveBtn').addEventListener('click', async () => {
+    if (!_selectedBillId){ showToast('Select a bill first', 'error'); return; }
+
+    const bill = state.cache.bills.find(b => b.id === _selectedBillId);
+    if (!bill){ showToast('Bill not found', 'error'); return; }
+
     const amount = parseFloat(document.getElementById('pAmount').value);
     const payment_method = document.getElementById('pMethod').value;
     const remarks = document.getElementById('pRemarks').value.trim();
-    if (isNaN(amount) || amount <= 0){ showFieldError('pAmountErr','Enter a valid amount'); document.getElementById('pAmount').classList.add('invalid'); return; }
 
-    await withSavingState('saveBtn', async () => {
-      await api('/api/payment', { method:'POST', body:{ bill_id, amount, payment_method, remarks } });
-      state.loaded.bills = false; state.loaded.payments = false;
+    // Conflict guards
+    if (isNaN(amount) || amount <= 0){
+      showFieldError('pAmountErr', 'Enter a valid amount');
+      document.getElementById('pAmount').classList.add('invalid');
+      return;
+    }
+    if (amount > Number(bill.pending_amount) + 0.001){
+      showFieldError('pAmountErr', `Amount exceeds pending due of ${currency(bill.pending_amount)}`);
+      document.getElementById('pAmount').classList.add('invalid');
+      return;
+    }
+
+    // Verify the bill actually belongs to the resolved tenant (final guard)
+    if (_selectedUserId && bill.user_id !== _selectedUserId){
+      showToast('Conflict: this bill does not belong to the selected tenant. Refresh and try again.', 'error');
+      return;
+    }
+
+    await withSavingState('pSaveBtn', async () => {
+      await api('/api/payment', { method:'POST', body:{
+        bill_id: _selectedBillId,
+        amount,
+        payment_method,
+        remarks
+      }});
+      state.loaded.bills = false;
+      state.loaded.payments = false;
       closeModal();
-      showToast('Payment recorded', 'success');
+      showToast(`Payment of ${currency(amount)} recorded`, 'success');
       await renderView(state.view === 'bills' ? 'bills' : 'payments');
     });
   });
+
+  // Trigger preselected complex if coming from a bill's quick-pay button
+  if (presel?.preselectedComplexId){
+    document.getElementById('pComplex').value = presel.preselectedComplexId;
+    onComplexChange();
+  }
 }
 
 /* ---- DELETE confirm ---- */

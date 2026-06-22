@@ -66,6 +66,12 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+@app.get("/")
+async def root():
+    return FileResponse("static/index.html")
+
 # ──────────────────────────────────────────────
 # CORS Configuration - Allow frontend access
 # ──────────────────────────────────────────────
