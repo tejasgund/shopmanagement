@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Ledger — Shop &amp; Tenant Management</title>
+<title>Sahyadri Business Park</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -400,11 +400,11 @@ td .row-actions{ display:flex; gap:6px; justify-content:flex-end; }
 <div class="login-wrap" id="loginScreen">
   <div class="login-card">
     <div class="login-mark">
-      <div class="stamp-mark">L</div>
-      <div class="wordmark">Ledger<span>.</span></div>
+      <div class="stamp-mark">S</div>
+      <div class="wordmark">Sahyadri<span> Park</span></div>
     </div>
     <h1>Sign in</h1>
-    <p class="login-sub">Manage complexes, shops, tenants and bills.</p>
+    <p class="login-sub">Sahyadri Business Park — Tenant & Shop Management.</p>
 
     <div class="login-error" id="loginError"></div>
 
@@ -439,8 +439,8 @@ td .row-actions{ display:flex; gap:6px; justify-content:flex-end; }
 <div class="app" id="adminApp">
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-mark">
-      <div class="stamp-mark">L</div>
-      <div class="wordmark">Ledger<span>.</span></div>
+      <div class="stamp-mark">S</div>
+      <div class="wordmark">Sahyadri<span> Park</span></div>
     </div>
 
     <nav>
@@ -535,7 +535,7 @@ td .row-actions{ display:flex; gap:6px; justify-content:flex-end; }
   <div class="tenant-shell">
     <div class="tenant-topbar">
       <div style="display:flex; align-items:center; gap:10px;">
-        <div class="stamp-mark" style="background:var(--green);">L</div>
+        <div class="stamp-mark" style="background:var(--green);">S</div>
         <div>
           <div style="font-weight:600; font-size:14.5px;" id="tenantName">—</div>
           <div style="font-size:11.5px; color:#9FAA9A;">Tenant portal</div>
@@ -938,15 +938,20 @@ async function complexesView(){
   ${complexes.length === 0 ? emptyStateHtml('No complexes yet', 'Add your first complex to start assigning shops to it.', emptyIcon()) : `
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Name</th><th>Address</th><th>Description</th><th>Created</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Address</th><th>Owner</th><th>Contact</th><th>Description</th><th>Created</th><th></th></tr></thead>
       <tbody>
         ${complexes.map(c => `
-          <tr data-search="${escapeHtml(c.name+' '+c.address)}">
+          <tr data-search="${escapeHtml((c.name||'')+' '+(c.address||'')+' '+(c.owner_name||''))}">
             <td><strong>${escapeHtml(c.name)}</strong></td>
-            <td>${escapeHtml(c.address)}</td>
+            <td>${escapeHtml(c.address||'—')}</td>
+            <td>${c.owner_name ? `<span style="font-weight:600;">${escapeHtml(c.owner_name)}</span>` : '<span style="color:var(--muted);">—</span>'}</td>
+            <td>${c.owner_contact ? `<a href="tel:${escapeHtml(c.owner_contact)}" style="color:var(--green); font-family:var(--font-mono);">${escapeHtml(c.owner_contact)}</a>` : '—'}</td>
             <td>${escapeHtml(c.description || '—')}</td>
             <td>${dateFmt(c.created_at)}</td>
             <td><div class="row-actions">
+              <button class="btn-icon" data-view-complex-report="${c.id}" data-name="${escapeHtml(c.name)}" aria-label="View report" title="Complex report">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 9l-5 5-3-3-4 4"/></svg>
+              </button>
               <button class="btn-icon" data-edit-complex="${c.id}" aria-label="Edit">${editIcon()}</button>
               <button class="btn-icon" data-delete-complex="${c.id}" data-name="${escapeHtml(c.name)}" aria-label="Delete">${trashIcon()}</button>
             </div></td>
@@ -962,6 +967,7 @@ function trashIcon(){ return `<svg width="14" height="14" viewBox="0 0 24 24" fi
 function attachComplexHandlers(){
   document.querySelectorAll('[data-edit-complex]').forEach(btn => btn.addEventListener('click', () => openEditComplexModal(Number(btn.dataset.editComplex))));
   document.querySelectorAll('[data-delete-complex]').forEach(btn => btn.addEventListener('click', () => confirmDelete('complex', Number(btn.dataset.deleteComplex), btn.dataset.name)));
+  document.querySelectorAll('[data-view-complex-report]').forEach(btn => btn.addEventListener('click', () => openComplexReportModal(Number(btn.dataset.viewComplexReport), btn.dataset.name)));
 }
 
 /* ================================================================
@@ -1046,27 +1052,49 @@ function confirmDeassignShop(shopId, shopNum, tenantName, userId){
    USERS VIEW
    ================================================================ */
 async function usersView(){
-  const users = await ensureLoaded('users','/api/user');
+  const [users, shops] = await Promise.all([
+    ensureLoaded('users','/api/user'),
+    ensureLoaded('shops','/api/shop'),
+  ]);
+
+  // Build a map: user_id -> [shop_number, ...]
+  const userShopMap = {};
+  shops.forEach(s => {
+    if (s.assigned_to) {
+      if (!userShopMap[s.assigned_to.id]) userShopMap[s.assigned_to.id] = [];
+      userShopMap[s.assigned_to.id].push(s.shop_number);
+    }
+  });
+
   return `
   <div class="toolbar"><input class="search-input" id="tableSearch" placeholder="Search users…"></div>
   ${users.length === 0 ? emptyStateHtml('No users yet', 'Add tenants or admins to get started.', emptyIcon()) : `
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Name</th><th>Mobile</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Mobile</th><th>Email</th><th>Role</th><th>Assigned Shops</th><th>Status</th><th></th></tr></thead>
       <tbody>
-        ${users.map(u => `
+        ${users.map(u => {
+          const assignedShops = userShopMap[u.id] || [];
+          return `
           <tr data-search="${escapeHtml(u.name+' '+u.mobile+' '+(u.email||''))}">
             <td><strong>${escapeHtml(u.name)}</strong></td>
             <td class="mono">${escapeHtml(u.mobile)}</td>
             <td>${escapeHtml(u.email || '—')}</td>
             <td><span class="pill role-${u.role}"><span class="pill-dot"></span>${escapeHtml(u.role)}</span></td>
+            <td>
+              ${assignedShops.length === 0
+                ? '<span style="color:var(--muted); font-size:12.5px;">None</span>'
+                : assignedShops.map(sn => `<span class="mono" style="background:var(--paper); border:1px solid var(--line); border-radius:4px; padding:2px 7px; font-size:12px; margin-right:4px; display:inline-block;">${escapeHtml(sn)}</span>`).join('')
+              }
+            </td>
             <td><span class="pill ${u.is_active ? 'active-pill' : 'inactive-pill'}"><span class="pill-dot"></span>${u.is_active ? 'active' : 'inactive'}</span></td>
             <td><div class="row-actions">
-              ${u.role === 'tenant' ? `<button class="btn-icon" data-assign-shops="${u.id}" data-name="${escapeHtml(u.name)}" aria-label="Assign shops">${shopAssignIcon()}</button>` : ''}
+              ${u.role === 'tenant' ? `<button class="btn-icon" data-assign-shops="${u.id}" data-name="${escapeHtml(u.name)}" aria-label="Assign shops" title="Assign shops">${shopAssignIcon()}</button>` : ''}
               <button class="btn-icon" data-edit-user="${u.id}" aria-label="Edit">${editIcon()}</button>
               <button class="btn-icon" data-delete-user="${u.id}" data-name="${escapeHtml(u.name)}" aria-label="Delete">${trashIcon()}</button>
             </div></td>
-          </tr>`).join('')}
+          </tr>`;
+        }).join('')}
       </tbody>
     </table>
   </div>`}`;
@@ -1147,50 +1175,80 @@ async function paymentsView(){
 function attachPaymentHandlers(){}
 
 /* ================================================================
-   REPORTS VIEW
+   REPORTS VIEW — two tabs: Bill Reports & Complex Reports
    ================================================================ */
 let reportDateRange = { start: null, end: null };
+let activeReportTab = 'bills';
 
 async function reportsView(){
   const today = new Date();
   const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
   const startVal = reportDateRange.start || monthStart.toISOString().slice(0,10);
-  const endVal = reportDateRange.end || today.toISOString().slice(0,10);
+  const endVal   = reportDateRange.end   || today.toISOString().slice(0,10);
 
   return `
-  <div class="card card-pad" style="margin-bottom:18px;">
-    <div style="display:flex; gap:14px; align-items:flex-end; flex-wrap:wrap;">
-      <div class="field" style="margin-bottom:0;">
-        <label for="repStart">From</label>
-        <input type="date" id="repStart" value="${startVal}">
-      </div>
-      <div class="field" style="margin-bottom:0;">
-        <label for="repEnd">To</label>
-        <input type="date" id="repEnd" value="${endVal}">
-      </div>
-      <button class="btn btn-primary" id="genReportBtn">Generate report</button>
-      <button class="btn btn-ghost" id="exportReportBtn" style="display:none;">Download as text</button>
-    </div>
+  <div style="display:flex; gap:0; margin-bottom:20px; border:1.5px solid var(--line); border-radius:var(--radius-sm); overflow:hidden; width:fit-content;">
+    <button id="tabBillsBtn" class="report-tab ${activeReportTab==='bills'?'active':''}" data-tab="bills" style="padding:9px 22px; border:none; font-size:13.5px; font-weight:600; background:${activeReportTab==='bills'?'var(--ink)':'var(--paper-raised)'}; color:${activeReportTab==='bills'?'#fff':'var(--muted)'}; border-right:1.5px solid var(--line); cursor:pointer;">
+      Bill Reports
+    </button>
+    <button id="tabComplexBtn" class="report-tab ${activeReportTab==='complex'?'active':''}" data-tab="complex" style="padding:9px 22px; border:none; font-size:13.5px; font-weight:600; background:${activeReportTab==='complex'?'var(--ink)':'var(--paper-raised)'}; color:${activeReportTab==='complex'?'#fff':'var(--muted)'}; cursor:pointer;">
+      Complex Reports
+    </button>
   </div>
-  <div id="reportResults"><div class="empty-state">${emptyIcon()}<h3>No report generated yet</h3><p>Choose a date range and generate a report to see occupancy, collections and outstanding dues.</p></div></div>
+
+  <!-- Bill Reports Panel -->
+  <div id="billReportPanel" style="display:${activeReportTab==='bills'?'block':'none'};">
+    <div class="card card-pad" style="margin-bottom:18px;">
+      <div style="display:flex; gap:14px; align-items:flex-end; flex-wrap:wrap;">
+        <div class="field" style="margin-bottom:0;">
+          <label for="repStart">From</label>
+          <input type="date" id="repStart" value="${startVal}">
+        </div>
+        <div class="field" style="margin-bottom:0;">
+          <label for="repEnd">To</label>
+          <input type="date" id="repEnd" value="${endVal}">
+        </div>
+        <button class="btn btn-primary" id="genReportBtn">Generate report</button>
+        <button class="btn btn-ghost" id="exportReportBtn" style="display:none;">Download as text</button>
+      </div>
+    </div>
+    <div id="reportResults"><div class="empty-state">${emptyIcon()}<h3>No report generated yet</h3><p>Choose a date range and generate a report to see occupancy, collections and outstanding dues.</p></div></div>
+  </div>
+
+  <!-- Complex Reports Panel -->
+  <div id="complexReportPanel" style="display:${activeReportTab==='complex'?'block':'none'};">
+    <div id="complexReportResults"><div class="empty-state">${emptyIcon()}<h3>Loading complex reports…</h3><p>Please wait.</p></div></div>
+  </div>
   `;
 }
 
 function attachReportsHandlers(){
-  document.getElementById('genReportBtn').addEventListener('click', generateReport);
+  // Tab switching
+  document.querySelectorAll('.report-tab').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      activeReportTab = btn.dataset.tab;
+      await renderView('reports');
+      // auto-load complex report on tab switch
+      if (activeReportTab === 'complex') generateComplexReport();
+    });
+  });
+
+  if (activeReportTab === 'bills') {
+    document.getElementById('genReportBtn').addEventListener('click', generateReport);
+  } else {
+    generateComplexReport();
+  }
 }
 
 async function generateReport(){
   const start = document.getElementById('repStart').value;
-  const end = document.getElementById('repEnd').value;
+  const end   = document.getElementById('repEnd').value;
   reportDateRange = { start, end };
   const resultsEl = document.getElementById('reportResults');
   const btn = document.getElementById('genReportBtn');
   const original = btn.innerHTML;
-  btn.disabled = true;
-  btn.innerHTML = `<span class="spinner"></span> Generating…`;
+  btn.disabled = true; btn.innerHTML = `<span class="spinner"></span> Generating…`;
   resultsEl.innerHTML = skeletonHtml();
-
   try {
     await Promise.all([ensureLoaded('users','/api/user'), ensureLoaded('shops','/api/shop')]);
     const params = new URLSearchParams();
@@ -1204,8 +1262,108 @@ async function generateReport(){
   } catch (err) {
     resultsEl.innerHTML = errorBannerHtml(err.message);
     document.getElementById('retryBtn')?.addEventListener('click', generateReport);
-  } finally {
-    btn.disabled = false; btn.innerHTML = original;
+  } finally { btn.disabled = false; btn.innerHTML = original; }
+}
+
+async function generateComplexReport(){
+  const el = document.getElementById('complexReportResults');
+  if (!el) return;
+  el.innerHTML = skeletonHtml();
+  try {
+    const rows = await api('/api/reports/complexes');
+    if (rows.length === 0){
+      el.innerHTML = emptyStateHtml('No complexes yet', 'Add a complex to see reports here.', emptyIcon());
+      return;
+    }
+    el.innerHTML = `
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Complex</th><th>Owner</th><th>Contact</th>
+          <th class="num">Total Shops</th><th class="num">Assigned</th><th class="num">Unassigned</th>
+          <th class="num">Tenants</th><th class="num">Active</th>
+          <th class="num">Total Billed</th><th class="num">Collected</th><th class="num">Outstanding</th>
+          <th></th>
+        </tr></thead>
+        <tbody>
+          ${rows.map(r => `
+          <tr>
+            <td><strong>${escapeHtml(r.complex_name)}</strong></td>
+            <td>${escapeHtml(r.owner_name||'—')}</td>
+            <td>${r.owner_contact ? `<a href="tel:${escapeHtml(r.owner_contact)}" style="color:var(--green); font-family:var(--font-mono);">${escapeHtml(r.owner_contact)}</a>` : '—'}</td>
+            <td class="num">${r.total_shops}</td>
+            <td class="num" style="color:var(--success); font-weight:600;">${r.assigned_shops}</td>
+            <td class="num" style="color:var(--muted);">${r.total_shops - r.assigned_shops}</td>
+            <td class="num">${r.total_tenants}</td>
+            <td class="num" style="color:var(--green);">${r.active_tenants}</td>
+            <td class="num mono">${currency(r.total_billed)}</td>
+            <td class="num mono" style="color:var(--success);">${currency(r.total_collected)}</td>
+            <td class="num mono" style="color:var(--rust);">${currency(r.outstanding)}</td>
+            <td><button class="btn btn-sm btn-ghost" data-complex-report-id="${r.complex_id}" data-complex-report-name="${escapeHtml(r.complex_name)}">Detail</button></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+    document.querySelectorAll('[data-complex-report-id]').forEach(btn =>
+      btn.addEventListener('click', () => openComplexReportModal(Number(btn.dataset.complexReportId), btn.dataset.complexReportName))
+    );
+  } catch(err) {
+    el.innerHTML = errorBannerHtml(err.message);
+  }
+}
+
+/* ---- Complex detail report modal ---- */
+async function openComplexReportModal(complexId, complexName){
+  openModal(`Report — ${complexName}`, `<div style="text-align:center; padding:24px;">${skeletonHtml()}</div>`, `<button class="btn btn-ghost" id="closeRepBtn">Close</button>`);
+  document.getElementById('closeRepBtn').addEventListener('click', closeModal);
+  try {
+    const r = await api(`/api/complex/${complexId}/report`);
+    const c = r.complex, s = r.shops, t = r.tenants, f = r.financials;
+    document.getElementById('modalBody').innerHTML = `
+      ${c.owner_name ? `
+      <div class="card card-pad" style="margin-bottom:14px; background:var(--success-soft); border-color:var(--success);">
+        <div style="font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--success); font-weight:700; margin-bottom:6px;">Owner Contact</div>
+        <div style="font-weight:600;">${escapeHtml(c.owner_name)}</div>
+        ${c.owner_contact ? `<div class="mono" style="color:var(--green-deep); font-size:13.5px; margin-top:2px;">📞 ${escapeHtml(c.owner_contact)}</div>` : ''}
+        ${c.owner_address ? `<div style="color:var(--muted); font-size:12.5px; margin-top:3px;">📍 ${escapeHtml(c.owner_address)}</div>` : ''}
+      </div>` : ''}
+
+      <div class="stat-row" style="grid-template-columns:repeat(3,1fr); margin-bottom:14px;">
+        <div class="card stat-card"><div class="label">Total Shops</div><div class="value">${s.total}</div></div>
+        <div class="card stat-card"><div class="label">Assigned</div><div class="value" style="color:var(--success);">${s.assigned}</div></div>
+        <div class="card stat-card"><div class="label">Unassigned</div><div class="value" style="color:var(--muted);">${s.unassigned}</div></div>
+      </div>
+      <div class="stat-row" style="grid-template-columns:repeat(3,1fr); margin-bottom:14px;">
+        <div class="card stat-card"><div class="label">Total Tenants</div><div class="value">${t.total}</div></div>
+        <div class="card stat-card"><div class="label">Active</div><div class="value" style="color:var(--success);">${t.active}</div></div>
+        <div class="card stat-card"><div class="label">Inactive</div><div class="value" style="color:var(--rust);">${t.inactive}</div></div>
+      </div>
+      <div class="stat-row" style="grid-template-columns:repeat(3,1fr); margin-bottom:14px;">
+        <div class="card stat-card"><div class="label">Total Billed</div><div class="value mono" style="font-size:18px;">${currency(f.total_billed)}</div></div>
+        <div class="card stat-card accent-green"><div class="label">Collected</div><div class="value mono" style="font-size:18px;">${currency(f.total_collected)}</div></div>
+        <div class="card stat-card accent-rust"><div class="label">Outstanding</div><div class="value mono" style="font-size:18px;">${currency(f.total_outstanding)}</div></div>
+      </div>
+
+      ${t.details.length > 0 ? `
+      <div style="font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin-bottom:10px;">Tenant Details</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Tenant</th><th>Mobile</th><th>Shop</th><th class="num">Monthly Rent</th><th>Status</th><th>Assigned</th></tr></thead>
+          <tbody>
+            ${t.details.map(td => `<tr>
+              <td><strong>${escapeHtml(td.name)}</strong></td>
+              <td class="mono">${escapeHtml(td.mobile)}</td>
+              <td class="mono">${escapeHtml(td.shop_number)}</td>
+              <td class="num">${td.monthly_rent ? currency(td.monthly_rent) : '<span style="color:var(--muted);">—</span>'}</td>
+              <td><span class="pill ${td.is_active?'active-pill':'inactive-pill'}"><span class="pill-dot"></span>${td.is_active?'Active':'Inactive'}</span></td>
+              <td style="font-size:12px; color:var(--muted);">${dateFmt(td.assigned_at)}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>` : '<div style="font-size:13.5px; color:var(--muted); padding:8px 0;">No tenants assigned to shops in this complex yet.</div>'}
+    `;
+  } catch(err) {
+    document.getElementById('modalBody').innerHTML = errorBannerHtml(err.message);
   }
 }
 
@@ -1354,19 +1512,36 @@ function renderComplexForm(existing){
   const isEdit = !!existing;
   openModal(isEdit ? 'Edit complex' : 'Add complex', `
     <form id="complexForm">
-      <div class="field">
-        <label for="cName">Name</label>
-        <input id="cName" required value="${existing ? escapeHtml(existing.name) : ''}" placeholder="Sunrise Complex">
-        ${fieldErrorHtml('cNameErr')}
-      </div>
-      <div class="field">
-        <label for="cAddress">Address</label>
-        <input id="cAddress" required value="${existing ? escapeHtml(existing.address) : ''}" placeholder="123 Main Street, Mumbai">
-        ${fieldErrorHtml('cAddressErr')}
-      </div>
-      <div class="field">
-        <label for="cDesc">Description</label>
-        <textarea id="cDesc" placeholder="Optional notes">${existing ? escapeHtml(existing.description||'') : ''}</textarea>
+      <div class="form-grid">
+        <div class="field full">
+          <label for="cName">Complex Name</label>
+          <input id="cName" required value="${existing ? escapeHtml(existing.name) : ''}" placeholder="Sahyadri Business Park">
+          ${fieldErrorHtml('cNameErr')}
+        </div>
+        <div class="field full">
+          <label for="cAddress">Complex Address</label>
+          <input id="cAddress" value="${existing ? escapeHtml(existing.address||'') : ''}" placeholder="123 Main Street, Pune">
+          ${fieldErrorHtml('cAddressErr')}
+        </div>
+        <div class="field full" style="border-top:1px dashed var(--line); padding-top:14px; margin-top:4px;">
+          <div style="font-size:11.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); font-weight:700; margin-bottom:10px;">Owner / Contact Details</div>
+        </div>
+        <div class="field">
+          <label for="cOwnerName">Owner Name</label>
+          <input id="cOwnerName" value="${existing ? escapeHtml(existing.owner_name||'') : ''}" placeholder="Rajesh Patil">
+        </div>
+        <div class="field">
+          <label for="cOwnerContact">Owner Contact</label>
+          <input id="cOwnerContact" inputmode="numeric" maxlength="15" value="${existing ? escapeHtml(existing.owner_contact||'') : ''}" placeholder="9876543210">
+        </div>
+        <div class="field full">
+          <label for="cOwnerAddress">Owner Address</label>
+          <input id="cOwnerAddress" value="${existing ? escapeHtml(existing.owner_address||'') : ''}" placeholder="456 Residency Road, Pune">
+        </div>
+        <div class="field full">
+          <label for="cDesc">Description <span style="color:var(--muted); font-weight:400;">(optional)</span></label>
+          <textarea id="cDesc" placeholder="Optional notes">${existing ? escapeHtml(existing.description||'') : ''}</textarea>
+        </div>
       </div>
     </form>
   `, `
@@ -1379,15 +1554,18 @@ function renderComplexForm(existing){
     clearFieldErrors(form);
     const name = document.getElementById('cName').value.trim();
     const address = document.getElementById('cAddress').value.trim();
+    const owner_name = document.getElementById('cOwnerName').value.trim();
+    const owner_contact = document.getElementById('cOwnerContact').value.trim();
+    const owner_address = document.getElementById('cOwnerAddress').value.trim();
     const description = document.getElementById('cDesc').value.trim();
     let ok = true;
     if (!name){ showFieldError('cNameErr','Name is required'); document.getElementById('cName').classList.add('invalid'); ok=false; }
-    if (!address){ showFieldError('cAddressErr','Address is required'); document.getElementById('cAddress').classList.add('invalid'); ok=false; }
     if (!ok) return;
 
     await withSavingState('saveBtn', async () => {
-      if (isEdit) await api(`/api/complex/${existing.id}`, { method:'PUT', body:{ name, address, description } });
-      else await api('/api/complex', { method:'POST', body:{ name, address, description } });
+      const body = { name, address, description, owner_name, owner_contact, owner_address };
+      if (isEdit) await api(`/api/complex/${existing.id}`, { method:'PUT', body });
+      else await api('/api/complex', { method:'POST', body });
       state.loaded.complexes = false;
       closeModal();
       showToast(isEdit ? 'Complex updated' : 'Complex added', 'success');
@@ -1598,6 +1776,11 @@ async function openAssignShopsModal(userId, userName){
 
   openModal(`Assign shops — ${userName}`, `
     <p style="font-size:13.5px; color:var(--muted); margin:0 0 14px;">Each shop can have one tenant at a time. Shops already owned by someone else are shown but flagged — selecting one will ask to confirm a reassignment.</p>
+    <div class="field" style="margin-bottom:14px;">
+      <label for="rentAmount">Agreed Monthly Rent (₹)</label>
+      <input id="rentAmount" type="number" step="0.01" min="0" placeholder="e.g. 4000.00" style="width:100%; padding:10px 12px; border:1.5px solid var(--line); border-radius:var(--radius-sm); font-size:14.5px;">
+      <div class="hint">This amount will be auto-filled whenever a "Rent" bill is created for this tenant. Leave blank if not applicable.</div>
+    </div>
     <div class="checkbox-list" id="shopCheckList">
       ${shops.length === 0 ? '<div style="font-size:13px; color:var(--muted); padding:8px;">No shops available. Add a shop first.</div>' :
         shops.map(s => {
@@ -1625,10 +1808,14 @@ async function submitAssignShops(userId, userName, force){
   const checked = Array.from(document.querySelectorAll('#shopCheckList input:checked'));
   const ids = checked.map(i => Number(i.value));
   if (ids.length === 0){ showToast('Select at least one shop', 'error'); return; }
+  const rentEl = document.getElementById('rentAmount');
+  const monthly_rent = rentEl && rentEl.value ? parseFloat(rentEl.value) : null;
 
   await withSavingState('assignBtn', async () => {
     try {
-      const res = await api(`/api/user/${userId}/assign-shops`, { method:'POST', body:{ shop_ids: ids, force } });
+      const body = { shop_ids: ids, force };
+      if (monthly_rent && monthly_rent > 0) body.monthly_rent = monthly_rent;
+      const res = await api(`/api/user/${userId}/assign-shops`, { method:'POST', body });
       state.loaded.shops = false;
       closeModal();
       const reassignedCount = res.reassigned_from?.length || 0;
@@ -1636,7 +1823,7 @@ async function submitAssignShops(userId, userName, force){
       await renderView('users');
     } catch (err) {
       if (err.status === 409){
-        renderReassignConfirm(userId, userName, ids);
+        renderReassignConfirm(userId, userName, ids, monthly_rent);
       } else {
         throw err;
       }
@@ -1644,7 +1831,7 @@ async function submitAssignShops(userId, userName, force){
   });
 }
 
-function renderReassignConfirm(userId, userName, ids){
+function renderReassignConfirm(userId, userName, ids, monthly_rent){
   // Re-fetch conflict details from current cache (already loaded shop list)
   const conflicts = ids
     .map(id => state.cache.shops.find(s => s.id === id))
@@ -1665,7 +1852,9 @@ function renderReassignConfirm(userId, userName, ids){
   document.getElementById('backBtn').addEventListener('click', () => openAssignShopsModal(userId, userName));
   document.getElementById('confirmReassignBtn').addEventListener('click', async () => {
     await withSavingState('confirmReassignBtn', async () => {
-      const res = await api(`/api/user/${userId}/assign-shops`, { method:'POST', body:{ shop_ids: ids, force: true } });
+      const body = { shop_ids: ids, force: true };
+      if (monthly_rent && monthly_rent > 0) body.monthly_rent = monthly_rent;
+      const res = await api(`/api/user/${userId}/assign-shops`, { method:'POST', body });
       state.loaded.shops = false;
       closeModal();
       showToast(`Shops reassigned to ${userName}`, 'success');
@@ -1696,19 +1885,27 @@ async function openBillModal(){
             ${shops.map(s => `<option value="${s.id}">${escapeHtml(s.shop_number)}</option>`).join('')}
           </select>
         </div>
-        <div class="field">
-          <label for="bType">Bill type</label>
-          <input id="bType" required placeholder="Maintenance / Electricity / Rent">
+        <div class="field full">
+          <label for="bType">Bill Type</label>
+          <select id="bType">
+            <option value="">— Select type —</option>
+            <option value="Rent">Rent</option>
+            <option value="Other">Other</option>
+          </select>
           ${fieldErrorHtml('bTypeErr')}
         </div>
-        <div class="field">
+        <div class="field full" id="bAmountRow">
           <label for="bAmount">Amount (₹)</label>
-          <input id="bAmount" type="number" step="0.01" min="0.01" required placeholder="5000.00">
+          <div style="position:relative;">
+            <input id="bAmount" type="number" step="0.01" min="0.01" placeholder="0.00">
+            <span id="bAmountHint" style="display:none; position:absolute; right:10px; top:50%; transform:translateY(-50%); font-size:11.5px; color:var(--green); font-weight:600; pointer-events:none;">Auto-filled</span>
+          </div>
           ${fieldErrorHtml('bAmountErr')}
+          <div class="hint" id="bAmountNote" style="display:none;"></div>
         </div>
-        <div class="field full">
-          <label for="bDesc">Description</label>
-          <input id="bDesc" placeholder="Monthly maintenance charges">
+        <div class="field full" id="bDescRow" style="display:none;">
+          <label for="bDesc">Description <span style="color:var(--muted); font-weight:400;">(optional)</span></label>
+          <input id="bDesc" placeholder="Reason for this charge">
         </div>
         <div class="field full">
           <label for="bDue">Due date</label>
@@ -1721,25 +1918,85 @@ async function openBillModal(){
     <button class="btn btn-primary" id="saveBtn" ${tenants.length===0||shops.length===0?'disabled':''}>Add bill</button>
   `);
   document.getElementById('cancelBtn').addEventListener('click', closeModal);
+
+  // Bill type change handler — auto-fill rent or clear
+  async function onBillTypeChange(){
+    const billType = document.getElementById('bType').value;
+    const amountEl = document.getElementById('bAmount');
+    const amountHint = document.getElementById('bAmountHint');
+    const amountNote = document.getElementById('bAmountNote');
+    const descRow = document.getElementById('bDescRow');
+
+    if (billType === 'Rent') {
+      descRow.style.display = 'none';
+      amountEl.readOnly = false;
+      amountHint.style.display = 'none';
+      amountNote.style.display = 'none';
+
+      const userId = Number(document.getElementById('bUser').value);
+      const shopId = Number(document.getElementById('bShop').value);
+      if (userId && shopId) {
+        try {
+          const rent = await api(`/api/user/${userId}/shop/${shopId}/rent`);
+          if (rent.monthly_rent) {
+            amountEl.value = rent.monthly_rent.toFixed(2);
+            amountEl.readOnly = true;
+            amountHint.style.display = 'inline';
+            amountNote.style.display = 'block';
+            amountNote.textContent = `Agreed monthly rent: ${currency(rent.monthly_rent)}. To change this, update the rent in the Assign Shops modal.`;
+          } else {
+            amountEl.value = '';
+            amountEl.readOnly = false;
+            amountNote.style.display = 'block';
+            amountNote.style.color = 'var(--rust)';
+            amountNote.textContent = 'No agreed rent set for this tenant-shop pair. Enter manually or set rent when assigning the shop.';
+          }
+        } catch(e) {
+          amountEl.value = ''; amountEl.readOnly = false;
+        }
+      }
+    } else if (billType === 'Other') {
+      amountEl.readOnly = false;
+      amountEl.value = '';
+      amountHint.style.display = 'none';
+      amountNote.style.display = 'none';
+      descRow.style.display = '';
+    } else {
+      amountEl.readOnly = false;
+      amountEl.value = '';
+      amountHint.style.display = 'none';
+      amountNote.style.display = 'none';
+      descRow.style.display = 'none';
+    }
+  }
+
+  document.getElementById('bType').addEventListener('change', onBillTypeChange);
+  document.getElementById('bUser').addEventListener('change', onBillTypeChange);
+  document.getElementById('bShop').addEventListener('change', onBillTypeChange);
+
   document.getElementById('saveBtn').addEventListener('click', async () => {
     const form = document.getElementById('billForm');
     clearFieldErrors(form);
     const user_id = Number(document.getElementById('bUser').value);
     const shop_id = Number(document.getElementById('bShop').value);
     const bill_type = document.getElementById('bType').value.trim();
-    const amount = parseFloat(document.getElementById('bAmount').value);
-    const description = document.getElementById('bDesc').value.trim();
+    const amountVal = document.getElementById('bAmount').value;
+    const amount = amountVal ? parseFloat(amountVal) : null;
+    const description = document.getElementById('bDesc')?.value.trim() || '';
     const due_date = document.getElementById('bDue').value;
     let ok = true;
     if (!bill_type){ showFieldError('bTypeErr','Bill type is required'); document.getElementById('bType').classList.add('invalid'); ok=false; }
-    if (isNaN(amount) || amount <= 0){ showFieldError('bAmountErr','Enter a valid amount'); document.getElementById('bAmount').classList.add('invalid'); ok=false; }
+    if (bill_type === 'Other' && (!amount || amount <= 0)){ showFieldError('bAmountErr','Enter a valid amount'); document.getElementById('bAmount').classList.add('invalid'); ok=false; }
     if (!ok) return;
 
     await withSavingState('saveBtn', async () => {
-      await api('/api/bill', { method:'POST', body:{
-        user_id, shop_id, bill_type, amount, description,
-        due_date: due_date ? new Date(due_date).toISOString() : null
-      }});
+      const body = {
+        user_id, shop_id, bill_type,
+        description: description || null,
+        due_date: due_date ? new Date(due_date).toISOString() : null,
+      };
+      if (amount && amount > 0) body.amount = amount;
+      await api('/api/bill', { method:'POST', body });
       state.loaded.bills = false;
       closeModal();
       showToast('Bill added', 'success');
@@ -1872,7 +2129,19 @@ async function loadTenantPortal(){
         shops.map(s => `
         <div class="tenant-card">
           <div class="row1"><span class="title mono">${escapeHtml(s.shop_number)}</span><span class="pill ${s.status}"><span class="pill-dot"></span>${escapeHtml(s.status)}</span></div>
-          <div class="meta">${Number(s.area_sqft).toLocaleString('en-IN')} sqft</div>
+          ${s.complex_name ? `<div class="meta" style="margin-bottom:6px;">📍 ${escapeHtml(s.complex_name)}${s.complex_address ? ' · ' + escapeHtml(s.complex_address) : ''}</div>` : ''}
+          ${s.monthly_rent ? `<div class="meta" style="color:var(--green-deep); font-weight:600;">Monthly Rent: ${currency(s.monthly_rent)}</div>` : ''}
+          ${s.area_sqft ? `<div class="meta">${Number(s.area_sqft).toLocaleString('en-IN')} sqft</div>` : ''}
+          ${(s.owner_name || s.owner_contact) ? `
+          <div style="margin-top:10px; padding-top:10px; border-top:1px dashed var(--line);">
+            <div style="font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); font-weight:700; margin-bottom:5px;">Complex Owner</div>
+            ${s.owner_name ? `<div style="font-weight:600; font-size:13.5px;">${escapeHtml(s.owner_name)}</div>` : ''}
+            ${s.owner_contact ? `<a href="tel:${escapeHtml(s.owner_contact)}" style="display:inline-flex; align-items:center; gap:6px; color:var(--green); font-family:var(--font-mono); font-size:13.5px; margin-top:3px; text-decoration:none; font-weight:600;">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 11.5 19.79 19.79 0 01.22 2.84 2 2 0 012.22.86h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 8.05a16 16 0 006.29 6.29l1.28-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7a2 2 0 011.72 2.02z"/></svg>
+              ${escapeHtml(s.owner_contact)}
+            </a>` : ''}
+            ${s.owner_address ? `<div style="font-size:12px; color:var(--muted); margin-top:3px;">📍 ${escapeHtml(s.owner_address)}</div>` : ''}
+          </div>` : ''}
         </div>`).join('')}
 
       <div class="section-title">Bills</div>
