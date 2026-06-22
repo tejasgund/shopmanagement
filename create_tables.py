@@ -261,8 +261,8 @@ def main():
     # 4. Seed default admin user
     db = SessionLocal()
     try:
-        DEFAULT_MOBILE   = "9999999999"
-        DEFAULT_PASSWORD = "admin@123"
+        DEFAULT_MOBILE   = "8177809890"
+        DEFAULT_PASSWORD = "Sujata8@Tekale8@"
         DEFAULT_NAME     = "Super Admin"
 
         existing = db.query(User).filter(User.mobile == DEFAULT_MOBILE).first()
