@@ -539,14 +539,6 @@ td .row-actions{ display:flex; gap:6px; justify-content:flex-end; }
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
           Payments
         </button>
-        <button class="nav-item" data-view="finance">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
-          Finance
-        </button>
-        <button class="nav-item" data-view="deposits">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg>
-          Deposits
-        </button>
       </div>
       <div class="nav-group">
         <div class="nav-label">Insights</div>
@@ -584,10 +576,6 @@ td .row-actions{ display:flex; gap:6px; justify-content:flex-end; }
         </div>
       </div>
       <div class="topbar-actions">
-        <div style="position:relative;">
-          <input class="search-input" id="globalSearch" placeholder="Search users, shops…" style="min-width:200px; max-width:240px; padding-right:36px;" autocomplete="off">
-          <div id="globalSearchResults" style="display:none; position:absolute; top:calc(100% + 6px); right:0; width:320px; background:var(--paper-raised); border:1.5px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow-lg); z-index:100; max-height:340px; overflow-y:auto;"></div>
-        </div>
         <button class="btn-icon" id="refreshBtn" title="Refresh data" aria-label="Refresh data">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
         </button>
@@ -854,8 +842,6 @@ const viewMeta = {
   users:     { title:'Users', crumb:'Admins and tenants', action:'Add user' },
   bills:     { title:'Bills', crumb:'Charges raised to tenants', action:'Add bill' },
   payments:  { title:'Payments', crumb:'Payments recorded against bills', action:'Record payment' },
-  finance:   { title:'Finance Overview', crumb:'Aggregated rent, deposits and dues', action:null },
-  deposits:  { title:'Deposit Payments', crumb:'Security deposit collection tracking', action:'Record deposit' },
   reports:   { title:'Reports', crumb:'Occupancy, collections and outstanding dues', action:null },
 };
 
@@ -876,10 +862,7 @@ async function navigateTo(view){
 }
 
 document.getElementById('refreshBtn').addEventListener('click', () => refreshCurrentView(true));
-document.getElementById('primaryActionBtn').addEventListener('click', () => {
-  if (state.view === 'deposits') openDepositModal();
-  else openCreateModal(state.view);
-});
+document.getElementById('primaryActionBtn').addEventListener('click', () => openCreateModal(state.view));
 
 async function refreshCurrentView(showSpinner){
   const btn = document.getElementById('refreshBtn');
@@ -900,8 +883,6 @@ async function renderView(view){
       case 'users': content.innerHTML = await usersView(); attachUserHandlers(); break;
       case 'bills': content.innerHTML = await billsView(); attachBillHandlers(); break;
       case 'payments': content.innerHTML = await paymentsView(); attachPaymentHandlers(); break;
-      case 'finance': content.innerHTML = await financeView(); attachFinanceHandlers(); break;
-      case 'deposits': content.innerHTML = await depositsView(); attachDepositHandlers(); break;
       case 'reports': content.innerHTML = await reportsView(); attachReportsHandlers(); break;
     }
     attachSearchFilter();
@@ -1071,15 +1052,13 @@ async function shopsView(){
   ${shops.length === 0 ? emptyStateHtml('No shops yet', 'Add a shop and assign it to a complex.', emptyIcon()) : `
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Shop #</th><th>Complex</th><th class="num">Area (sqft)</th><th class="num">Rent/mo</th><th class="num">Deposit</th><th>Status</th><th>Tenant</th><th></th></tr></thead>
+      <thead><tr><th>Shop #</th><th>Complex</th><th class="num">Area (sqft)</th><th>Status</th><th>Tenant</th><th></th></tr></thead>
       <tbody>
         ${shops.map(s => `
           <tr data-search="${escapeHtml(s.shop_number+' '+complexName(s.complex_id)+' '+(s.assigned_to?.name||''))}" data-status="${s.status}">
             <td class="mono"><strong>${escapeHtml(s.shop_number)}</strong></td>
             <td>${escapeHtml(complexName(s.complex_id))}</td>
             <td class="num">${Number(s.area_sqft).toLocaleString('en-IN')}</td>
-            <td class="num">${s.shop_rent != null ? currency(s.shop_rent) : '—'}</td>
-            <td class="num">${s.shop_deposit != null ? currency(s.shop_deposit) : '—'}</td>
             <td><span class="pill ${s.status}"><span class="pill-dot"></span>${escapeHtml(s.status)}</span></td>
             <td>${s.assigned_to ? `<span class="tenant-tag">${escapeHtml(s.assigned_to.name)}</span>` : '<span style="color:var(--muted); font-size:13px;">— empty —</span>'}</td>
             <td><div class="row-actions">
@@ -1150,9 +1129,7 @@ async function usersView(){
             <td><span class="pill role-${u.role}"><span class="pill-dot"></span>${escapeHtml(u.role)}</span></td>
             <td><span class="pill ${u.is_active ? 'active-pill' : 'inactive-pill'}"><span class="pill-dot"></span>${u.is_active ? 'active' : 'inactive'}</span></td>
             <td><div class="row-actions">
-              ${u.role === 'tenant' ? `<button class="btn-icon" data-financial-summary="${u.id}" data-name="${escapeHtml(u.name)}" aria-label="Financial summary" title="Financial summary"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg></button>` : ''}
               ${u.role === 'tenant' ? `<button class="btn-icon" data-assign-shops="${u.id}" data-name="${escapeHtml(u.name)}" aria-label="Assign shops">${shopAssignIcon()}</button>` : ''}
-              <button class="btn-icon" data-reset-pw="${u.id}" data-name="${escapeHtml(u.name)}" aria-label="Reset password" title="Reset password"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg></button>
               <button class="btn-icon" data-edit-user="${u.id}" aria-label="Edit">${editIcon()}</button>
               <button class="btn-icon" data-delete-user="${u.id}" data-name="${escapeHtml(u.name)}" aria-label="Delete">${trashIcon()}</button>
             </div></td>
@@ -1167,8 +1144,6 @@ function attachUserHandlers(){
   document.querySelectorAll('[data-edit-user]').forEach(btn => btn.addEventListener('click', () => openEditUserModal(Number(btn.dataset.editUser))));
   document.querySelectorAll('[data-delete-user]').forEach(btn => btn.addEventListener('click', () => confirmDelete('user', Number(btn.dataset.deleteUser), btn.dataset.name)));
   document.querySelectorAll('[data-assign-shops]').forEach(btn => btn.addEventListener('click', () => openAssignShopsModal(Number(btn.dataset.assignShops), btn.dataset.name)));
-  document.querySelectorAll('[data-reset-pw]').forEach(btn => btn.addEventListener('click', () => openResetPasswordModal(Number(btn.dataset.resetPw), btn.dataset.name)));
-  document.querySelectorAll('[data-financial-summary]').forEach(btn => btn.addEventListener('click', () => openFinancialSummaryModal(Number(btn.dataset.financialSummary), btn.dataset.name)));
 }
 
 /* ================================================================
@@ -1251,407 +1226,17 @@ async function paymentsView(){
 function attachPaymentHandlers(){}
 
 /* ================================================================
-   RESET PASSWORD MODAL
-   ================================================================ */
-function openResetPasswordModal(userId, name){
-  openModal(`Reset password — ${name}`, `
-    <div class="field">
-      <label for="rpNewPw">New password</label>
-      <div class="pw-row">
-        <input type="password" id="rpNewPw" placeholder="Min 4 characters">
-        <button type="button" class="pw-toggle" id="rpPwToggle">SHOW</button>
-      </div>
-      ${fieldErrorHtml('rpPwErr')}
-    </div>
-  `, `
-    <button class="btn btn-ghost" id="cancelBtn">Cancel</button>
-    <button class="btn btn-primary" id="saveBtn">Reset password</button>
-  `);
-  document.getElementById('cancelBtn').addEventListener('click', closeModal);
-  document.getElementById('rpPwToggle').addEventListener('click', () => {
-    const inp = document.getElementById('rpNewPw');
-    const btn = document.getElementById('rpPwToggle');
-    inp.type = inp.type === 'password' ? 'text' : 'password';
-    btn.textContent = inp.type === 'password' ? 'SHOW' : 'HIDE';
-  });
-  document.getElementById('saveBtn').addEventListener('click', async () => {
-    const pw = document.getElementById('rpNewPw').value;
-    if (!pw || pw.length < 4){ showFieldError('rpPwErr','Password must be at least 4 characters'); document.getElementById('rpNewPw').classList.add('invalid'); return; }
-    await withSavingState('saveBtn', async () => {
-      await api(`/api/user/${userId}/reset-password`, { method:'PUT', body:{ new_password: pw } });
-      closeModal();
-      showToast(`Password reset for ${name}`, 'success');
-    });
-  });
-}
-
-/* ================================================================
-   FINANCIAL SUMMARY MODAL (Admin view for a tenant)
-   ================================================================ */
-async function openFinancialSummaryModal(userId, name){
-  openModal(`Financial summary — ${name}`, `<div style="text-align:center; padding:24px 0;"><div class="spinner dark" style="margin:0 auto;"></div><div style="margin-top:10px; color:var(--muted); font-size:13px;">Loading…</div></div>`, ``);
-  document.getElementById('modalCloseBtn').addEventListener('click', closeModal);
-  try {
-    const d = await api(`/api/user/${userId}/financial-summary`);
-    document.getElementById('modalBody').innerHTML = `
-      <div class="stat-row" style="grid-template-columns:repeat(2,1fr); margin-bottom:14px;">
-        <div class="card stat-card"><div class="label">Monthly rent</div><div class="value mono" style="font-size:20px;">${currency(d.rent_summary?.total_monthly_rent)}</div></div>
-        <div class="card stat-card accent-rust"><div class="label">Pending rent</div><div class="value mono" style="font-size:20px;">${currency(d.rent_summary?.total_pending_rent)}</div></div>
-        <div class="card stat-card"><div class="label">Deposit required</div><div class="value mono" style="font-size:20px;">${currency(d.deposit_summary?.total_deposit_required)}</div></div>
-        <div class="card stat-card ${d.deposit_summary?.remaining_deposit > 0 ? 'accent-rust':'accent-green'}"><div class="label">Deposit remaining</div><div class="value mono" style="font-size:20px;">${currency(d.deposit_summary?.remaining_deposit)}</div></div>
-      </div>
-
-      ${d.shops_summary?.shops?.length > 0 ? `
-      <h4 style="font-size:13.5px; margin:0 0 8px;">Shops (${d.shops_summary.total_shops})</h4>
-      <div class="table-wrap" style="margin-bottom:16px;">
-        <table><thead><tr><th>Shop</th><th>Complex</th><th class="num">Rent</th><th class="num">Deposit</th></tr></thead>
-        <tbody>${d.shops_summary.shops.map(s=>`<tr><td class="mono">${escapeHtml(s.shop_number)}</td><td>${escapeHtml(s.complex_name)}</td><td class="num">${currency(s.shop_rent)}</td><td class="num">${currency(s.shop_deposit)}</td></tr>`).join('')}</tbody>
-        </table>
-      </div>` : ''}
-
-      ${d.bills?.length > 0 ? `
-      <h4 style="font-size:13.5px; margin:0 0 8px;">Bills</h4>
-      <div class="table-wrap" style="margin-bottom:16px;">
-        <table><thead><tr><th>Shop</th><th>Type</th><th class="num">Amount</th><th class="num">Pending</th><th>Status</th><th>Due</th></tr></thead>
-        <tbody>${d.bills.map(b=>`<tr><td class="mono">${escapeHtml(b.shop_number)}</td><td>${escapeHtml(b.bill_type)}</td><td class="num">${currency(b.amount)}</td><td class="num">${currency(b.pending_amount)}</td><td>${stampHtml(b.status)}</td><td>${dateFmt(b.due_date)}</td></tr>`).join('')}</tbody>
-        </table>
-      </div>` : ''}
-
-      ${d.payment_history?.length > 0 ? `
-      <h4 style="font-size:13.5px; margin:0 0 8px;">Payment history</h4>
-      <div class="table-wrap" style="margin-bottom:16px;">
-        <table><thead><tr><th>Date</th><th>Shop</th><th>Type</th><th class="num">Amount</th><th>Method</th></tr></thead>
-        <tbody>${d.payment_history.map(p=>`<tr><td>${dateFmt(p.payment_date)}</td><td class="mono">${escapeHtml(p.shop_number)}</td><td>${escapeHtml(p.bill_type)}</td><td class="num">${currency(p.amount)}</td><td>${escapeHtml(p.payment_method)}</td></tr>`).join('')}</tbody>
-        </table>
-      </div>` : ''}
-
-      ${d.deposit_payment_history?.length > 0 ? `
-      <h4 style="font-size:13.5px; margin:0 0 8px;">Deposit payment history</h4>
-      <div class="table-wrap">
-        <table><thead><tr><th>Date</th><th>Shop</th><th class="num">Amount</th><th>Remarks</th></tr></thead>
-        <tbody>${d.deposit_payment_history.map(p=>`<tr><td>${dateFmt(p.payment_date)}</td><td class="mono">${escapeHtml(p.shop_number)}</td><td class="num">${currency(p.amount)}</td><td>${escapeHtml(p.remarks||'—')}</td></tr>`).join('')}</tbody>
-        </table>
-      </div>` : ''}
-    `;
-    document.getElementById('modalFoot').innerHTML = `<button class="btn btn-ghost" onclick="closeModal()">Close</button>`;
-  } catch(err) {
-    document.getElementById('modalBody').innerHTML = `<div class="error-banner"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg><span>${escapeHtml(err.message)}</span></div>`;
-    document.getElementById('modalFoot').innerHTML = `<button class="btn btn-ghost" onclick="closeModal()">Close</button>`;
-  }
-}
-
-/* ================================================================
-   GLOBAL SEARCH
-   ================================================================ */
-(function initGlobalSearch(){
-  let _searchTimer;
-  const input = document.getElementById('globalSearch');
-  const results = document.getElementById('globalSearchResults');
-  input.addEventListener('input', () => {
-    clearTimeout(_searchTimer);
-    const q = input.value.trim();
-    if (!q){ results.style.display='none'; return; }
-    _searchTimer = setTimeout(async () => {
-      try {
-        const data = await api(`/api/search?q=${encodeURIComponent(q)}`);
-        const total = (data.users||[]).length + (data.shops||[]).length + (data.complexes||[]).length;
-        if (total === 0){ results.innerHTML = '<div style="padding:14px 16px; font-size:13px; color:var(--muted);">No results found.</div>'; results.style.display='block'; return; }
-        let html = '';
-        if (data.users?.length){ html += `<div style="padding:8px 14px 4px; font-size:10.5px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); font-weight:700;">Users</div>` +
-          data.users.map(u=>`<div class="gs-item" data-type="user" data-id="${u.id}" style="padding:9px 14px; cursor:pointer; display:flex; align-items:center; gap:9px; font-size:13.5px; border-bottom:1px solid var(--line);">
-            <span class="user-avatar" style="width:26px;height:26px;font-size:11px;flex-shrink:0;">${escapeHtml(initials(u.name))}</span>
-            <span><strong>${escapeHtml(u.name)}</strong> <span style="color:var(--muted);">${escapeHtml(u.mobile)}</span></span>
-            <span class="pill role-${u.role}" style="margin-left:auto;">${escapeHtml(u.role)}</span>
-          </div>`).join(''); }
-        if (data.shops?.length){ html += `<div style="padding:8px 14px 4px; font-size:10.5px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); font-weight:700;">Shops</div>` +
-          data.shops.map(s=>`<div class="gs-item" data-type="shop" style="padding:9px 14px; cursor:default; display:flex; align-items:center; gap:9px; font-size:13.5px; border-bottom:1px solid var(--line);">
-            <span class="mono" style="font-weight:700;">${escapeHtml(s.shop_number)}</span>
-            <span style="color:var(--muted);">${escapeHtml(s.complex_name||'')}</span>
-            <span class="pill ${s.status}" style="margin-left:auto;"><span class="pill-dot"></span>${s.status}</span>
-          </div>`).join(''); }
-        if (data.complexes?.length){ html += `<div style="padding:8px 14px 4px; font-size:10.5px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); font-weight:700;">Complexes</div>` +
-          data.complexes.map(c=>`<div class="gs-item" style="padding:9px 14px; font-size:13.5px; border-bottom:1px solid var(--line);">${escapeHtml(c.name)} <span style="color:var(--muted);">${escapeHtml(c.address||'')}</span></div>`).join(''); }
-        results.innerHTML = html;
-        results.style.display='block';
-      } catch(e){ results.innerHTML = `<div style="padding:14px 16px; font-size:13px; color:var(--danger);">${escapeHtml(e.message)}</div>`; results.style.display='block'; }
-    }, 300);
-  });
-  document.addEventListener('click', (e) => { if (!input.contains(e.target) && !results.contains(e.target)) results.style.display='none'; });
-})();
-
-/* ================================================================
-   FINANCE VIEW
-   ================================================================ */
-async function financeView(){
-  const complexes = await ensureLoaded('complexes','/api/complex');
-  const users = await ensureLoaded('users','/api/user');
-  const today = new Date();
-  const month = today.getMonth()+1;
-  const year = today.getFullYear();
-  return `
-  <div class="card card-pad" style="margin-bottom:18px;">
-    <div style="display:flex; gap:14px; align-items:flex-end; flex-wrap:wrap;">
-      <div class="field" style="margin-bottom:0;">
-        <label for="fiComplex">Complex</label>
-        <select id="fiComplex">
-          <option value="">All complexes</option>
-          ${complexes.map(c=>`<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('')}
-        </select>
-      </div>
-      <div class="field" style="margin-bottom:0;">
-        <label for="fiUser">Tenant</label>
-        <select id="fiUser">
-          <option value="">All tenants</option>
-          ${users.filter(u=>u.role==='tenant').map(u=>`<option value="${u.id}">${escapeHtml(u.name)}</option>`).join('')}
-        </select>
-      </div>
-      <div class="field" style="margin-bottom:0;">
-        <label for="fiMonth">Month</label>
-        <select id="fiMonth">
-          <option value="">All months</option>
-          ${Array.from({length:12},(_,i)=>`<option value="${i+1}" ${i+1===month?'selected':''}>${new Date(2000,i).toLocaleString('en-IN',{month:'long'})}</option>`).join('')}
-        </select>
-      </div>
-      <div class="field" style="margin-bottom:0;">
-        <label for="fiYear">Year</label>
-        <input id="fiYear" type="number" value="${year}" min="2020" max="2099" style="width:90px;">
-      </div>
-      <button class="btn btn-primary" id="loadFinanceBtn">Load</button>
-    </div>
-  </div>
-  <div id="financeResults"><div class="empty-state">${emptyIcon()}<h3>Select filters and load</h3><p>Choose filters above and click Load to see the finance overview.</p></div></div>
-  `;
-}
-
-function attachFinanceHandlers(){
-  document.getElementById('loadFinanceBtn').addEventListener('click', loadFinanceOverview);
-}
-
-async function loadFinanceOverview(){
-  const resultsEl = document.getElementById('financeResults');
-  const btn = document.getElementById('loadFinanceBtn');
-  const orig = btn.innerHTML;
-  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Loading…';
-  resultsEl.innerHTML = skeletonHtml();
-  try {
-    const params = new URLSearchParams();
-    const cid = document.getElementById('fiComplex').value;
-    const uid = document.getElementById('fiUser').value;
-    const mo = document.getElementById('fiMonth').value;
-    const yr = document.getElementById('fiYear').value;
-    if (cid) params.set('complex_id', cid);
-    if (uid) params.set('user_id', uid);
-    if (mo) params.set('month', mo);
-    if (yr) params.set('year', yr);
-    const d = await api(`/api/finance/overview?${params}`);
-    const s = d.summary;
-    resultsEl.innerHTML = `
-      <div class="stat-row" style="margin-bottom:18px;">
-        <div class="card stat-card accent-green"><div class="label">Rent collected</div><div class="value mono">${currency(s.total_rent_collected)}</div><div class="sub">of ${currency(s.total_rent_billed)} billed</div></div>
-        <div class="card stat-card accent-rust"><div class="label">Rent pending</div><div class="value mono">${currency(s.total_rent_pending)}</div></div>
-        <div class="card stat-card"><div class="label">Deposit collected</div><div class="value mono">${currency(s.total_deposit_collected)}</div><div class="sub">of ${currency(s.total_deposit_required)} required</div></div>
-        <div class="card stat-card accent-rust"><div class="label">Deposit remaining</div><div class="value mono">${currency(s.total_deposit_remaining)}</div></div>
-        <div class="card stat-card"><div class="label">Payments</div><div class="value">${s.payment_count}</div><div class="sub">${s.deposit_payment_count} deposit payments</div></div>
-      </div>
-
-      ${d.tenants?.length ? `
-      <h3 style="font-size:15.5px; margin:0 0 12px;">Tenant breakdown</h3>
-      <div class="table-wrap" style="margin-bottom:18px;">
-        <table>
-          <thead><tr><th>Tenant</th><th>Complex</th><th>Shops</th><th class="num">Monthly rent</th><th class="num">Rent pending</th><th class="num">Deposit paid</th><th class="num">Deposit remaining</th><th>Last payment</th></tr></thead>
-          <tbody>
-            ${d.tenants.map(t=>`<tr>
-              <td><strong>${escapeHtml(t.user_name)}</strong><div style="font-size:12px; color:var(--muted);">${escapeHtml(t.mobile)}</div></td>
-              <td>${escapeHtml(t.complex_name)}</td>
-              <td class="mono">${(t.shops||[]).join(', ')}</td>
-              <td class="num">${currency(t.monthly_rent)}</td>
-              <td class="num">${t.rent_pending > 0 ? `<span style="color:var(--rust); font-weight:700;">${currency(t.rent_pending)}</span>` : `<span style="color:var(--success);">${currency(t.rent_pending)}</span>`}</td>
-              <td class="num">${currency(t.deposit_paid)}</td>
-              <td class="num">${t.deposit_remaining > 0 ? `<span style="color:var(--rust);">${currency(t.deposit_remaining)}</span>` : '—'}</td>
-              <td>${dateFmt(t.last_payment_date)}</td>
-            </tr>`).join('')}
-          </tbody>
-        </table>
-      </div>` : ''}
-
-      ${d.recent_payments?.length ? `
-      <h3 style="font-size:15.5px; margin:0 0 12px;">Recent rent payments</h3>
-      <div class="table-wrap" style="margin-bottom:18px;">
-        <table><thead><tr><th>Tenant</th><th>Shop</th><th>Type</th><th class="num">Amount</th><th>Method</th><th>Date</th></tr></thead>
-        <tbody>${d.recent_payments.map(p=>`<tr><td>${escapeHtml(p.user_name)}</td><td class="mono">${escapeHtml(p.shop_number)}</td><td>${escapeHtml(p.bill_type)}</td><td class="num">${currency(p.amount)}</td><td>${escapeHtml(p.payment_method)}</td><td>${dateFmt(p.payment_date)}</td></tr>`).join('')}</tbody>
-        </table>
-      </div>` : ''}
-
-      ${d.recent_deposit_payments?.length ? `
-      <h3 style="font-size:15.5px; margin:0 0 12px;">Recent deposit payments</h3>
-      <div class="table-wrap">
-        <table><thead><tr><th>Tenant</th><th>Shop</th><th class="num">Amount</th><th>Date</th><th>Remarks</th></tr></thead>
-        <tbody>${d.recent_deposit_payments.map(p=>`<tr><td>${escapeHtml(p.user_name)}</td><td class="mono">${escapeHtml(p.shop_number)}</td><td class="num">${currency(p.amount)}</td><td>${dateFmt(p.payment_date)}</td><td>${escapeHtml(p.remarks||'—')}</td></tr>`).join('')}</tbody>
-        </table>
-      </div>` : ''}
-    `;
-  } catch(err){
-    resultsEl.innerHTML = errorBannerHtml(err.message);
-    document.getElementById('retryBtn')?.addEventListener('click', loadFinanceOverview);
-  } finally { btn.disabled=false; btn.innerHTML=orig; }
-}
-
-/* ================================================================
-   DEPOSITS VIEW
-   ================================================================ */
-async function depositsView(){
-  const [complexes, users] = await Promise.all([ensureLoaded('complexes','/api/complex'), ensureLoaded('users','/api/user')]);
-  let deposits = [];
-  try { deposits = await api('/api/deposit-payment'); } catch(e){}
-  const userName = (id) => users.find(u=>u.id===id)?.name || `#${id}`;
-
-  return `
-  <div class="toolbar"><input class="search-input" id="tableSearch" placeholder="Search deposits…"></div>
-  ${deposits.length === 0 ? emptyStateHtml('No deposit payments', 'Record the first deposit payment using the button above.', emptyIcon()) : `
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>Tenant</th><th>Shop</th><th>Complex</th><th class="num">Amount</th><th>Date</th><th>Remarks</th></tr></thead>
-      <tbody>
-        ${deposits.map(d=>`
-          <tr data-search="${escapeHtml((d.user_name||'')+' '+(d.shop_number||'')+' '+(d.complex_name||''))}">
-            <td><strong>${escapeHtml(d.user_name||userName(d.user_id))}</strong></td>
-            <td class="mono">${escapeHtml(d.shop_number||'—')}</td>
-            <td>${escapeHtml(d.complex_name||'—')}</td>
-            <td class="num">${currency(d.amount)}</td>
-            <td>${dateFmt(d.payment_date)}</td>
-            <td>${escapeHtml(d.remarks||'—')}</td>
-          </tr>`).join('')}
-      </tbody>
-    </table>
-  </div>`}`;
-}
-
-function attachDepositHandlers(){}
-
-/* ---- Deposit Payment Modal ---- */
-async function openDepositModal(){
-  const [users, shops, complexes] = await Promise.all([
-    ensureLoaded('users','/api/user'),
-    ensureLoaded('shops','/api/shop'),
-    ensureLoaded('complexes','/api/complex'),
-  ]);
-  const tenants = users.filter(u => u.role === 'tenant');
-  const today = new Date().toISOString().slice(0,10);
-
-  openModal('Record deposit payment', `
-    <form id="depForm">
-      <div class="field">
-        <label for="dpTenant">Tenant</label>
-        <select id="dpTenant">
-          <option value="">— select tenant —</option>
-          ${tenants.map(u=>`<option value="${u.id}">${escapeHtml(u.name)} · ${escapeHtml(u.mobile)}</option>`).join('')}
-        </select>
-        ${fieldErrorHtml('dpTenantErr')}
-      </div>
-      <div class="field">
-        <label for="dpShop">Shop</label>
-        <select id="dpShop" disabled>
-          <option value="">— select tenant first —</option>
-        </select>
-        ${fieldErrorHtml('dpShopErr')}
-      </div>
-      <div id="dpDepositInfo" style="display:none;" class="info-card" style="margin-bottom:12px;"></div>
-      <div class="form-grid">
-        <div class="field">
-          <label for="dpAmount">Amount (₹)</label>
-          <input id="dpAmount" type="number" step="0.01" min="0.01" placeholder="10000.00">
-          ${fieldErrorHtml('dpAmountErr')}
-        </div>
-        <div class="field">
-          <label for="dpDate">Date</label>
-          <input id="dpDate" type="date" value="${today}">
-        </div>
-        <div class="field full">
-          <label for="dpRemarks">Remarks</label>
-          <input id="dpRemarks" placeholder="Partial deposit, full deposit, etc.">
-        </div>
-      </div>
-    </form>
-  `, `
-    <button class="btn btn-ghost" id="cancelBtn">Cancel</button>
-    <button class="btn btn-primary" id="saveBtn" disabled>Record deposit</button>
-  `);
-  document.getElementById('cancelBtn').addEventListener('click', closeModal);
-
-  document.getElementById('dpTenant').addEventListener('change', () => {
-    const uid = Number(document.getElementById('dpTenant').value);
-    const shopSel = document.getElementById('dpShop');
-    document.getElementById('dpDepositInfo').style.display = 'none';
-    document.getElementById('saveBtn').disabled = true;
-    if (!uid){ shopSel.innerHTML='<option value="">— select tenant first —</option>'; shopSel.disabled=true; return; }
-    const owned = shops.filter(s => s.assigned_to?.id === uid);
-    if (!owned.length){ shopSel.innerHTML='<option value="">No shops assigned</option>'; shopSel.disabled=true; return; }
-    shopSel.disabled = false;
-    shopSel.innerHTML = '<option value="">— select shop —</option>' + owned.map(s=>`<option value="${s.id}" data-deposit="${s.shop_deposit||0}">${escapeHtml(s.shop_number)} · deposit ₹${Number(s.shop_deposit||0).toLocaleString('en-IN')}</option>`).join('');
-    shopSel.dispatchEvent(new Event('change'));
-  });
-
-  document.getElementById('dpShop').addEventListener('change', async () => {
-    const uid = Number(document.getElementById('dpTenant').value);
-    const sid = Number(document.getElementById('dpShop').value);
-    const infoEl = document.getElementById('dpDepositInfo');
-    document.getElementById('saveBtn').disabled = !sid;
-    if (!sid || !uid){ infoEl.style.display='none'; return; }
-    try {
-      const fs = await api(`/api/user/${uid}/financial-summary`);
-      const shopDep = fs.deposit_summary;
-      infoEl.innerHTML = `
-        <div class="info-row"><span class="info-label">Deposit required</span><span class="info-val">${currency(shopDep?.total_deposit_required)}</span></div>
-        <div class="info-row"><span class="info-label">Already paid</span><span class="info-val good">${currency(shopDep?.total_deposit_paid)}</span></div>
-        <div class="info-row"><span class="info-label">Remaining</span><span class="info-val ${shopDep?.remaining_deposit > 0 ? 'warn' : 'good'}">${currency(shopDep?.remaining_deposit)}</span></div>
-      `;
-      infoEl.style.display = 'block';
-      if (!document.getElementById('dpAmount').value) document.getElementById('dpAmount').value = Number(shopDep?.remaining_deposit || 0).toFixed(2);
-    } catch(e){ infoEl.style.display='none'; }
-  });
-
-  document.getElementById('saveBtn').addEventListener('click', async () => {
-    const uid = Number(document.getElementById('dpTenant').value);
-    const sid = Number(document.getElementById('dpShop').value);
-    const amount = parseFloat(document.getElementById('dpAmount').value);
-    const payment_date = document.getElementById('dpDate').value;
-    const remarks = document.getElementById('dpRemarks').value.trim();
-    let ok = true;
-    if (!uid){ showFieldError('dpTenantErr','Select a tenant'); ok=false; }
-    if (!sid){ showFieldError('dpShopErr','Select a shop'); ok=false; }
-    if (isNaN(amount)||amount<=0){ showFieldError('dpAmountErr','Enter a valid amount'); document.getElementById('dpAmount').classList.add('invalid'); ok=false; }
-    if (!ok) return;
-    await withSavingState('saveBtn', async () => {
-      await api('/api/deposit-payment', { method:'POST', body:{ user_id:uid, shop_id:sid, amount, payment_date: new Date(payment_date).toISOString(), remarks } });
-      closeModal();
-      showToast(`Deposit of ${currency(amount)} recorded`, 'success');
-      await renderView('deposits');
-    });
-  });
-}
-
-/* ================================================================
-   REPORTS VIEW (updated with tabs)
+   REPORTS VIEW
    ================================================================ */
 let reportDateRange = { start: null, end: null };
 
 async function reportsView(){
-  const complexes = await ensureLoaded('complexes','/api/complex');
-  const users = await ensureLoaded('users','/api/user');
   const today = new Date();
   const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
   const startVal = reportDateRange.start || monthStart.toISOString().slice(0,10);
   const endVal = reportDateRange.end || today.toISOString().slice(0,10);
 
   return `
-  <div class="path-toggle" id="reportTabToggle" style="margin-bottom:18px;">
-    <button class="path-btn active" data-rtab="summary">Summary</button>
-    <button class="path-btn" data-rtab="rent-collection">Rent Collection</button>
-    <button class="path-btn" data-rtab="deposit">Deposits</button>
-    <button class="path-btn" data-rtab="occupancy">Occupancy</button>
-    <button class="path-btn" data-rtab="user-wise">User-wise</button>
-  </div>
-
   <div class="card card-pad" style="margin-bottom:18px;">
     <div style="display:flex; gap:14px; align-items:flex-end; flex-wrap:wrap;">
       <div class="field" style="margin-bottom:0;">
@@ -1662,210 +1247,42 @@ async function reportsView(){
         <label for="repEnd">To</label>
         <input type="date" id="repEnd" value="${endVal}">
       </div>
-      <div class="field" style="margin-bottom:0;">
-        <label for="repComplex">Complex</label>
-        <select id="repComplex">
-          <option value="">All complexes</option>
-          ${complexes.map(c=>`<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('')}
-        </select>
-      </div>
-      <div class="field" style="margin-bottom:0;">
-        <label for="repUser">Tenant</label>
-        <select id="repUser">
-          <option value="">All tenants</option>
-          ${users.filter(u=>u.role==='tenant').map(u=>`<option value="${u.id}">${escapeHtml(u.name)}</option>`).join('')}
-        </select>
-      </div>
       <button class="btn btn-primary" id="genReportBtn">Generate report</button>
-      <button class="btn btn-ghost" id="exportReportBtn" style="display:none;">Download</button>
+      <button class="btn btn-ghost" id="exportReportBtn" style="display:none;">Download as text</button>
     </div>
   </div>
-  <div id="reportResults"><div class="empty-state">${emptyIcon()}<h3>No report generated yet</h3><p>Choose a report type tab, set filters, and click Generate.</p></div></div>
+  <div id="reportResults"><div class="empty-state">${emptyIcon()}<h3>No report generated yet</h3><p>Choose a date range and generate a report to see occupancy, collections and outstanding dues.</p></div></div>
   `;
 }
 
 function attachReportsHandlers(){
-  let _activeTab = 'summary';
-  document.querySelectorAll('[data-rtab]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('[data-rtab]').forEach(b=>b.classList.remove('active'));
-      btn.classList.add('active');
-      _activeTab = btn.dataset.rtab;
-    });
-  });
-  document.getElementById('genReportBtn').addEventListener('click', () => generateReport(_activeTab));
+  document.getElementById('genReportBtn').addEventListener('click', generateReport);
 }
 
-async function generateReport(tab){
+async function generateReport(){
   const start = document.getElementById('repStart').value;
   const end = document.getElementById('repEnd').value;
-  const complexId = document.getElementById('repComplex').value;
-  const userId = document.getElementById('repUser').value;
   reportDateRange = { start, end };
   const resultsEl = document.getElementById('reportResults');
   const btn = document.getElementById('genReportBtn');
   const original = btn.innerHTML;
-  btn.disabled = true; btn.innerHTML = `<span class="spinner"></span> Generating…`;
+  btn.disabled = true;
+  btn.innerHTML = `<span class="spinner"></span> Generating…`;
   resultsEl.innerHTML = skeletonHtml();
 
   try {
     await Promise.all([ensureLoaded('users','/api/user'), ensureLoaded('shops','/api/shop')]);
-
-    if (tab === 'summary'){
-      const params = new URLSearchParams();
-      if (start) params.set('start_date', new Date(start).toISOString());
-      if (end) params.set('end_date', new Date(new Date(end).setHours(23,59,59)).toISOString());
-      const rep = await api(`/api/reports/summary?${params}`);
-      state._lastReport = rep;
-      resultsEl.innerHTML = renderReportHtml(rep, start, end);
-      document.getElementById('exportReportBtn').style.display = 'inline-flex';
-      document.getElementById('exportReportBtn').onclick = () => downloadReportText(rep, start, end);
-
-    } else if (tab === 'rent-collection'){
-      const params = new URLSearchParams();
-      if (start) params.set('start_date', new Date(start).toISOString());
-      if (end) params.set('end_date', new Date(new Date(end).setHours(23,59,59)).toISOString());
-      if (complexId) params.set('complex_id', complexId);
-      if (userId) params.set('user_id', userId);
-      const rep = await api(`/api/reports/rent-collection?${params}`);
-      const s = rep.summary;
-      resultsEl.innerHTML = `
-        <div class="stat-row" style="margin-bottom:18px;">
-          <div class="card stat-card"><div class="label">Total billed</div><div class="value mono">${currency(s.total_billed)}</div><div class="sub">${s.bills_count} bills</div></div>
-          <div class="card stat-card accent-green"><div class="label">Collected</div><div class="value mono">${currency(s.total_collected)}</div><div class="sub">${s.paid_count} paid</div></div>
-          <div class="card stat-card accent-rust"><div class="label">Pending</div><div class="value mono">${currency(s.total_pending)}</div><div class="sub">${s.pending_count} pending · ${s.partial_count} partial</div></div>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Bill</th><th>Tenant</th><th>Mobile</th><th>Complex</th><th>Shop</th><th>Type</th><th class="num">Amount</th><th class="num">Paid</th><th class="num">Pending</th><th>Status</th><th>Due</th></tr></thead>
-            <tbody>
-              ${rep.records.map(r=>`<tr>
-                <td class="mono">#${r.bill_id}</td>
-                <td>${escapeHtml(r.user_name)}</td>
-                <td class="mono">${escapeHtml(r.mobile)}</td>
-                <td>${escapeHtml(r.complex_name)}</td>
-                <td class="mono">${escapeHtml(r.shop_number)}</td>
-                <td>${escapeHtml(r.bill_type)}</td>
-                <td class="num">${currency(r.amount)}</td>
-                <td class="num">${currency(r.paid_amount)}</td>
-                <td class="num">${r.pending_amount > 0 ? `<span style="color:var(--rust);font-weight:700;">${currency(r.pending_amount)}</span>` : currency(r.pending_amount)}</td>
-                <td>${stampHtml(r.status)}</td>
-                <td>${dateFmt(r.due_date)}</td>
-              </tr>`).join('')}
-            </tbody>
-          </table>
-        </div>
-      `;
-      document.getElementById('exportReportBtn').style.display = 'none';
-
-    } else if (tab === 'deposit'){
-      const params = new URLSearchParams();
-      if (complexId) params.set('complex_id', complexId);
-      if (userId) params.set('user_id', userId);
-      const rep = await api(`/api/reports/deposit?${params}`);
-      const s = rep.summary;
-      const statusColor = (st) => st==='full'?'var(--success)':st==='partial'?'var(--partial)':'var(--rust)';
-      resultsEl.innerHTML = `
-        <div class="stat-row" style="margin-bottom:18px;">
-          <div class="card stat-card"><div class="label">Deposit required</div><div class="value mono">${currency(s.total_deposit_required)}</div></div>
-          <div class="card stat-card accent-green"><div class="label">Collected</div><div class="value mono">${currency(s.total_deposit_collected)}</div><div class="sub">${s.tenants_with_full_deposit} tenants fully paid</div></div>
-          <div class="card stat-card accent-rust"><div class="label">Remaining</div><div class="value mono">${currency(s.total_deposit_remaining)}</div><div class="sub">${s.tenants_with_partial_deposit} partial · ${s.tenants_with_no_deposit} none</div></div>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Tenant</th><th>Mobile</th><th>Complex</th><th>Shop</th><th class="num">Required</th><th class="num">Paid</th><th class="num">Remaining</th><th>Status</th><th>Last payment</th></tr></thead>
-            <tbody>
-              ${rep.records.map(r=>`<tr>
-                <td>${escapeHtml(r.user_name)}</td>
-                <td class="mono">${escapeHtml(r.mobile)}</td>
-                <td>${escapeHtml(r.complex_name)}</td>
-                <td class="mono">${escapeHtml(r.shop_number)}</td>
-                <td class="num">${currency(r.deposit_required)}</td>
-                <td class="num">${currency(r.deposit_paid)}</td>
-                <td class="num">${r.deposit_remaining > 0 ? `<span style="color:var(--rust);font-weight:700;">${currency(r.deposit_remaining)}</span>` : '—'}</td>
-                <td><span style="color:${statusColor(r.deposit_status)}; font-weight:700; font-size:12px; text-transform:uppercase;">${r.deposit_status}</span></td>
-                <td>${dateFmt(r.last_deposit_date)}</td>
-              </tr>`).join('')}
-            </tbody>
-          </table>
-        </div>
-      `;
-      document.getElementById('exportReportBtn').style.display = 'none';
-
-    } else if (tab === 'occupancy'){
-      const params = new URLSearchParams();
-      if (complexId) params.set('complex_id', complexId);
-      const rep = await api(`/api/reports/occupancy?${params}`);
-      const s = rep.summary;
-      resultsEl.innerHTML = `
-        <div class="stat-row" style="margin-bottom:18px;">
-          <div class="card stat-card"><div class="label">Total shops</div><div class="value">${s.total_shops}</div></div>
-          <div class="card stat-card accent-green"><div class="label">Occupied</div><div class="value">${s.occupied}</div></div>
-          <div class="card stat-card"><div class="label">Available</div><div class="value">${s.available}</div></div>
-          <div class="card stat-card"><div class="label">Occupancy rate</div><div class="value">${s.occupancy_rate_percent}%</div></div>
-        </div>
-        ${rep.by_complex?.length ? `
-        <h3 style="font-size:15.5px; margin:0 0 12px;">By complex</h3>
-        <div class="table-wrap" style="margin-bottom:18px;">
-          <table><thead><tr><th>Complex</th><th class="num">Total</th><th class="num">Occupied</th><th class="num">Available</th><th class="num">Rate</th><th class="num">Rent potential</th><th class="num">Rent actual</th></tr></thead>
-          <tbody>${rep.by_complex.map(c=>`<tr>
-            <td>${escapeHtml(c.complex_name)}</td>
-            <td class="num">${c.total_shops}</td>
-            <td class="num">${c.occupied}</td>
-            <td class="num">${c.available}</td>
-            <td class="num">${c.occupancy_rate_percent}%</td>
-            <td class="num">${currency(c.monthly_rent_potential)}</td>
-            <td class="num">${currency(c.monthly_rent_actual)}</td>
-          </tr>`).join('')}</tbody>
-          </table>
-        </div>` : ''}
-        <h3 style="font-size:15.5px; margin:0 0 12px;">Shop details</h3>
-        <div class="table-wrap">
-          <table><thead><tr><th>Shop</th><th>Complex</th><th class="num">Area (sqft)</th><th class="num">Rent</th><th>Status</th><th>Tenant</th></tr></thead>
-          <tbody>${rep.shop_details.map(s=>`<tr>
-            <td class="mono"><strong>${escapeHtml(s.shop_number)}</strong></td>
-            <td>${escapeHtml(s.complex_name)}</td>
-            <td class="num">${Number(s.area_sqft).toLocaleString('en-IN')}</td>
-            <td class="num">${currency(s.shop_rent)}</td>
-            <td><span class="pill ${s.status}"><span class="pill-dot"></span>${s.status}</span></td>
-            <td>${s.tenant_name ? `<span class="tenant-tag">${escapeHtml(s.tenant_name)}</span> <span style="color:var(--muted); font-size:12px;">${escapeHtml(s.tenant_mobile||'')}</span>` : '<span style="color:var(--muted);">—</span>'}</td>
-          </tr>`).join('')}</tbody>
-          </table>
-        </div>
-      `;
-      document.getElementById('exportReportBtn').style.display = 'none';
-
-    } else if (tab === 'user-wise'){
-      const params = new URLSearchParams();
-      if (start) params.set('start_date', new Date(start).toISOString());
-      if (end) params.set('end_date', new Date(new Date(end).setHours(23,59,59)).toISOString());
-      if (complexId) params.set('complex_id', complexId);
-      const recs = await api(`/api/reports/user-wise?${params}`);
-      resultsEl.innerHTML = `
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Tenant</th><th>Shops</th><th class="num">Billed</th><th class="num">Collected</th><th class="num">Pending</th><th class="num">Deposit paid</th><th class="num">Deposit rem.</th><th>Payments</th><th>Last payment</th></tr></thead>
-            <tbody>
-              ${recs.map(r=>`<tr>
-                <td><strong>${escapeHtml(r.user_name)}</strong><div style="font-size:12px; color:var(--muted);">${escapeHtml(r.mobile)}</div></td>
-                <td class="mono" style="font-size:12.5px;">${r.shops?.map(s=>escapeHtml(s.shop_number)).join(', ')||'—'}</td>
-                <td class="num">${currency(r.total_billed)}</td>
-                <td class="num">${currency(r.total_collected)}</td>
-                <td class="num">${r.total_pending > 0 ? `<span style="color:var(--rust);font-weight:700;">${currency(r.total_pending)}</span>` : '—'}</td>
-                <td class="num">${currency(r.deposit_paid)}</td>
-                <td class="num">${r.deposit_remaining > 0 ? `<span style="color:var(--rust);">${currency(r.deposit_remaining)}</span>` : '—'}</td>
-                <td class="num">${r.payment_count}</td>
-                <td>${dateFmt(r.last_payment_date)}</td>
-              </tr>`).join('')}
-            </tbody>
-          </table>
-        </div>
-      `;
-      document.getElementById('exportReportBtn').style.display = 'none';
-    }
+    const params = new URLSearchParams();
+    if (start) params.set('start_date', new Date(start).toISOString());
+    if (end) params.set('end_date', new Date(new Date(end).setHours(23,59,59)).toISOString());
+    const rep = await api(`/api/reports/summary?${params.toString()}`);
+    state._lastReport = rep;
+    resultsEl.innerHTML = renderReportHtml(rep, start, end);
+    document.getElementById('exportReportBtn').style.display = 'inline-flex';
+    document.getElementById('exportReportBtn').onclick = () => downloadReportText(rep, start, end);
   } catch (err) {
     resultsEl.innerHTML = errorBannerHtml(err.message);
-    document.getElementById('retryBtn')?.addEventListener('click', () => generateReport(tab));
+    document.getElementById('retryBtn')?.addEventListener('click', generateReport);
   } finally {
     btn.disabled = false; btn.innerHTML = original;
   }
@@ -2085,14 +1502,6 @@ async function renderShopForm(existing){
             <option value="occupied" ${existing?.status==='occupied'?'selected':''}>Occupied</option>
           </select>
         </div>
-        <div class="field">
-          <label for="sRent">Monthly rent (₹)</label>
-          <input id="sRent" type="number" step="0.01" min="0" value="${existing?.shop_rent ?? ''}" placeholder="5000.00">
-        </div>
-        <div class="field">
-          <label for="sDeposit">Security deposit (₹)</label>
-          <input id="sDeposit" type="number" step="0.01" min="0" value="${existing?.shop_deposit ?? ''}" placeholder="20000.00">
-        </div>
         <div class="field full">
           <label for="sComplex">Complex</label>
           <select id="sComplex">
@@ -2120,10 +1529,7 @@ async function renderShopForm(existing){
     if (!ok) return;
 
     await withSavingState('saveBtn', async () => {
-      const body = { shop_number, area_sqft, status, complex_id,
-        shop_rent: parseFloat(document.getElementById('sRent').value) || 0,
-        shop_deposit: parseFloat(document.getElementById('sDeposit').value) || 0
-      };
+      const body = { shop_number, area_sqft, status, complex_id };
       if (isEdit) await api(`/api/shop/${existing.id}`, { method:'PUT', body });
       else await api('/api/shop', { method:'POST', body });
       state.loaded.shops = false;
