@@ -19,7 +19,7 @@ from decimal import Decimal
 from typing import List, Optional
 
 import bcrypt
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
@@ -33,7 +33,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 # Import ORM models from create_tables so we have a single schema source-of-truth
 from create_tables import (
-    AuditLog, Bill, Complex, DepositPayment, Payment, Shop, User, UserShop,
+    AuditLog, Bill, Complex, Payment, Shop, User, UserShop,
 )
 
 # ──────────────────────────────────────────────
@@ -44,6 +44,17 @@ logger = get_logger("app")
 # ══════════════════════════════════════════════════════════════════════════════
 # FastAPI App
 # ══════════════════════════════════════════════════════════════════════════════
+app = FastAPI(
+    title="Tenant Management System",
+    description="REST API for managing tenants, shops, complexes, bills, and payments.",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+)
+
+# Register request-logging middleware
+app.middleware("http")(log_request_middleware)
+
 # ══════════════════════════════════════════════════════════════════════════════
 # FastAPI App
 # ══════════════════════════════════════════════════════════════════════════════
@@ -54,6 +65,7 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
 
 # ──────────────────────────────────────────────
 # CORS Configuration - Allow frontend access
@@ -202,21 +214,17 @@ class ComplexResponse(BaseModel):
 
 # ── Shop ──────────────────────────────────────
 class ShopCreate(BaseModel):
-    shop_number:  str             = Field(..., min_length=1, max_length=50)
-    area_sqft:    Optional[float] = None
-    status:       Optional[str]   = Field("available", pattern="^(available|occupied|maintenance)$")
-    complex_id:   Optional[int]   = None
-    shop_rent:    Optional[float] = Field(0, ge=0)
-    shop_deposit: Optional[float] = Field(0, ge=0)
+    shop_number: str             = Field(..., min_length=1, max_length=50)
+    area_sqft:   Optional[float] = None
+    status:      Optional[str]   = Field("available", pattern="^(available|occupied|maintenance)$")
+    complex_id:  Optional[int]   = None
 
 
 class ShopUpdate(BaseModel):
-    shop_number:  Optional[str]   = Field(None, min_length=1, max_length=50)
-    area_sqft:    Optional[float] = None
-    status:       Optional[str]   = Field(None, pattern="^(available|occupied|maintenance)$")
-    complex_id:   Optional[int]   = None
-    shop_rent:    Optional[float] = Field(None, ge=0)
-    shop_deposit: Optional[float] = Field(None, ge=0)
+    shop_number: Optional[str]   = Field(None, min_length=1, max_length=50)
+    area_sqft:   Optional[float] = None
+    status:      Optional[str]   = Field(None, pattern="^(available|occupied|maintenance)$")
+    complex_id:  Optional[int]   = None
 
 
 class ShopOwnerInfo(BaseModel):
@@ -226,16 +234,14 @@ class ShopOwnerInfo(BaseModel):
 
 
 class ShopResponse(BaseModel):
-    id:           int
-    shop_number:  str
-    area_sqft:    Optional[float]
-    status:       str
-    complex_id:   Optional[int]
-    shop_rent:    float
-    shop_deposit: float
-    created_at:   datetime
-    updated_at:   datetime
-    assigned_to:  Optional[ShopOwnerInfo] = None
+    id:          int
+    shop_number: str
+    area_sqft:   Optional[float]
+    status:      str
+    complex_id:  Optional[int]
+    created_at:  datetime
+    updated_at:  datetime
+    assigned_to: Optional[ShopOwnerInfo] = None
 
     class Config:
         from_attributes = True
@@ -278,29 +284,21 @@ class UserResponse(BaseModel):
 
 
 class AssignShopsRequest(BaseModel):
-    shop_ids:    List[int]               = Field(..., min_length=1)
-    force:       bool                    = Field(False, description="If true, reassign shops already owned by another active tenant.")
-    agreed_rent: Optional[float]         = Field(None, ge=0, description="Rent agreed with this tenant. If omitted, defaults to each shop's shop_rent.")
-    shop_rents:  Optional[dict[int, float]] = Field(None, description="Optional per-shop agreed_rent override, keyed by shop_id. Takes precedence over agreed_rent.")
+    shop_ids: List[int] = Field(..., min_length=1)
+    force:    bool      = Field(False, description="If true, reassign shops already owned by another active tenant.")
 
 
 class DetachShopsRequest(BaseModel):
     shop_ids: List[int] = Field(..., min_length=1)
 
 
-class ResetPasswordRequest(BaseModel):
-    new_password: str = Field(..., min_length=4)
-
-
 # ── Bill ──────────────────────────────────────
 class BillCreate(BaseModel):
     user_id:     int
     shop_id:     int
-    bill_type:   str               = Field(..., min_length=1, max_length=80,
-                                            description='Use "Rent" to auto-fill amount from the agreed rent for this tenant/shop, or any other value (e.g. "Electricity", "Maintenance", "Other") for manual entry.')
-    amount:      Optional[float]   = Field(None, gt=0,
-                                            description="Required when bill_type is not Rent. Ignored (recomputed) when bill_type is Rent.")
-    description: Optional[str]     = None
+    bill_type:   str            = Field(..., min_length=1, max_length=80)
+    amount:      float          = Field(..., gt=0)
+    description: Optional[str] = None
     due_date:    Optional[datetime] = None
 
 
@@ -338,29 +336,6 @@ class PaymentResponse(BaseModel):
     payment_date:   datetime
     remarks:        Optional[str]
     created_at:     datetime
-
-    class Config:
-        from_attributes = True
-
-
-# ── Deposit Payment ───────────────────────────
-class DepositPaymentCreate(BaseModel):
-    user_id:      int
-    shop_id:      int
-    amount:       float           = Field(..., gt=0)
-    payment_date: Optional[datetime] = None
-    remarks:      Optional[str]   = None
-
-
-class DepositPaymentResponse(BaseModel):
-    id:           int
-    user_id:      int
-    shop_id:      int
-    shop_number:  str
-    amount:       float
-    payment_date: datetime
-    remarks:      Optional[str]
-    created_at:   datetime
 
     class Config:
         from_attributes = True
@@ -414,145 +389,6 @@ def _reconcile_bill(bill: Bill):
         bill.status = "partial"
 
 
-def _current_user_shops(db: Session, user_id: int) -> List[UserShop]:
-    """All current UserShop assignment rows for a given user."""
-    return db.query(UserShop).filter(UserShop.user_id == user_id).all()
-
-
-def _agreed_rent_for(user_shop: UserShop, shop: Shop) -> float:
-    """The effective monthly rent for a tenant/shop: agreed_rent override if
-    set, otherwise falls back to the shop's standard shop_rent."""
-    if user_shop.agreed_rent is not None:
-        return _decimal_to_float(user_shop.agreed_rent)
-    return _decimal_to_float(shop.shop_rent)
-
-
-def _deposit_paid_for_shop(db: Session, user_id: int, shop_id: int) -> float:
-    rows = db.query(DepositPayment).filter(
-        DepositPayment.user_id == user_id, DepositPayment.shop_id == shop_id
-    ).all()
-    return sum(_decimal_to_float(r.amount) for r in rows)
-
-
-def _pending_rent_for_user(db: Session, user_id: int) -> float:
-    """Sum of pending_amount across all non-paid Rent bills for a user."""
-    rows = (
-        db.query(Bill)
-        .filter(Bill.user_id == user_id, Bill.bill_type == "Rent", Bill.status != "paid")
-        .all()
-    )
-    return sum(_decimal_to_float(b.pending_amount) for b in rows)
-
-
-def _build_user_financial_summary(db: Session, user: User) -> dict:
-    """
-    Shared logic for /api/user/{id}/financial-summary and
-    /api/tenant/financial-summary (self), since both need the same shape.
-    """
-    user_shops = _current_user_shops(db, user.id)
-    shop_ids = [us.shop_id for us in user_shops]
-    shops = {s.id: s for s in db.query(Shop).filter(Shop.id.in_(shop_ids)).all()} if shop_ids else {}
-    complexes = {c.id: c for c in db.query(Complex).all()}
-
-    shops_summary_list = []
-    total_monthly_rent = 0.0
-    total_deposit_required = 0.0
-    total_deposit_paid = 0.0
-
-    for us in user_shops:
-        shop = shops.get(us.shop_id)
-        if not shop:
-            continue
-        rent = _agreed_rent_for(us, shop)
-        deposit_required = _decimal_to_float(shop.shop_deposit)
-        deposit_paid = _deposit_paid_for_shop(db, user.id, shop.id)
-
-        total_monthly_rent += rent
-        total_deposit_required += deposit_required
-        total_deposit_paid += deposit_paid
-
-        shops_summary_list.append({
-            "id": shop.id,
-            "shop_number": shop.shop_number,
-            "complex_id": shop.complex_id,
-            "complex_name": complexes.get(shop.complex_id).name if shop.complex_id and complexes.get(shop.complex_id) else None,
-            "area_sqft": _decimal_to_float(shop.area_sqft),
-            "shop_rent": rent,
-            "shop_deposit": deposit_required,
-            "status": shop.status,
-        })
-
-    total_pending_rent = _pending_rent_for_user(db, user.id)
-    total_rent_collected_or_paid = sum(
-        _decimal_to_float(b.paid_amount)
-        for b in db.query(Bill).filter(Bill.user_id == user.id, Bill.bill_type == "Rent").all()
-    )
-
-    bills = db.query(Bill).filter(Bill.user_id == user.id).order_by(Bill.id).all()
-    shop_numbers = {s.id: s.shop_number for s in shops.values()}
-
-    bills_list = [
-        {
-            "id": b.id, "shop_id": b.shop_id, "shop_number": shop_numbers.get(b.shop_id),
-            "bill_type": b.bill_type, "amount": _decimal_to_float(b.amount),
-            "paid_amount": _decimal_to_float(b.paid_amount), "pending_amount": _decimal_to_float(b.pending_amount),
-            "status": b.status, "bill_date": b.bill_date, "due_date": b.due_date,
-            "description": b.description,
-        }
-        for b in bills
-    ]
-
-    payments = (
-        db.query(Payment).join(Bill, Bill.id == Payment.bill_id)
-        .filter(Bill.user_id == user.id).order_by(Payment.id).all()
-    )
-    payment_history = [
-        {
-            "id": p.id, "bill_id": p.bill_id, "shop_id": p.bill.shop_id,
-            "shop_number": shop_numbers.get(p.bill.shop_id), "bill_type": p.bill.bill_type,
-            "amount": _decimal_to_float(p.amount), "payment_method": p.payment_method,
-            "payment_date": p.payment_date, "remarks": p.remarks,
-        }
-        for p in payments
-    ]
-
-    deposit_payments = (
-        db.query(DepositPayment).filter(DepositPayment.user_id == user.id).order_by(DepositPayment.id).all()
-    )
-    deposit_payment_history = [
-        {
-            "id": dp.id, "shop_id": dp.shop_id, "shop_number": shop_numbers.get(dp.shop_id),
-            "amount": _decimal_to_float(dp.amount), "payment_date": dp.payment_date,
-            "remarks": dp.remarks,
-        }
-        for dp in deposit_payments
-    ]
-
-    return {
-        "user": {
-            "id": user.id, "name": user.name, "mobile": user.mobile,
-            "email": user.email, "role": user.role, "is_active": user.is_active,
-        },
-        "shops_summary": {"total_shops": len(shops_summary_list), "shops": shops_summary_list},
-        "shops": shops_summary_list,  # convenience alias for tenant self-summary consumers
-        "rent_summary": {
-            "total_monthly_rent": round(total_monthly_rent, 2),
-            "total_pending_rent": round(total_pending_rent, 2),
-            "total_rent_collected": round(total_rent_collected_or_paid, 2),
-            "total_rent_paid": round(total_rent_collected_or_paid, 2),
-        },
-        "deposit_summary": {
-            "total_deposit_required": round(total_deposit_required, 2),
-            "total_deposit_paid": round(total_deposit_paid, 2),
-            "remaining_deposit": round(total_deposit_required - total_deposit_paid, 2),
-        },
-        "outstanding_balance": round(total_pending_rent, 2),
-        "bills": bills_list,
-        "payment_history": payment_history,
-        "deposit_payment_history": deposit_payment_history,
-    }
-
-
 # ══════════════════════════════════════════════════════════════════════════════
 # ── ROUTE: /api/login
 # ══════════════════════════════════════════════════════════════════════════════
@@ -603,40 +439,6 @@ def list_complexes(db: Session = Depends(get_db), _: User = Depends(require_admi
     return db.query(Complex).order_by(Complex.id).all()
 
 
-# NOTE: this concrete path MUST be registered before "/api/complex/{id}" so
-# FastAPI doesn't try to parse "summary" as an integer id.
-@app.get("/api/complex/summary", tags=["Complex"])
-def all_complexes_summary(db: Session = Depends(get_db), _: User = Depends(require_admin)):
-    """Summary statistics for ALL complexes. Used on the main Admin Dashboard. Admin only."""
-    complexes = db.query(Complex).order_by(Complex.id).all()
-    results = []
-    for c in complexes:
-        shops = db.query(Shop).filter(Shop.complex_id == c.id).all()
-        total_shops = len(shops)
-        occupied = [s for s in shops if s.status == "occupied"]
-        available_count = sum(1 for s in shops if s.status == "available")
-        total_monthly_rent = 0.0
-        for s in occupied:
-            us = db.query(UserShop).filter(UserShop.shop_id == s.id).order_by(UserShop.assigned_at.desc()).first()
-            total_monthly_rent += _agreed_rent_for(us, s) if us else _decimal_to_float(s.shop_rent)
-        total_pending_rent = (
-            db.query(Bill)
-            .join(Shop, Shop.id == Bill.shop_id)
-            .filter(Shop.complex_id == c.id, Bill.bill_type == "Rent", Bill.status != "paid")
-            .all()
-        )
-        results.append({
-            "complex_id": c.id,
-            "complex_name": c.name,
-            "total_shops": total_shops,
-            "occupied_shops": len(occupied),
-            "available_shops": available_count,
-            "total_monthly_rent": round(total_monthly_rent, 2),
-            "total_pending_rent": round(sum(_decimal_to_float(b.pending_amount) for b in total_pending_rent), 2),
-        })
-    return results
-
-
 @app.get("/api/complex/{id}", response_model=ComplexResponse, tags=["Complex"])
 def get_complex(id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     """Retrieve a single complex. Admin only."""
@@ -644,82 +446,6 @@ def get_complex(id: int, db: Session = Depends(get_db), _: User = Depends(requir
     if not obj:
         raise HTTPException(404, detail="Complex not found")
     return obj
-
-
-@app.get("/api/complex/{id}/summary", tags=["Complex"])
-def complex_summary(id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
-    """Live statistics for a single complex. Used in the Complex Dashboard cards. Admin only."""
-    c = db.query(Complex).filter(Complex.id == id).first()
-    if not c:
-        raise HTTPException(404, detail="Complex not found")
-
-    shops = db.query(Shop).filter(Shop.complex_id == id).all()
-    shop_ids = [s.id for s in shops]
-    occupied = [s for s in shops if s.status == "occupied"]
-    available_count = sum(1 for s in shops if s.status == "available")
-
-    owner_map = _shop_owner_map(db, shop_ids) if shop_ids else {}
-
-    total_monthly_rent = 0.0
-    total_deposit_required = 0.0
-    tenants_by_user = {}
-
-    for s in shops:
-        us = db.query(UserShop).filter(UserShop.shop_id == s.id).order_by(UserShop.assigned_at.desc()).first()
-        deposit_required = _decimal_to_float(s.shop_deposit)
-        total_deposit_required += deposit_required if s.status == "occupied" else 0.0
-        if s.status != "occupied" or not us:
-            continue
-        rent = _agreed_rent_for(us, s)
-        total_monthly_rent += rent
-
-        owner = owner_map.get(s.id)
-        if not owner:
-            continue
-        entry = tenants_by_user.setdefault(owner.id, {
-            "user_id": owner.id, "user_name": owner.name, "mobile": owner.mobile,
-            "shops": [], "monthly_rent": 0.0, "pending_rent": 0.0,
-            "deposit_required": 0.0, "deposit_paid": 0.0,
-        })
-        entry["shops"].append(s.shop_number)
-        entry["monthly_rent"] += rent
-        entry["deposit_required"] += deposit_required
-        entry["deposit_paid"] += _deposit_paid_for_shop(db, owner.id, s.id)
-        entry["pending_rent"] = _pending_rent_for_user(db, owner.id)  # per-user total, same each time it's set
-
-    total_pending_rent = sum(
-        _decimal_to_float(b.pending_amount)
-        for b in db.query(Bill).join(Shop, Shop.id == Bill.shop_id)
-        .filter(Shop.complex_id == id, Bill.bill_type == "Rent", Bill.status != "paid").all()
-    )
-
-    tenants = []
-    for entry in tenants_by_user.values():
-        entry["deposit_remaining"] = round(entry["deposit_required"] - entry["deposit_paid"], 2)
-        entry["monthly_rent"] = round(entry["monthly_rent"], 2)
-        entry["deposit_required"] = round(entry["deposit_required"], 2)
-        entry["deposit_paid"] = round(entry["deposit_paid"], 2)
-        entry["pending_rent"] = round(entry["pending_rent"], 2)
-        tenants.append(entry)
-
-    total_deposit_collected = sum(t["deposit_paid"] for t in tenants)
-
-    return {
-        "complex_id": c.id,
-        "complex_name": c.name,
-        "address": c.address,
-        "stats": {
-            "total_shops": len(shops),
-            "occupied_shops": len(occupied),
-            "available_shops": available_count,
-            "total_monthly_rent": round(total_monthly_rent, 2),
-            "total_pending_rent": round(total_pending_rent, 2),
-            "total_deposit_required": round(total_deposit_required, 2),
-            "total_deposit_collected": round(total_deposit_collected, 2),
-            "total_deposit_remaining": round(total_deposit_required - total_deposit_collected, 2),
-        },
-        "tenants": tenants,
-    }
 
 
 @app.put("/api/complex/{id}", response_model=ComplexResponse, tags=["Complex"])
@@ -820,6 +546,17 @@ def update_shop(
     db.refresh(obj)
     owner_map = _shop_owner_map(db, [id])
     return _shop_to_response(obj, owner_map)
+"""def delete_shop(id: int, db: Session = Depends(get_db), actor: User = Depends(require_admin)):
+ #a shop. Admin only.
+    obj = db.query(Shop).filter(Shop.id == id).first()
+    if not obj:
+        raise HTTPException(404, detail="Shop not found")
+
+    write_audit(db, actor.id, "DELETE", "shops", id, old_data={"shop_number": obj.shop_number})
+    db.delete(obj)
+    db.commit()
+    return {"success": True, "message": "Shop deleted"}
+"""
 @app.delete("/api/shop/{id}", tags=["Shop"])
 def delete_shop(
     id: int,
@@ -987,37 +724,6 @@ def delete_user(id: int, db: Session = Depends(get_db), actor: User = Depends(re
     return {"success": True, "message": "User deleted"}
 
 
-@app.put("/api/user/{id}/reset-password", tags=["User"])
-def reset_password(
-    id:    int,
-    body:  ResetPasswordRequest,
-    db:    Session = Depends(get_db),
-    actor: User    = Depends(require_admin),
-):
-    """Admin resets a user's password without knowing the old one. Admin only."""
-    obj = db.query(User).filter(User.id == id).first()
-    if not obj:
-        raise HTTPException(404, detail="User not found")
-
-    obj.password_hash = bcrypt.hashpw(body.new_password.encode(), bcrypt.gensalt()).decode()
-    write_audit(db, actor.id, "UPDATE", "users", id, new_data={"action": "password_reset"})
-    db.commit()
-    return {"message": "Password updated successfully"}
-
-
-@app.get("/api/user/{id}/financial-summary", tags=["User"])
-def user_financial_summary(
-    id: int,
-    db: Session = Depends(get_db),
-    _:  User    = Depends(require_admin),
-):
-    """Full financial picture for a specific user/tenant. Admin only."""
-    user = db.query(User).filter(User.id == id).first()
-    if not user:
-        raise HTTPException(404, detail="User not found")
-    return _build_user_financial_summary(db, user)
-
-
 @app.post("/api/user/{user_id}/assign-shops", tags=["User"])
 def assign_shops_to_user(
     user_id: int,
@@ -1089,15 +795,7 @@ def assign_shops_to_user(
             UserShop.user_id == user_id, UserShop.shop_id == shop_id
         ).first()
         if not exists:
-            # Determine agreed_rent for this shop: per-shop override > flat
-            # agreed_rent for the whole request > the shop's own shop_rent.
-            if body.shop_rents and shop_id in body.shop_rents:
-                rent_value = body.shop_rents[shop_id]
-            elif body.agreed_rent is not None:
-                rent_value = body.agreed_rent
-            else:
-                rent_value = _decimal_to_float(shop.shop_rent)
-            db.add(UserShop(user_id=user_id, shop_id=shop_id, agreed_rent=Decimal(str(rent_value))))
+            db.add(UserShop(user_id=user_id, shop_id=shop_id))
             assigned.append(shop_id)
 
         shop.status = "occupied"
@@ -1153,44 +851,13 @@ def create_bill(
     db:    Session = Depends(get_db),
     actor: User    = Depends(require_admin),
 ):
-    """
-    Create a bill for a tenant.
-
-    bill_type == "Rent": the bill amount is auto-filled from the agreed rent
-    for this tenant/shop (UserShop.agreed_rent, falling back to the shop's
-    shop_rent if no per-tenant rent was ever set). Any `amount` supplied in
-    the request body is ignored for Rent bills — the server is the source of
-    truth so rent always matches what was actually agreed.
-
-    Any other bill_type (e.g. "Electricity", "Maintenance", "Other"):
-    `amount` is required and used as-is. `description` is optional and is
-    commonly used to clarify what the charge is for.
-    Admin only.
-    """
-    user = db.query(User).filter(User.id == body.user_id).first()
-    if not user:
+    """Create a bill for a tenant. Admin only."""
+    if not db.query(User).filter(User.id == body.user_id).first():
         raise HTTPException(400, detail="User not found")
-    shop = db.query(Shop).filter(Shop.id == body.shop_id).first()
-    if not shop:
+    if not db.query(Shop).filter(Shop.id == body.shop_id).first():
         raise HTTPException(400, detail="Shop not found")
 
-    is_rent = body.bill_type.strip().lower() == "rent"
-
-    if is_rent:
-        user_shop = db.query(UserShop).filter(
-            UserShop.user_id == body.user_id, UserShop.shop_id == body.shop_id
-        ).first()
-        if not user_shop:
-            raise HTTPException(400, detail="This shop is not assigned to this user; cannot auto-fill rent.")
-        amount_value = _agreed_rent_for(user_shop, shop)
-        if amount_value <= 0:
-            raise HTTPException(400, detail="Agreed rent for this tenant/shop is 0 or not set. Set shop_rent or agreed_rent first.")
-    else:
-        if body.amount is None or body.amount <= 0:
-            raise HTTPException(400, detail="amount is required and must be greater than 0 for non-Rent bill types.")
-        amount_value = body.amount
-
-    amount = Decimal(str(amount_value))
+    amount = Decimal(str(body.amount))
     bill = Bill(
         user_id        = body.user_id,
         shop_id        = body.shop_id,
@@ -1205,7 +872,7 @@ def create_bill(
     db.add(bill)
     db.flush()
 
-    write_audit(db, actor.id, "CREATE", "bills", bill.id, new_data={**body.model_dump(), "amount": float(amount)})
+    write_audit(db, actor.id, "CREATE", "bills", bill.id, new_data=body.model_dump())
     db.commit()
     db.refresh(bill)
     return bill
@@ -1271,149 +938,6 @@ def record_payment(
 def list_payments(db: Session = Depends(get_db), _: User = Depends(require_admin)):
     """List all payments. Admin only."""
     return db.query(Payment).order_by(Payment.id).all()
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# ── ROUTES: Deposit Payment Management
-# ══════════════════════════════════════════════════════════════════════════════
-
-@app.post("/api/deposit-payment", response_model=DepositPaymentResponse, status_code=201, tags=["Deposit Payment"])
-def create_deposit_payment(
-    body:  DepositPaymentCreate,
-    db:    Session = Depends(get_db),
-    actor: User    = Depends(require_admin),
-):
-    """Record a deposit payment for a tenant against a specific shop. Admin only."""
-    user = db.query(User).filter(User.id == body.user_id).first()
-    if not user:
-        raise HTTPException(404, detail="User not found")
-    shop = db.query(Shop).filter(Shop.id == body.shop_id).first()
-    if not shop:
-        raise HTTPException(404, detail="Shop not found")
-
-    user_shop = db.query(UserShop).filter(
-        UserShop.user_id == body.user_id, UserShop.shop_id == body.shop_id
-    ).first()
-    if not user_shop:
-        raise HTTPException(400, detail="Shop not assigned to this user")
-
-    already_paid = _deposit_paid_for_shop(db, body.user_id, body.shop_id)
-    deposit_required = _decimal_to_float(shop.shop_deposit)
-    if already_paid + body.amount > deposit_required:
-        raise HTTPException(400, detail=(
-            f"Amount exceeds remaining deposit. Required={deposit_required}, "
-            f"already paid={already_paid}, remaining={max(0.0, deposit_required - already_paid)}"
-        ))
-
-    dp = DepositPayment(
-        user_id      = body.user_id,
-        shop_id      = body.shop_id,
-        amount       = Decimal(str(body.amount)),
-        payment_date = body.payment_date or datetime.now(timezone.utc),
-        remarks      = body.remarks,
-    )
-    db.add(dp)
-    db.flush()
-    write_audit(db, actor.id, "CREATE", "deposit_payments", dp.id, new_data=body.model_dump())
-    db.commit()
-    db.refresh(dp)
-    return {
-        "id": dp.id, "user_id": dp.user_id, "shop_id": dp.shop_id, "shop_number": shop.shop_number,
-        "amount": _decimal_to_float(dp.amount), "payment_date": dp.payment_date,
-        "remarks": dp.remarks, "created_at": dp.created_at,
-    }
-
-
-@app.get("/api/deposit-payment", tags=["Deposit Payment"])
-def list_deposit_payments(
-    user_id:    Optional[int] = None,
-    shop_id:    Optional[int] = None,
-    complex_id: Optional[int] = None,
-    db:         Session = Depends(get_db),
-    _:          User    = Depends(require_admin),
-):
-    """List all deposit payments. Supports filters by user_id, shop_id, complex_id. Admin only."""
-    q = db.query(DepositPayment, User, Shop).join(User, User.id == DepositPayment.user_id).join(Shop, Shop.id == DepositPayment.shop_id)
-    if user_id is not None:
-        q = q.filter(DepositPayment.user_id == user_id)
-    if shop_id is not None:
-        q = q.filter(DepositPayment.shop_id == shop_id)
-    if complex_id is not None:
-        q = q.filter(Shop.complex_id == complex_id)
-
-    complexes = {c.id: c.name for c in db.query(Complex).all()}
-    rows = q.order_by(DepositPayment.id).all()
-    return [
-        {
-            "id": dp.id, "user_id": dp.user_id, "user_name": u.name,
-            "shop_id": dp.shop_id, "shop_number": s.shop_number,
-            "complex_id": s.complex_id, "complex_name": complexes.get(s.complex_id),
-            "amount": _decimal_to_float(dp.amount), "payment_date": dp.payment_date,
-            "remarks": dp.remarks, "created_at": dp.created_at,
-        }
-        for dp, u, s in rows
-    ]
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# ── ROUTES: Global Search
-# ══════════════════════════════════════════════════════════════════════════════
-
-@app.get("/api/search", tags=["Search"])
-def global_search(
-    q:  str = Query(..., min_length=1),
-    db: Session = Depends(get_db),
-    _:  User    = Depends(require_admin),
-):
-    """Case-insensitive search across users, shops, and complexes. Admin only."""
-    term = f"%{q.strip().lower()}%"
-
-    users = db.query(User).filter(
-        (User.name.ilike(term)) | (User.mobile.ilike(term))
-    ).all()
-    user_shops_map = {}
-    if users:
-        rows = (
-            db.query(UserShop, Shop)
-            .join(Shop, Shop.id == UserShop.shop_id)
-            .filter(UserShop.user_id.in_([u.id for u in users]))
-            .all()
-        )
-        for us, s in rows:
-            user_shops_map.setdefault(us.user_id, []).append(s.shop_number)
-
-    shops = db.query(Shop).filter(Shop.shop_number.ilike(term)).all()
-    shop_ids = [s.id for s in shops]
-    owner_map = _shop_owner_map(db, shop_ids) if shop_ids else {}
-    complexes_by_id = {c.id: c.name for c in db.query(Complex).all()}
-
-    complexes = db.query(Complex).filter(
-        (Complex.name.ilike(term)) | (Complex.address.ilike(term))
-    ).all()
-
-    return {
-        "users": [
-            {
-                "id": u.id, "name": u.name, "mobile": u.mobile, "email": u.email,
-                "role": u.role, "is_active": u.is_active,
-                "shops": user_shops_map.get(u.id, []),
-            }
-            for u in users
-        ],
-        "shops": [
-            {
-                "id": s.id, "shop_number": s.shop_number, "complex_id": s.complex_id,
-                "complex_name": complexes_by_id.get(s.complex_id), "status": s.status,
-                "shop_rent": _decimal_to_float(s.shop_rent), "shop_deposit": _decimal_to_float(s.shop_deposit),
-                "assigned_to": owner_map.get(s.id).model_dump() if owner_map.get(s.id) else None,
-            }
-            for s in shops
-        ],
-        "complexes": [
-            {"id": c.id, "name": c.name, "address": c.address}
-            for c in complexes
-        ],
-    }
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1502,434 +1026,6 @@ def reports_summary(
     }
 
 
-@app.get("/api/reports/rent-collection", tags=["Reports"])
-def report_rent_collection(
-    complex_id: Optional[int] = None,
-    user_id:    Optional[int] = None,
-    shop_id:    Optional[int] = None,
-    start_date: Optional[datetime] = None,
-    end_date:   Optional[datetime] = None,
-    month:      Optional[int] = None,
-    year:       Optional[int] = None,
-    status_filter: Optional[str] = Query(None, alias="status", pattern="^(paid|partial|pending)$"),
-    db:         Session = Depends(get_db),
-    _:          User    = Depends(require_admin),
-):
-    """Rent collection report with optional filters. Admin only."""
-    q = db.query(Bill).filter(Bill.bill_type == "Rent")
-    if user_id is not None:
-        q = q.filter(Bill.user_id == user_id)
-    if shop_id is not None:
-        q = q.filter(Bill.shop_id == shop_id)
-    if complex_id is not None:
-        q = q.join(Shop, Shop.id == Bill.shop_id).filter(Shop.complex_id == complex_id)
-    if start_date is not None:
-        q = q.filter(Bill.bill_date >= start_date)
-    if end_date is not None:
-        q = q.filter(Bill.bill_date <= end_date)
-    if month is not None:
-        q = q.filter(text("MONTH(bills.bill_date) = :m")).params(m=month)
-    if year is not None:
-        q = q.filter(text("YEAR(bills.bill_date) = :y")).params(y=year)
-    if status_filter is not None:
-        q = q.filter(Bill.status == status_filter)
-
-    bills = q.order_by(Bill.bill_date).all()
-
-    users = {u.id: u for u in db.query(User).all()}
-    shops = {s.id: s for s in db.query(Shop).all()}
-    complexes = {c.id: c.name for c in db.query(Complex).all()}
-
-    records = []
-    for b in bills:
-        u = users.get(b.user_id)
-        s = shops.get(b.shop_id)
-        records.append({
-            "bill_id": b.id, "user_id": b.user_id, "user_name": u.name if u else None,
-            "mobile": u.mobile if u else None,
-            "complex_id": s.complex_id if s else None,
-            "complex_name": complexes.get(s.complex_id) if s else None,
-            "shop_id": b.shop_id, "shop_number": s.shop_number if s else None,
-            "bill_type": b.bill_type, "bill_date": b.bill_date, "due_date": b.due_date,
-            "amount": _decimal_to_float(b.amount), "paid_amount": _decimal_to_float(b.paid_amount),
-            "pending_amount": _decimal_to_float(b.pending_amount), "status": b.status,
-            "description": b.description,
-        })
-
-    return {
-        "period": {"start_date": start_date, "end_date": end_date},
-        "summary": {
-            "total_billed": round(sum(r["amount"] for r in records), 2),
-            "total_collected": round(sum(r["paid_amount"] for r in records), 2),
-            "total_pending": round(sum(r["pending_amount"] for r in records), 2),
-            "bills_count": len(records),
-            "paid_count": sum(1 for r in records if r["status"] == "paid"),
-            "partial_count": sum(1 for r in records if r["status"] == "partial"),
-            "pending_count": sum(1 for r in records if r["status"] == "pending"),
-        },
-        "records": records,
-    }
-
-
-@app.get("/api/reports/deposit", tags=["Reports"])
-def report_deposit(
-    complex_id: Optional[int] = None,
-    user_id:    Optional[int] = None,
-    shop_id:    Optional[int] = None,
-    db:         Session = Depends(get_db),
-    _:          User    = Depends(require_admin),
-):
-    """Deposit collection report. Admin only."""
-    q = db.query(UserShop, User, Shop).join(User, User.id == UserShop.user_id).join(Shop, Shop.id == UserShop.shop_id)
-    if user_id is not None:
-        q = q.filter(UserShop.user_id == user_id)
-    if shop_id is not None:
-        q = q.filter(UserShop.shop_id == shop_id)
-    if complex_id is not None:
-        q = q.filter(Shop.complex_id == complex_id)
-
-    rows = q.order_by(UserShop.user_id).all()
-    complexes = {c.id: c.name for c in db.query(Complex).all()}
-
-    records = []
-    full_count = partial_count = none_count = 0
-    total_required = total_paid = 0.0
-
-    for us, u, s in rows:
-        required = _decimal_to_float(s.shop_deposit)
-        paid = _deposit_paid_for_shop(db, u.id, s.id)
-        remaining = max(0.0, required - paid)
-        last_dp = (
-            db.query(DepositPayment)
-            .filter(DepositPayment.user_id == u.id, DepositPayment.shop_id == s.id)
-            .order_by(DepositPayment.payment_date.desc())
-            .first()
-        )
-        if paid >= required and required > 0:
-            dep_status = "full"
-            full_count += 1
-        elif paid > 0:
-            dep_status = "partial"
-            partial_count += 1
-        else:
-            dep_status = "none"
-            none_count += 1
-
-        total_required += required
-        total_paid += paid
-
-        records.append({
-            "user_id": u.id, "user_name": u.name, "mobile": u.mobile,
-            "complex_name": complexes.get(s.complex_id),
-            "shop_id": s.id, "shop_number": s.shop_number,
-            "deposit_required": round(required, 2), "deposit_paid": round(paid, 2),
-            "deposit_remaining": round(remaining, 2), "deposit_status": dep_status,
-            "last_deposit_date": last_dp.payment_date if last_dp else None,
-        })
-
-    return {
-        "summary": {
-            "total_deposit_required": round(total_required, 2),
-            "total_deposit_collected": round(total_paid, 2),
-            "total_deposit_remaining": round(total_required - total_paid, 2),
-            "tenants_with_full_deposit": full_count,
-            "tenants_with_partial_deposit": partial_count,
-            "tenants_with_no_deposit": none_count,
-        },
-        "records": records,
-    }
-
-
-@app.get("/api/reports/occupancy", tags=["Reports"])
-def report_occupancy(
-    complex_id: Optional[int] = None,
-    db:         Session = Depends(get_db),
-    _:          User    = Depends(require_admin),
-):
-    """Occupancy report, overall and broken down by complex. Admin only."""
-    shop_q = db.query(Shop)
-    if complex_id is not None:
-        shop_q = shop_q.filter(Shop.complex_id == complex_id)
-    shops = shop_q.order_by(Shop.id).all()
-
-    complexes = {c.id: c for c in db.query(Complex).all()}
-    owner_map = _shop_owner_map(db, [s.id for s in shops]) if shops else {}
-
-    total_shops = len(shops)
-    occupied = sum(1 for s in shops if s.status == "occupied")
-    available = total_shops - occupied
-    occupancy_rate = round((occupied / total_shops) * 100) if total_shops else 0
-
-    by_complex_data = {}
-    shop_details = []
-    for s in shops:
-        cdata = by_complex_data.setdefault(s.complex_id, {
-            "complex_id": s.complex_id,
-            "complex_name": complexes.get(s.complex_id).name if s.complex_id and complexes.get(s.complex_id) else None,
-            "total_shops": 0, "occupied": 0, "available": 0,
-            "monthly_rent_potential": 0.0, "monthly_rent_actual": 0.0,
-        })
-        cdata["total_shops"] += 1
-        rent = _decimal_to_float(s.shop_rent)
-        cdata["monthly_rent_potential"] += rent
-        owner = owner_map.get(s.id)
-
-        if s.status == "occupied":
-            cdata["occupied"] += 1
-            us = db.query(UserShop).filter(UserShop.shop_id == s.id).order_by(UserShop.assigned_at.desc()).first()
-            cdata["monthly_rent_actual"] += _agreed_rent_for(us, s) if us else rent
-        else:
-            cdata["available"] += 1
-
-        shop_details.append({
-            "shop_id": s.id, "shop_number": s.shop_number, "complex_id": s.complex_id,
-            "complex_name": cdata["complex_name"],
-            "status": s.status, "area_sqft": _decimal_to_float(s.area_sqft),
-            "shop_rent": rent, "shop_deposit": _decimal_to_float(s.shop_deposit),
-            "tenant_id": owner.id if owner else None,
-            "tenant_name": owner.name if owner else None,
-            "tenant_mobile": owner.mobile if owner else None,
-        })
-
-    by_complex = []
-    for cdata in by_complex_data.values():
-        ct = cdata["total_shops"]
-        cdata["occupancy_rate_percent"] = round((cdata["occupied"] / ct) * 100) if ct else 0
-        cdata["monthly_rent_potential"] = round(cdata["monthly_rent_potential"], 2)
-        cdata["monthly_rent_actual"] = round(cdata["monthly_rent_actual"], 2)
-        by_complex.append(cdata)
-
-    return {
-        "summary": {
-            "total_shops": total_shops, "occupied": occupied, "available": available,
-            "occupancy_rate_percent": occupancy_rate,
-        },
-        "by_complex": by_complex,
-        "shop_details": shop_details,
-    }
-
-
-@app.get("/api/reports/user-wise", tags=["Reports"])
-def report_user_wise(
-    complex_id: Optional[int] = None,
-    start_date: Optional[datetime] = None,
-    end_date:   Optional[datetime] = None,
-    month:      Optional[int] = None,
-    year:       Optional[int] = None,
-    db:         Session = Depends(get_db),
-    _:          User    = Depends(require_admin),
-):
-    """User-wise financial report. Admin only."""
-    users = db.query(User).filter(User.role == "tenant").order_by(User.id).all()
-    complexes = {c.id: c.name for c in db.query(Complex).all()}
-
-    results = []
-    for u in users:
-        user_shops = _current_user_shops(db, u.id)
-        if complex_id is not None:
-            shop_ids_in_complex = {s.id for s in db.query(Shop).filter(Shop.complex_id == complex_id).all()}
-            user_shops = [us for us in user_shops if us.shop_id in shop_ids_in_complex]
-            if not user_shops:
-                continue
-
-        shops_list = []
-        deposit_required = deposit_paid = 0.0
-        for us in user_shops:
-            shop = db.query(Shop).filter(Shop.id == us.shop_id).first()
-            if not shop:
-                continue
-            shops_list.append({
-                "shop_number": shop.shop_number,
-                "complex_name": complexes.get(shop.complex_id),
-                "shop_rent": _agreed_rent_for(us, shop),
-                "shop_deposit": _decimal_to_float(shop.shop_deposit),
-            })
-            deposit_required += _decimal_to_float(shop.shop_deposit)
-            deposit_paid += _deposit_paid_for_shop(db, u.id, shop.id)
-
-        bill_q = db.query(Bill).filter(Bill.user_id == u.id)
-        if start_date is not None:
-            bill_q = bill_q.filter(Bill.bill_date >= start_date)
-        if end_date is not None:
-            bill_q = bill_q.filter(Bill.bill_date <= end_date)
-        if month is not None:
-            bill_q = bill_q.filter(text("MONTH(bills.bill_date) = :m")).params(m=month)
-        if year is not None:
-            bill_q = bill_q.filter(text("YEAR(bills.bill_date) = :y")).params(y=year)
-        bills = bill_q.all()
-
-        if not bills and not shops_list:
-            continue
-
-        total_billed = sum(_decimal_to_float(b.amount) for b in bills)
-        total_collected = sum(_decimal_to_float(b.paid_amount) for b in bills)
-        total_pending = sum(_decimal_to_float(b.pending_amount) for b in bills)
-
-        last_payment = (
-            db.query(Payment).join(Bill, Bill.id == Payment.bill_id)
-            .filter(Bill.user_id == u.id).order_by(Payment.payment_date.desc()).first()
-        )
-        payment_count = db.query(Payment).join(Bill, Bill.id == Payment.bill_id).filter(Bill.user_id == u.id).count()
-
-        results.append({
-            "user_id": u.id, "user_name": u.name, "mobile": u.mobile,
-            "email": u.email, "is_active": u.is_active,
-            "shops": shops_list,
-            "total_billed": round(total_billed, 2),
-            "total_collected": round(total_collected, 2),
-            "total_pending": round(total_pending, 2),
-            "deposit_required": round(deposit_required, 2),
-            "deposit_paid": round(deposit_paid, 2),
-            "deposit_remaining": round(deposit_required - deposit_paid, 2),
-            "payment_count": payment_count,
-            "last_payment_date": last_payment.payment_date if last_payment else None,
-        })
-
-    return results
-
-
-@app.get("/api/finance/overview", tags=["Reports"])
-def finance_overview(
-    complex_id: Optional[int] = None,
-    user_id:    Optional[int] = None,
-    start_date: Optional[datetime] = None,
-    end_date:   Optional[datetime] = None,
-    month:      Optional[int] = None,
-    year:       Optional[int] = None,
-    db:         Session = Depends(get_db),
-    _:          User    = Depends(require_admin),
-):
-    """Aggregated finance overview with filters. Powers the Finance module page. Admin only."""
-    bill_q = db.query(Bill)
-    if user_id is not None:
-        bill_q = bill_q.filter(Bill.user_id == user_id)
-    if complex_id is not None:
-        bill_q = bill_q.join(Shop, Shop.id == Bill.shop_id).filter(Shop.complex_id == complex_id)
-    if start_date is not None:
-        bill_q = bill_q.filter(Bill.bill_date >= start_date)
-    if end_date is not None:
-        bill_q = bill_q.filter(Bill.bill_date <= end_date)
-    if month is not None:
-        bill_q = bill_q.filter(text("MONTH(bills.bill_date) = :m")).params(m=month)
-    if year is not None:
-        bill_q = bill_q.filter(text("YEAR(bills.bill_date) = :y")).params(y=year)
-
-    rent_bills = bill_q.filter(Bill.bill_type == "Rent").all()
-    total_rent_billed = sum(_decimal_to_float(b.amount) for b in rent_bills)
-    total_rent_collected = sum(_decimal_to_float(b.paid_amount) for b in rent_bills)
-    total_rent_pending = sum(_decimal_to_float(b.pending_amount) for b in rent_bills)
-
-    # Deposit figures are point-in-time (not date filtered), scoped by complex/user if given
-    us_q = db.query(UserShop, User, Shop).join(User, User.id == UserShop.user_id).join(Shop, Shop.id == UserShop.shop_id)
-    if user_id is not None:
-        us_q = us_q.filter(UserShop.user_id == user_id)
-    if complex_id is not None:
-        us_q = us_q.filter(Shop.complex_id == complex_id)
-    us_rows = us_q.all()
-
-    complexes = {c.id: c.name for c in db.query(Complex).all()}
-    tenants_map = {}
-    total_deposit_required = total_deposit_collected = 0.0
-
-    for us, u, s in us_rows:
-        deposit_required = _decimal_to_float(s.shop_deposit)
-        deposit_paid = _deposit_paid_for_shop(db, u.id, s.id)
-        total_deposit_required += deposit_required
-        total_deposit_collected += deposit_paid
-
-        entry = tenants_map.setdefault(u.id, {
-            "user_id": u.id, "user_name": u.name, "mobile": u.mobile,
-            "complex_name": complexes.get(s.complex_id), "shops": [],
-            "monthly_rent": 0.0, "rent_pending": 0.0,
-            "deposit_required": 0.0, "deposit_paid": 0.0,
-            "last_payment_date": None, "outstanding_balance": 0.0,
-        })
-        entry["shops"].append(s.shop_number)
-        entry["monthly_rent"] += _agreed_rent_for(us, s)
-        entry["deposit_required"] += deposit_required
-        entry["deposit_paid"] += deposit_paid
-
-    for uid, entry in tenants_map.items():
-        entry["rent_pending"] = round(_pending_rent_for_user(db, uid), 2)
-        entry["outstanding_balance"] = entry["rent_pending"]
-        entry["deposit_remaining"] = round(entry["deposit_required"] - entry["deposit_paid"], 2)
-        entry["monthly_rent"] = round(entry["monthly_rent"], 2)
-        entry["deposit_required"] = round(entry["deposit_required"], 2)
-        entry["deposit_paid"] = round(entry["deposit_paid"], 2)
-        last_payment = (
-            db.query(Payment).join(Bill, Bill.id == Payment.bill_id)
-            .filter(Bill.user_id == uid).order_by(Payment.payment_date.desc()).first()
-        )
-        entry["last_payment_date"] = last_payment.payment_date if last_payment else None
-
-    pay_q = db.query(Payment).join(Bill, Bill.id == Payment.bill_id)
-    if user_id is not None:
-        pay_q = pay_q.filter(Bill.user_id == user_id)
-    if complex_id is not None:
-        pay_q = pay_q.join(Shop, Shop.id == Bill.shop_id).filter(Shop.complex_id == complex_id)
-    if start_date is not None:
-        pay_q = pay_q.filter(Payment.payment_date >= start_date)
-    if end_date is not None:
-        pay_q = pay_q.filter(Payment.payment_date <= end_date)
-    recent_payments_rows = pay_q.order_by(Payment.payment_date.desc()).limit(20).all()
-
-    users_by_id = {u.id: u for u in db.query(User).all()}
-    shops_by_id = {s.id: s for s in db.query(Shop).all()}
-
-    recent_payments = []
-    for p in recent_payments_rows:
-        bill = p.bill
-        u = users_by_id.get(bill.user_id) if bill else None
-        s = shops_by_id.get(bill.shop_id) if bill else None
-        recent_payments.append({
-            "id": p.id, "user_id": bill.user_id if bill else None,
-            "user_name": u.name if u else None,
-            "shop_number": s.shop_number if s else None,
-            "bill_type": bill.bill_type if bill else None,
-            "amount": _decimal_to_float(p.amount), "payment_method": p.payment_method,
-            "payment_date": p.payment_date, "remarks": p.remarks or "",
-        })
-
-    dp_q = db.query(DepositPayment)
-    if user_id is not None:
-        dp_q = dp_q.filter(DepositPayment.user_id == user_id)
-    if complex_id is not None:
-        dp_q = dp_q.join(Shop, Shop.id == DepositPayment.shop_id).filter(Shop.complex_id == complex_id)
-    deposit_payment_count = dp_q.count()
-    recent_deposit_rows = dp_q.order_by(DepositPayment.payment_date.desc()).limit(20).all()
-    recent_deposit_payments = [
-        {
-            "id": dp.id, "user_id": dp.user_id,
-            "user_name": users_by_id.get(dp.user_id).name if users_by_id.get(dp.user_id) else None,
-            "shop_number": shops_by_id.get(dp.shop_id).shop_number if shops_by_id.get(dp.shop_id) else None,
-            "amount": _decimal_to_float(dp.amount), "payment_date": dp.payment_date,
-            "remarks": dp.remarks,
-        }
-        for dp in recent_deposit_rows
-    ]
-
-    return {
-        "filters_applied": {
-            "complex_id": complex_id, "user_id": user_id,
-            "start_date": start_date, "end_date": end_date,
-            "month": month, "year": year,
-        },
-        "summary": {
-            "total_rent_billed": round(total_rent_billed, 2),
-            "total_rent_collected": round(total_rent_collected, 2),
-            "total_rent_pending": round(total_rent_pending, 2),
-            "total_deposit_required": round(total_deposit_required, 2),
-            "total_deposit_collected": round(total_deposit_collected, 2),
-            "total_deposit_remaining": round(total_deposit_required - total_deposit_collected, 2),
-            "payment_count": pay_q.count(),
-            "deposit_payment_count": deposit_payment_count,
-        },
-        "tenants": list(tenants_map.values()),
-        "recent_payments": recent_payments,
-        "recent_deposit_payments": recent_deposit_payments,
-    }
-
-
 # ══════════════════════════════════════════════════════════════════════════════
 # ── ROUTES: Tenant Portal (read-only)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1947,22 +1043,20 @@ def tenant_shops(
 ):
     """Return all shops assigned to the authenticated tenant."""
     rows = (
-        db.query(Shop, UserShop)
+        db.query(Shop)
         .join(UserShop, UserShop.shop_id == Shop.id)
         .filter(UserShop.user_id == current_user.id)
         .all()
     )
     return [
         {
-            "id":           s.id,
-            "shop_number":  s.shop_number,
-            "area_sqft":    _decimal_to_float(s.area_sqft),
-            "status":       s.status,
-            "complex_id":   s.complex_id,
-            "shop_rent":    _agreed_rent_for(us, s),
-            "shop_deposit": _decimal_to_float(s.shop_deposit),
+            "id":          s.id,
+            "shop_number": s.shop_number,
+            "area_sqft":   _decimal_to_float(s.area_sqft),
+            "status":      s.status,
+            "complex_id":  s.complex_id,
         }
-        for s, us in rows
+        for s in rows
     ]
 
 
@@ -2015,15 +1109,6 @@ def tenant_payments(
         }
         for p in payments
     ]
-
-
-@app.get("/api/tenant/financial-summary", tags=["Tenant"])
-def tenant_financial_summary(
-    db:           Session = Depends(get_db),
-    current_user: User    = Depends(require_tenant),
-):
-    """Return the authenticated tenant's own full financial picture."""
-    return _build_user_financial_summary(db, current_user)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
