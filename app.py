@@ -1997,6 +1997,28 @@ def tenant_payments(
         for p in payments
     ]
 
+@app.get("/api/tenant/deposit-payments", tags=["Tenant"])
+def tenant_deposit_payments(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_tenant),
+):
+    """Return all deposit payments made by the authenticated tenant."""
+    deposits = (
+        db.query(DepositPayment)
+        .filter(DepositPayment.user_id == current_user.id)
+        .order_by(DepositPayment.payment_date.desc())
+        .all()
+    )
+    return [
+        {
+            "id": dp.id,
+            "shop_id": dp.shop_id,
+            "amount": _decimal_to_float(dp.amount),
+            "payment_date": dp.payment_date,
+            "remarks": dp.remarks,
+        }
+        for dp in deposits
+    ]
 
 @app.get("/api/tenant/financial-summary", tags=["Tenant"])
 def tenant_financial_summary(
