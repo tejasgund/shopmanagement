@@ -55,7 +55,7 @@ RUN mkdir -p /app/logs
 # ──────────────────────────────────────────────
 ENV DB_HOST=172.31.52.221 \
     DB_PORT=3306 \
-    DB_NAME=tenant_management_qa \
+    DB_NAME=tenant_management \
     DB_USER=admin \
     DB_PASSWORD=admin \
     JWT_SECRET=CHANGE_ME_IN_PRODUCTION_SECRET_KEY \
