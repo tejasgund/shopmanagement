@@ -45,9 +45,6 @@ logger = get_logger("app")
 # ══════════════════════════════════════════════════════════════════════════════
 # FastAPI App
 # ══════════════════════════════════════════════════════════════════════════════
-# ══════════════════════════════════════════════════════════════════════════════
-# FastAPI App
-# ══════════════════════════════════════════════════════════════════════════════
 app = FastAPI(
     title="Tenant Management System",
     description="REST API for managing tenants, shops, complexes, bills, and payments.",
@@ -279,10 +276,8 @@ class UserResponse(BaseModel):
 
 
 class AssignShopsRequest(BaseModel):
-    shop_ids:    List[int]               = Field(..., min_length=1)
-    force:       bool                    = Field(False, description="If true, reassign shops already owned by another active tenant.")
-    agreed_rent: Optional[float]         = Field(None, ge=0, description="Rent agreed with this tenant. If omitted, defaults to each shop's shop_rent.")
-    shop_rents:  Optional[dict[int, float]] = Field(None, description="Optional per-shop agreed_rent override, keyed by shop_id. Takes precedence over agreed_rent.")
+    shop_ids: List[int] = Field(..., min_length=1)
+    force: bool = Field(False, description="If true, reassign shops already owned by another active tenant.")
 
 
 class DetachShopsRequest(BaseModel):
@@ -420,14 +415,6 @@ def _current_user_shops(db: Session, user_id: int) -> List[UserShop]:
     return db.query(UserShop).filter(UserShop.user_id == user_id).all()
 
 
-def _agreed_rent_for(user_shop: UserShop, shop: Shop) -> float:
-    """The effective monthly rent for a tenant/shop: agreed_rent override if
-    set, otherwise falls back to the shop's standard shop_rent."""
-    if user_shop.agreed_rent is not None:
-        return _decimal_to_float(user_shop.agreed_rent)
-    return _decimal_to_float(shop.shop_rent)
-
-
 def _deposit_paid_for_shop(db: Session, user_id: int, shop_id: int) -> float:
     rows = db.query(DepositPayment).filter(
         DepositPayment.user_id == user_id, DepositPayment.shop_id == shop_id
@@ -464,7 +451,7 @@ def _build_user_financial_summary(db: Session, user: User) -> dict:
         shop = shops.get(us.shop_id)
         if not shop:
             continue
-        rent = _agreed_rent_for(us, shop)
+        rent = _decimal_to_float(shop.shop_rent)  # <-- DIRECT USE
         deposit_required = _decimal_to_float(shop.shop_deposit)
         deposit_paid = _deposit_paid_for_shop(db, user.id, shop.id)
 
@@ -618,8 +605,7 @@ def all_complexes_summary(db: Session = Depends(get_db), _: User = Depends(requi
         available_count = sum(1 for s in shops if s.status == "available")
         total_monthly_rent = 0.0
         for s in occupied:
-            us = db.query(UserShop).filter(UserShop.shop_id == s.id).order_by(UserShop.assigned_at.desc()).first()
-            total_monthly_rent += _agreed_rent_for(us, s) if us else _decimal_to_float(s.shop_rent)
+            total_monthly_rent += _decimal_to_float(s.shop_rent)  # <-- DIRECT USE
         total_pending_rent = (
             db.query(Bill)
             .join(Shop, Shop.id == Bill.shop_id)
@@ -671,7 +657,7 @@ def complex_summary(id: int, db: Session = Depends(get_db), _: User = Depends(re
         total_deposit_required += deposit_required if s.status == "occupied" else 0.0
         if s.status != "occupied" or not us:
             continue
-        rent = _agreed_rent_for(us, s)
+        rent = _decimal_to_float(s.shop_rent)  # <-- DIRECT USE
         total_monthly_rent += rent
 
         owner = owner_map.get(s.id)
@@ -821,6 +807,8 @@ def update_shop(
     db.refresh(obj)
     owner_map = _shop_owner_map(db, [id])
     return _shop_to_response(obj, owner_map)
+
+
 @app.delete("/api/shop/{id}", tags=["Shop"])
 def delete_shop(
     id: int,
@@ -846,6 +834,7 @@ def delete_shop(
         "success": True,
         "message": f"Shop {id} deleted successfully"
     }
+
 
 @app.post("/api/shop/{shop_id}/assign-complex", tags=["Shop"])
 def assign_complex_to_shop(
@@ -1090,15 +1079,8 @@ def assign_shops_to_user(
             UserShop.user_id == user_id, UserShop.shop_id == shop_id
         ).first()
         if not exists:
-            # Determine agreed_rent for this shop: per-shop override > flat
-            # agreed_rent for the whole request > the shop's own shop_rent.
-            if body.shop_rents and shop_id in body.shop_rents:
-                rent_value = body.shop_rents[shop_id]
-            elif body.agreed_rent is not None:
-                rent_value = body.agreed_rent
-            else:
-                rent_value = _decimal_to_float(shop.shop_rent)
-            db.add(UserShop(user_id=user_id, shop_id=shop_id, agreed_rent=Decimal(str(rent_value))))
+            # No rent stored – the assignment is now purely a relationship
+            db.add(UserShop(user_id=user_id, shop_id=shop_id))
             assigned.append(shop_id)
 
         shop.status = "occupied"
@@ -1157,11 +1139,9 @@ def create_bill(
     """
     Create a bill for a tenant.
 
-    bill_type == "Rent": the bill amount is auto-filled from the agreed rent
-    for this tenant/shop (UserShop.agreed_rent, falling back to the shop's
-    shop_rent if no per-tenant rent was ever set). Any `amount` supplied in
-    the request body is ignored for Rent bills — the server is the source of
-    truth so rent always matches what was actually agreed.
+    bill_type == "Rent": the bill amount is auto-filled from the current shop rent.
+    Any `amount` supplied in the request body is ignored for Rent bills — the server
+    is the source of truth so rent always matches what is set on the shop.
 
     Any other bill_type (e.g. "Electricity", "Maintenance", "Other"):
     `amount` is required and used as-is. `description` is optional and is
@@ -1183,9 +1163,10 @@ def create_bill(
         ).first()
         if not user_shop:
             raise HTTPException(400, detail="This shop is not assigned to this user; cannot auto-fill rent.")
-        amount_value = _agreed_rent_for(user_shop, shop)
+        # Use the current shop rent directly
+        amount_value = _decimal_to_float(shop.shop_rent)
         if amount_value <= 0:
-            raise HTTPException(400, detail="Agreed rent for this tenant/shop is 0 or not set. Set shop_rent or agreed_rent first.")
+            raise HTTPException(400, detail="Shop rent is not configured (0 or negative).")
     else:
         if body.amount is None or body.amount <= 0:
             raise HTTPException(400, detail="amount is required and must be greater than 0 for non-Rent bill types.")
@@ -1677,8 +1658,7 @@ def report_occupancy(
 
         if s.status == "occupied":
             cdata["occupied"] += 1
-            us = db.query(UserShop).filter(UserShop.shop_id == s.id).order_by(UserShop.assigned_at.desc()).first()
-            cdata["monthly_rent_actual"] += _agreed_rent_for(us, s) if us else rent
+            cdata["monthly_rent_actual"] += rent  # use current shop rent
         else:
             cdata["available"] += 1
 
@@ -1742,7 +1722,7 @@ def report_user_wise(
             shops_list.append({
                 "shop_number": shop.shop_number,
                 "complex_name": complexes.get(shop.complex_id),
-                "shop_rent": _agreed_rent_for(us, shop),
+                "shop_rent": _decimal_to_float(shop.shop_rent),  # <-- DIRECT
                 "shop_deposit": _decimal_to_float(shop.shop_deposit),
             })
             deposit_required += _decimal_to_float(shop.shop_deposit)
@@ -1846,7 +1826,7 @@ def finance_overview(
             "last_payment_date": None, "outstanding_balance": 0.0,
         })
         entry["shops"].append(s.shop_number)
-        entry["monthly_rent"] += _agreed_rent_for(us, s)
+        entry["monthly_rent"] += _decimal_to_float(s.shop_rent)  # <-- DIRECT
         entry["deposit_required"] += deposit_required
         entry["deposit_paid"] += deposit_paid
 
@@ -1960,7 +1940,7 @@ def tenant_shops(
             "area_sqft":    _decimal_to_float(s.area_sqft),
             "status":       s.status,
             "complex_id":   s.complex_id,
-            "shop_rent":    _agreed_rent_for(us, s),
+            "shop_rent":    _decimal_to_float(s.shop_rent),  # <-- DIRECT
             "shop_deposit": _decimal_to_float(s.shop_deposit),
         }
         for s, us in rows
@@ -2025,26 +2005,15 @@ def tenant_financial_summary(
 ):
     """Return the authenticated tenant's own full financial picture."""
     return _build_user_financial_summary(db, current_user)
-"""
-========================================================================================
-  AUDIT LOG MODULE  +  BILL / PAYMENT EDIT APIs
-  Paste this block BEFORE the global exception handler at the bottom of app.py
-  (i.e. before the `@app.exception_handler(Exception)` line)
-========================================================================================
 
-CHANGES REQUIRED IN THE EXISTING FILE
---------------------------------------
-1. Add the new Pydantic schemas (BillUpdate, PaymentUpdate, DepositPaymentUpdate)
-   alongside the existing schema section.
-2. Add `get_payment_by_id` helper route under Payment routes (also new).
-3. Paste the five new route sections below.
 
-Everything here is copy-paste ready. No existing code is modified.
-========================================================================================
-"""
+# ========================================================================
+# AUDIT LOG MODULE  +  BILL / PAYMENT EDIT APIs
+# (Full code unchanged - no modifications needed)
+# ========================================================================
 
 # ══════════════════════════════════════════════════════════════════════════════
-# NEW PYDANTIC SCHEMAS  (add to the schema section near line 296)
+# NEW PYDANTIC SCHEMAS (add to the schema section near line 296)
 # ══════════════════════════════════════════════════════════════════════════════
 
 class BillUpdate(BaseModel):
@@ -2902,9 +2871,6 @@ def list_payments_paginated(
             for p, b, u, s in rows
         ],
     }
-
-
-
 
 
 # ══════════════════════════════════════════════════════════════════════════════

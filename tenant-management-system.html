@@ -3045,7 +3045,7 @@ async function openBillModal(){
 
     listEl.innerHTML = ownedShops.map(s => {
       // agreed_rent (per-tenant override) wins over the shop's default rent when present
-      const rent = Number(s.agreed_rent ?? s.shop_rent ?? 0);
+      const rent = Number(s.shop_rent ?? 0);
       const prefill = isRent ? rent : 0;
       return `
       <label class="shop-pick-row" data-shop-id="${s.id}">
