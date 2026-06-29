@@ -3761,7 +3761,7 @@ async function loadTenantPortal(){
         <h3>My Profile</h3>
         <svg class="collapsible-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
       </div>
-      <div class="collapsible-body open">
+      <div class="collapsible-body">
         <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:10px;">
           <div><div style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.04em;">Name</div><div style="font-weight:600; margin-top:3px;">${escapeHtml(profile.name)}</div></div>
           <div><div style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.04em;">Mobile</div><div class="mono" style="margin-top:3px;">${escapeHtml(profile.mobile)}</div></div>
@@ -3779,7 +3779,7 @@ async function loadTenantPortal(){
         <h3>My Shops <span class="record-count-tag" style="margin-left:8px;">${shops.length}</span></h3>
         <svg class="collapsible-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
       </div>
-      <div class="collapsible-body open">
+      <div class="collapsible-body">
         ${shops.length === 0 ? '<div class="empty-compact">No shops assigned to your account.</div>' :
           shops.map(s=>`
           <div class="tenant-card">
@@ -3796,36 +3796,36 @@ async function loadTenantPortal(){
       </div>
     </div>
 
-    <!-- Deposit Summary -->
-    <div class="collapsible-section">
-      <div class="collapsible-header" onclick="toggleCollapse(this)">
-        <h3>Deposit Summary</h3>
-        <svg class="collapsible-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-      </div>
-      <div class="collapsible-body">
-        <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:14px;">
-          <div class="card stat-card"><div class="label">Required</div><div class="value mono" style="font-size:18px;">${currency(totalDeposit)}</div></div>
-          <div class="card stat-card accent-green"><div class="label">Paid</div><div class="value mono" style="font-size:18px;">${currency(depositPaid)}</div></div>
-          <div class="card stat-card accent-rust"><div class="label">Remaining</div><div class="value mono" style="font-size:18px;">${currency(depositRemaining)}</div></div>
-        </div>
-        ${totalDeposit > 0 ? `
-        <div class="deposit-progress">
-          <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--muted); margin-bottom:4px;">
-            <span>Progress</span><span>${Math.round(depositPaid/totalDeposit*100)}%</span>
-          </div>
-          <div class="deposit-bar-wrap"><div class="deposit-bar" style="width:${Math.min(100,Math.round(depositPaid/totalDeposit*100))}%;"></div></div>
-        </div>` : ''}
-        ${shops.length ? `
-        <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:8px; margin-top:14px;">
-          ${shops.map(s=>`<div class="info-card"><div class="info-row"><span class="info-label">${escapeHtml(s.shop_number)}</span><span class="info-val">${currency(s.shop_deposit||0)}</span></div></div>`).join('')}
-        </div>` : ''}
-        ${depositSourceFailed && depositPaid === 0 ? `
-        <div class="warn-box" style="margin-top:12px;">
-          ${warnIcon()}
-          <span>We couldn't load your deposit payment history right now. The "Required" amount above is accurate, but "Paid" may not reflect deposit payments your admin has already recorded — contact your admin if this looks wrong.</span>
-        </div>` : ''}
-      </div>
+ <!-- Deposit Summary -->
+<div class="collapsible-section">
+  <div class="collapsible-header" onclick="toggleCollapse(this)">
+    <h3>Deposit Summary</h3>
+    <svg class="collapsible-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+  </div>
+  <div class="collapsible-body">
+    <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:14px;">
+      <div class="card stat-card"><div class="label">Required</div><div class="value mono" style="font-size:18px;">${currency(totalDeposit)}</div></div>
+      <div class="card stat-card accent-green"><div class="label">Paid</div><div class="value mono" style="font-size:18px;">${currency(depositPaid)}</div></div>
+      <div class="card stat-card accent-rust"><div class="label">Remaining</div><div class="value mono" style="font-size:18px;">${currency(depositRemaining)}</div></div>
     </div>
+    ${totalDeposit > 0 ? `
+    <div class="deposit-progress">
+      <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--muted); margin-bottom:4px;">
+        <span>Progress</span><span>${Math.round(depositPaid/totalDeposit*100)}%</span>
+      </div>
+      <div class="deposit-bar-wrap"><div class="deposit-bar" style="width:${Math.min(100,Math.round(depositPaid/totalDeposit*100))}%;"></div></div>
+    </div>` : ''}
+    ${shops.length ? `
+    <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:8px; margin-top:14px;">
+      ${shops.map(s=>`<div class="info-card"><div class="info-row"><span class="info-label">${escapeHtml(s.shop_number)}</span><span class="info-val">${currency(s.shop_deposit||0)}</span></div></div>`).join('')}
+    </div>` : ''}
+    ${depositSourceFailed && depositPaid === 0 ? `
+    <div class="warn-box" style="margin-top:12px;">
+      ${warnIcon()}
+      <span>We couldn't load your deposit payment history right now. The "Required" amount above is accurate, but "Paid" may not reflect deposit payments your admin has already recorded — contact your admin if this looks wrong.</span>
+    </div>` : ''}
+  </div>
+</div>
 
     <!-- Bills Section -->
     <div class="collapsible-section">
@@ -3833,7 +3833,7 @@ async function loadTenantPortal(){
         <h3>Bills <span class="record-count-tag" style="margin-left:8px;">${bills.length}</span></h3>
         <svg class="collapsible-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
       </div>
-      <div class="collapsible-body open">
+      <div class="collapsible-body">
         <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
           <select id="tpBillStatus" class="sort-select" style="font-size:12.5px; padding:7px 10px;">
             <option value="">All statuses</option>
@@ -3866,21 +3866,21 @@ async function loadTenantPortal(){
       </div>
     </div>
 
-    <!-- Payments Section -->
-    <div class="collapsible-section">
-      <div class="collapsible-header" onclick="toggleCollapse(this)">
-        <h3>Payment History <span class="record-count-tag" style="margin-left:8px;">${payments.length}</span></h3>
-        <svg class="collapsible-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-      </div>
-      <div class="collapsible-body">
-        ${payments.length === 0 ? '<div class="empty-compact">No payments recorded yet.</div>' :
-          payments.map(p=>`
-          <div class="tenant-card">
-            <div class="row1"><span class="title mono">${currency(p.amount)}</span><span class="meta">${escapeHtml(p.payment_method)}</span></div>
-            <div class="meta">${dateFmt(p.payment_date)} · Receipt #${p.id}${p.remarks?' · '+escapeHtml(p.remarks):''}</div>
-          </div>`).join('')}
-      </div>
-    </div>
+<!-- Payments Section -->
+<div class="collapsible-section">
+  <div class="collapsible-header" onclick="toggleCollapse(this)">
+    <h3>Payment History <span class="record-count-tag" style="margin-left:8px;">${payments.length}</span></h3>
+    <svg class="collapsible-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+  </div>
+  <div class="collapsible-body">
+    ${payments.length === 0 ? '<div class="empty-compact">No payments recorded yet.</div>' :
+      payments.map(p=>`
+      <div class="tenant-card">
+        <div class="row1"><span class="title mono">${currency(p.amount)}</span><span class="meta">${escapeHtml(p.payment_method)}</span></div>
+        <div class="meta">${dateFmt(p.payment_date)} · Receipt #${p.id}${p.remarks?' · '+escapeHtml(p.remarks):''}</div>
+      </div>`).join('')}
+  </div>
+</div>
 
     <!-- Monthly Summary -->
     <div class="collapsible-section">

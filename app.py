@@ -298,6 +298,7 @@ class BillCreate(BaseModel):
                                             description="Required when bill_type is not Rent. Ignored (recomputed) when bill_type is Rent.")
     description: Optional[str]     = None
     due_date:    Optional[datetime] = None
+    bill_date: Optional[datetime] = None
 
 
 class BillResponse(BaseModel):
@@ -1182,6 +1183,7 @@ def create_bill(
         paid_amount    = Decimal("0"),
         pending_amount = amount,
         due_date       = body.due_date,
+        bill_date=body.bill_date or datetime.now(timezone.utc),
         status         = "pending",
     )
     db.add(bill)
