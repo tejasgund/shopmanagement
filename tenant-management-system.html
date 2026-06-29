@@ -449,6 +449,87 @@ td .row-actions{ display:flex; gap:6px; justify-content:flex-end; }
   table{ font-size:13px; }
   thead th, tbody td{ padding:10px 12px; }
 }
+
+/* ============================================================
+   ENHANCED UI — filters, advanced search, user dashboard
+   ============================================================ */
+.filter-bar{
+  background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius);
+  padding:14px 16px; margin-bottom:18px; display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end;
+}
+.filter-bar .field{ margin:0; min-width:130px; flex:1; }
+.filter-bar .field label{ font-size:11px; }
+.filter-bar .field input,.filter-bar .field select{ font-size:13px; padding:8px 10px; }
+.filter-bar .field.search-full{ flex:2; min-width:200px; }
+.filter-count{ font-size:12.5px; color:var(--muted); font-weight:600; margin-left:auto; align-self:center; white-space:nowrap; }
+.filter-clear-btn{ padding:8px 13px; font-size:12.5px; font-weight:600; white-space:nowrap; }
+
+.sort-select{ padding:8px 10px; border:1.5px solid var(--line); border-radius:var(--radius-sm); font-size:13px; background:var(--paper-raised); color:var(--ink); }
+
+/* Dashboard complex stats table */
+.complex-stat-card{
+  background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius);
+  padding:14px 16px; box-shadow:var(--shadow-sm); transition:box-shadow .15s;
+}
+.complex-stat-card:hover{ box-shadow:var(--shadow-md); }
+.complex-stat-card .c-name{ font-weight:700; font-size:14.5px; margin-bottom:10px; display:flex; align-items:center; gap:8px; }
+.complex-stat-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+.complex-stat-item{ text-align:center; }
+.complex-stat-item .csi-val{ font-family:var(--font-mono); font-weight:700; font-size:16px; }
+.complex-stat-item .csi-label{ font-size:10.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; font-weight:600; }
+.complex-stat-item.accent-green .csi-val{ color:var(--green-deep); }
+.complex-stat-item.accent-rust .csi-val{ color:var(--rust); }
+
+/* Collapsible sections for tenant portal */
+.collapsible-section{ background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius); margin-bottom:12px; overflow:hidden; }
+.collapsible-header{ display:flex; align-items:center; justify-content:space-between; padding:14px 18px; cursor:pointer; user-select:none; }
+.collapsible-header h3{ font-size:15px; margin:0; }
+.collapsible-arrow{ transition:transform .2s; }
+.collapsible-header.open .collapsible-arrow{ transform:rotate(180deg); }
+.collapsible-body{ display:none; border-top:1px solid var(--line); padding:16px 18px; }
+.collapsible-body.open{ display:block; }
+
+/* Tenant portal enhanced stats */
+.tp-stat-grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:10px; margin-bottom:16px; }
+.tp-stat{ background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius); padding:12px 14px; }
+.tp-stat .tp-label{ font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); font-weight:600; margin-bottom:4px; }
+.tp-stat .tp-value{ font-family:var(--font-display); font-size:20px; font-weight:600; }
+.tp-stat.accent-green .tp-value{ color:var(--green-deep); }
+.tp-stat.accent-rust .tp-value{ color:var(--rust); }
+.tp-stat.accent-partial .tp-value{ color:var(--partial); }
+@media(min-width:500px){ .tp-stat-grid{ grid-template-columns:repeat(4,1fr); } }
+
+/* Monthly summary for tenant portal */
+.month-row{
+  border:1px solid var(--line); border-radius:var(--radius-sm); margin-bottom:8px; overflow:hidden;
+}
+.month-row-head{ display:flex; align-items:center; justify-content:space-between; padding:10px 14px; cursor:pointer; background:var(--paper-raised); }
+.month-row-head .m-name{ font-weight:700; font-size:13.5px; }
+.month-row-head .m-badges{ display:flex; gap:8px; align-items:center; }
+.month-row-body{ display:none; border-top:1px solid var(--line); padding:12px 14px; background:#FAFAF8; }
+.month-row-body.open{ display:block; }
+
+/* Finance page user card */
+.user-finance-card{ background:var(--paper-raised); border:1.5px solid var(--green); border-radius:var(--radius); padding:16px 18px; margin-bottom:16px; }
+.user-finance-card .ufc-name{ font-weight:700; font-size:16px; margin-bottom:2px; }
+.user-finance-card .ufc-meta{ font-size:12.5px; color:var(--muted); }
+
+/* Deposit section in tenant portal */
+.deposit-progress{ margin:12px 0; }
+.deposit-bar-wrap{ background:var(--line); border-radius:999px; height:8px; overflow:hidden; margin-top:6px; }
+.deposit-bar{ background:var(--green); height:100%; border-radius:999px; transition:width .4s ease; }
+
+/* Records count tag */
+.record-count-tag{ background:var(--paper); border:1px solid var(--line); border-radius:999px; padding:3px 10px; font-size:12px; font-weight:600; color:var(--muted); }
+
+/* Empty state compact */
+.empty-compact{ text-align:center; padding:28px 16px; color:var(--muted); font-size:13.5px; }
+
+/* Year selector for tenant */
+.year-btn-row{ display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }
+.year-btn{ padding:7px 14px; border-radius:999px; border:1.5px solid var(--line); background:var(--paper-raised); font-size:13px; font-weight:600; color:var(--muted); cursor:pointer; transition:all .12s; }
+.year-btn.active{ background:var(--ink); color:#fff; border-color:var(--ink); }
+.year-btn:hover:not(.active){ border-color:var(--ink); color:var(--ink); }
 </style>
 </head>
 <body>
@@ -959,19 +1040,55 @@ async function dashboardView(){
   const pendingBills = bills.filter(b => b.status !== 'paid');
   const pendingTotal = pendingBills.reduce((sum,b) => sum + Number(b.pending_amount||0), 0);
   const collectedTotal = bills.reduce((sum,b) => sum + Number(b.paid_amount||0), 0);
+  const totalMonthlyRent = shops.filter(s=>s.status==='occupied').reduce((sum,s)=>sum+Number(s.shop_rent||0),0);
 
   updatePendingBadge(pendingBills.length);
 
   const recentBills = [...bills].sort((a,b) => new Date(b.bill_date) - new Date(a.bill_date)).slice(0,6);
 
+  // Per-complex stats
+  const complexStats = complexes.map(c => {
+    const cShops = shops.filter(s => s.complex_id === c.id);
+    const cOccupied = cShops.filter(s => s.status === 'occupied');
+    const cAvailable = cShops.filter(s => s.status === 'available');
+    const cMonthlyRent = cOccupied.reduce((sum,s)=>sum+Number(s.shop_rent||0),0);
+    // pending rent = sum of pending_amount on bills for shops in this complex
+    const cShopIds = new Set(cShops.map(s=>s.id));
+    const cPending = bills.filter(b => cShopIds.has(b.shop_id) && b.status !== 'paid')
+                          .reduce((sum,b)=>sum+Number(b.pending_amount||0),0);
+    return { ...c, totalShops: cShops.length, occupiedShops: cOccupied.length, availableShops: cAvailable.length, monthlyRent: cMonthlyRent, pendingRent: cPending };
+  });
+
   return `
   <div class="stat-row">
     <div class="card stat-card"><div class="label">Complexes</div><div class="value">${complexes.length}</div><div class="sub">properties managed</div></div>
     <div class="card stat-card"><div class="label">Shops</div><div class="value">${shops.length}</div><div class="sub">${occupied} occupied · ${shops.length-occupied} available</div></div>
-    <div class="card stat-card"><div class="label">Users</div><div class="value">${users.length}</div><div class="sub">${users.filter(u=>u.role==='tenant').length} tenants</div></div>
+    <div class="card stat-card"><div class="label">Tenants</div><div class="value">${users.filter(u=>u.role==='tenant').length}</div><div class="sub">${users.length} total users</div></div>
+    <div class="card stat-card accent-green"><div class="label">Monthly rent</div><div class="value mono">${currency(totalMonthlyRent)}</div><div class="sub">from occupied shops</div></div>
     <div class="card stat-card accent-rust"><div class="label">Pending dues</div><div class="value mono">${currency(pendingTotal)}</div><div class="sub">${pendingBills.length} bills outstanding</div></div>
     <div class="card stat-card accent-green"><div class="label">Collected</div><div class="value mono">${currency(collectedTotal)}</div><div class="sub">across all bills</div></div>
   </div>
+
+  ${complexStats.length > 0 ? `
+  <h3 style="font-size:15.5px; margin:0 0 14px;">Complex overview</h3>
+  <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(300px,1fr)); gap:14px; margin-bottom:24px;">
+    ${complexStats.map(c=>`
+    <div class="complex-stat-card">
+      <div class="c-name">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M5 21V7l7-4 7 4v14"/></svg>
+        ${escapeHtml(c.name)}
+      </div>
+      <div class="complex-stat-grid">
+        <div class="complex-stat-item"><div class="csi-val">${c.totalShops}</div><div class="csi-label">Total</div></div>
+        <div class="complex-stat-item accent-green"><div class="csi-val">${c.occupiedShops}</div><div class="csi-label">Occupied</div></div>
+        <div class="complex-stat-item"><div class="csi-val">${c.availableShops}</div><div class="csi-label">Available</div></div>
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px; padding-top:10px; border-top:1px dashed var(--line);">
+        <div><div style="font-size:10.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; font-weight:600;">Monthly Rent</div><div style="font-family:var(--font-mono); font-weight:700; color:var(--green-deep); font-size:14px;">${currency(c.monthlyRent)}</div></div>
+        <div><div style="font-size:10.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; font-weight:600;">Pending Rent</div><div style="font-family:var(--font-mono); font-weight:700; color:${c.pendingRent>0?'var(--rust)':'var(--success)'}; font-size:14px;">${currency(c.pendingRent)}</div></div>
+      </div>
+    </div>`).join('')}
+  </div>` : ''}
 
   <div class="card">
     <div class="card-pad" style="padding-bottom:0;"><h3 style="font-size:15.5px;">Recent bills</h3></div>
@@ -1134,21 +1251,37 @@ function confirmDeassignShop(shopId, shopNum, tenantName, userId){
    USERS VIEW
    ================================================================ */
 async function usersView(){
-  const users = await ensureLoaded('users','/api/user');
+  const [users, shops] = await Promise.all([
+    ensureLoaded('users','/api/user'),
+    ensureLoaded('shops','/api/shop'),
+  ]);
+
+  // Calculate per-user summaries from shop data
+  const userShopSummary = (uid) => {
+    const owned = shops.filter(s => s.assigned_to?.id === uid);
+    const totalRent = owned.reduce((sum,s)=>sum+Number(s.shop_rent||0),0);
+    const totalDeposit = owned.reduce((sum,s)=>sum+Number(s.shop_deposit||0),0);
+    return { count: owned.length, totalRent, totalDeposit };
+  };
+
   return `
-  <div class="toolbar"><input class="search-input" id="tableSearch" placeholder="Search users…"></div>
+  <div class="toolbar"><input class="search-input" id="tableSearch" placeholder="Search users by name, mobile, email…"></div>
   ${users.length === 0 ? emptyStateHtml('No users yet', 'Add tenants or admins to get started.', emptyIcon()) : `
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Name</th><th>Mobile</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Mobile</th><th>Role</th><th>Status</th><th class="num">Shops</th><th class="num">Monthly Rent</th><th class="num">Total Deposit</th><th></th></tr></thead>
       <tbody>
-        ${users.map(u => `
+        ${users.map(u => {
+          const summary = u.role === 'tenant' ? userShopSummary(u.id) : null;
+          return `
           <tr data-search="${escapeHtml(u.name+' '+u.mobile+' '+(u.email||''))}">
-            <td><strong>${escapeHtml(u.name)}</strong></td>
+            <td><strong>${escapeHtml(u.name)}</strong>${u.email ? `<div style="font-size:12px;color:var(--muted);">${escapeHtml(u.email)}</div>` : ''}</td>
             <td class="mono">${escapeHtml(u.mobile)}</td>
-            <td>${escapeHtml(u.email || '—')}</td>
             <td><span class="pill role-${u.role}"><span class="pill-dot"></span>${escapeHtml(u.role)}</span></td>
             <td><span class="pill ${u.is_active ? 'active-pill' : 'inactive-pill'}"><span class="pill-dot"></span>${u.is_active ? 'active' : 'inactive'}</span></td>
+            <td class="num">${summary ? summary.count : '—'}</td>
+            <td class="num">${summary ? currency(summary.totalRent) : '—'}</td>
+            <td class="num">${summary ? currency(summary.totalDeposit) : '—'}</td>
             <td><div class="row-actions">
               ${u.role === 'tenant' ? `<button class="btn-icon" data-financial-summary="${u.id}" data-name="${escapeHtml(u.name)}" aria-label="Financial summary" title="Financial summary"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg></button>` : ''}
               ${u.role === 'tenant' ? `<button class="btn-icon" data-assign-shops="${u.id}" data-name="${escapeHtml(u.name)}" aria-label="Assign shops">${shopAssignIcon()}</button>` : ''}
@@ -1156,7 +1289,8 @@ async function usersView(){
               <button class="btn-icon" data-edit-user="${u.id}" aria-label="Edit">${editIcon()}</button>
               <button class="btn-icon" data-delete-user="${u.id}" data-name="${escapeHtml(u.name)}" aria-label="Delete">${trashIcon()}</button>
             </div></td>
-          </tr>`).join('')}
+          </tr>`;
+        }).join('')}
       </tbody>
     </table>
   </div>`}`;
@@ -1175,22 +1309,100 @@ function attachUserHandlers(){
    BILLS VIEW
    ================================================================ */
 async function billsView(){
-  const [bills, users, shops] = await Promise.all([ensureLoaded('bills','/api/bill'), ensureLoaded('users','/api/user'), ensureLoaded('shops','/api/shop')]);
+  const [bills, users, shops, complexes] = await Promise.all([
+    ensureLoaded('bills','/api/bill'),
+    ensureLoaded('users','/api/user'),
+    ensureLoaded('shops','/api/shop'),
+    ensureLoaded('complexes','/api/complex'),
+  ]);
   const userName = (id) => users.find(u=>u.id===id)?.name || `#${id}`;
+  const userMobile = (id) => users.find(u=>u.id===id)?.mobile || '';
   const shopNum = (id) => shops.find(s=>s.id===id)?.shop_number || `#${id}`;
+  const shopComplexId = (id) => shops.find(s=>s.id===id)?.complex_id;
+  const complexName = (id) => complexes.find(c=>c.id===id)?.name || '';
   updatePendingBadge(bills.filter(b=>b.status!=='paid').length);
+
+  const tenants = users.filter(u=>u.role==='tenant');
   return `
-  <div class="toolbar"><input class="search-input" id="tableSearch" placeholder="Search bills…"></div>
+  <div class="filter-bar">
+    <div class="field search-full">
+      <label>Search</label>
+      <input class="search-input" id="billSearch" placeholder="Tenant name, shop #, complex, bill #…" style="max-width:100%; min-width:0; width:100%;">
+    </div>
+    <div class="field">
+      <label>Complex</label>
+      <select id="billFilterComplex">
+        <option value="">All complexes</option>
+        ${complexes.map(c=>`<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field">
+      <label>Tenant</label>
+      <select id="billFilterUser">
+        <option value="">All tenants</option>
+        ${tenants.map(u=>`<option value="${u.id}">${escapeHtml(u.name)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field">
+      <label>Status</label>
+      <select id="billFilterStatus">
+        <option value="">All statuses</option>
+        <option value="pending">Pending</option>
+        <option value="partial">Partial</option>
+        <option value="paid">Paid</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Type</label>
+      <select id="billFilterType">
+        <option value="">All types</option>
+        ${[...new Set(bills.map(b=>b.bill_type).filter(Boolean))].map(t=>`<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field">
+      <label>Month</label>
+      <select id="billFilterMonth">
+        <option value="">Any month</option>
+        ${Array.from({length:12},(_,i)=>`<option value="${i+1}">${new Date(2000,i).toLocaleString('en-IN',{month:'long'})}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field">
+      <label>Year</label>
+      <input id="billFilterYear" type="number" min="2020" max="2099" placeholder="Year" style="width:90px;">
+    </div>
+    <div class="field">
+      <label>Sort</label>
+      <select id="billSort" class="sort-select">
+        <option value="newest">Newest first</option>
+        <option value="oldest">Oldest first</option>
+        <option value="due-asc">Due date ↑</option>
+        <option value="due-desc">Due date ↓</option>
+        <option value="amount-high">Highest amount</option>
+        <option value="amount-low">Lowest amount</option>
+        <option value="pending-first">Pending first</option>
+        <option value="tenant">Tenant A-Z</option>
+      </select>
+    </div>
+    <button class="btn btn-ghost filter-clear-btn" id="billClearFilters">Clear filters</button>
+    <span class="filter-count" id="billCount"></span>
+  </div>
   ${bills.length === 0 ? emptyStateHtml('No bills yet', 'Raise a bill against a tenant and shop.', emptyIcon()) : `
   <div class="table-wrap">
-    <table>
-      <thead><tr><th>Bill</th><th>Tenant</th><th>Shop</th><th>Type</th><th class="num">Amount</th><th class="num">Pending</th><th>Status</th><th>Due</th><th></th></tr></thead>
-      <tbody>
-        ${bills.map(b => `
-          <tr data-search="${escapeHtml(userName(b.user_id)+' '+shopNum(b.shop_id)+' '+b.bill_type)}">
+    <table id="billsTable">
+      <thead><tr><th>Bill</th><th>Tenant</th><th>Shop</th><th>Complex</th><th>Type</th><th class="num">Amount</th><th class="num">Pending</th><th>Status</th><th>Due</th><th></th></tr></thead>
+      <tbody id="billsTbody">
+        ${bills.map(b => {
+          const cid = shopComplexId(b.shop_id);
+          return `
+          <tr data-bill-id="${b.id}" data-user-id="${b.user_id}" data-shop-id="${b.shop_id}" data-complex-id="${cid||''}"
+              data-status="${b.status}" data-type="${escapeHtml(b.bill_type)}"
+              data-due="${b.due_date||''}" data-amount="${b.amount}" data-pending="${b.pending_amount}"
+              data-date="${b.bill_date||b.created_at||''}"
+              data-search="${escapeHtml(userName(b.user_id)+' '+userMobile(b.user_id)+' '+shopNum(b.shop_id)+' '+complexName(cid)+' '+b.bill_type+' #'+b.id)}">
             <td class="mono">#${b.id}</td>
             <td>${escapeHtml(userName(b.user_id))}</td>
             <td class="mono">${escapeHtml(shopNum(b.shop_id))}</td>
+            <td>${escapeHtml(complexName(cid))}</td>
             <td>${escapeHtml(b.bill_type)}</td>
             <td class="num">${currency(b.amount)}</td>
             <td class="num">${currency(b.pending_amount)}</td>
@@ -1199,56 +1411,231 @@ async function billsView(){
             <td><div class="row-actions">
               ${b.status !== 'paid' ? `<button class="btn-icon" data-record-payment="${b.id}" aria-label="Record payment">${rupeeIcon()}</button>` : ''}
             </div></td>
-          </tr>`).join('')}
+          </tr>`;
+        }).join('')}
       </tbody>
     </table>
+    <div id="billsEmpty" class="empty-compact" style="display:none;">No bills match your filters.</div>
   </div>`}`;
 }
 function rupeeIcon(){ return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h12M6 8h12M6 13l8.5 8M6 13h3c3 0 5-1.5 5-5"/></svg>`; }
 
 function attachBillHandlers(){
   document.querySelectorAll('[data-record-payment]').forEach(btn => btn.addEventListener('click', () => openRecordPaymentModal(Number(btn.dataset.recordPayment))));
+  initBillFilters();
+}
+
+function initBillFilters(){
+  const applyBillFilters = () => {
+    const q = (document.getElementById('billSearch')?.value||'').trim().toLowerCase();
+    const cid = document.getElementById('billFilterComplex')?.value||'';
+    const uid = document.getElementById('billFilterUser')?.value||'';
+    const status = document.getElementById('billFilterStatus')?.value||'';
+    const type = document.getElementById('billFilterType')?.value||'';
+    const month = document.getElementById('billFilterMonth')?.value||'';
+    const year = document.getElementById('billFilterYear')?.value||'';
+    const sort = document.getElementById('billSort')?.value||'newest';
+    const tbody = document.getElementById('billsTbody');
+    if (!tbody) return;
+    let rows = Array.from(tbody.querySelectorAll('tr'));
+    rows.forEach(tr => {
+      let show = true;
+      if (q && !tr.dataset.search?.toLowerCase().includes(q)) show = false;
+      if (cid && tr.dataset.complexId !== cid) show = false;
+      if (uid && tr.dataset.userId !== uid) show = false;
+      if (status && tr.dataset.status !== status) show = false;
+      if (type && tr.dataset.type !== type) show = false;
+      if (month) { const due = tr.dataset.due; if (!due || String(new Date(due).getMonth()+1) !== month) show = false; }
+      if (year) { const due = tr.dataset.due || tr.dataset.date; if (!due || String(new Date(due).getFullYear()) !== year) show = false; }
+      tr.style.display = show ? '' : 'none';
+    });
+    // Sort visible rows
+    const visRows = rows.filter(r => r.style.display !== 'none');
+    visRows.sort((a,b) => {
+      if (sort === 'newest') return new Date(b.dataset.date) - new Date(a.dataset.date);
+      if (sort === 'oldest') return new Date(a.dataset.date) - new Date(b.dataset.date);
+      if (sort === 'due-asc') return new Date(a.dataset.due) - new Date(b.dataset.due);
+      if (sort === 'due-desc') return new Date(b.dataset.due) - new Date(a.dataset.due);
+      if (sort === 'amount-high') return Number(b.dataset.amount) - Number(a.dataset.amount);
+      if (sort === 'amount-low') return Number(a.dataset.amount) - Number(b.dataset.amount);
+      if (sort === 'pending-first') return Number(b.dataset.pending) - Number(a.dataset.pending);
+      if (sort === 'tenant') return (a.dataset.search||'').localeCompare(b.dataset.search||'');
+      return 0;
+    });
+    visRows.forEach(r => tbody.appendChild(r));
+    const count = visRows.length;
+    const countEl = document.getElementById('billCount');
+    if (countEl) countEl.textContent = count + ' record' + (count !== 1 ? 's' : '');
+    const emptyEl = document.getElementById('billsEmpty');
+    if (emptyEl) emptyEl.style.display = count === 0 ? 'block' : 'none';
+  };
+
+  ['billSearch','billFilterComplex','billFilterUser','billFilterStatus','billFilterType','billFilterMonth','billFilterYear','billSort']
+    .forEach(id => { const el=document.getElementById(id); if(el) el.addEventListener(el.tagName==='INPUT'?'input':'change', applyBillFilters); });
+
+  document.getElementById('billClearFilters')?.addEventListener('click', () => {
+    ['billSearch','billFilterComplex','billFilterUser','billFilterStatus','billFilterType','billFilterMonth','billFilterYear'].forEach(id => { const el=document.getElementById(id); if(el) { el.value=''; } });
+    applyBillFilters();
+  });
+  applyBillFilters();
 }
 
 /* ================================================================
    PAYMENTS VIEW
    ================================================================ */
 async function paymentsView(){
-  const [payments, bills, users, shops] = await Promise.all([
+  const [payments, bills, users, shops, complexes] = await Promise.all([
     ensureLoaded('payments','/api/payment'),
     ensureLoaded('bills','/api/bill'),
     ensureLoaded('users','/api/user'),
     ensureLoaded('shops','/api/shop'),
+    ensureLoaded('complexes','/api/complex'),
   ]);
   const userName = (id) => users.find(u=>u.id===id)?.name || `#${id}`;
+  const userMobile = (id) => users.find(u=>u.id===id)?.mobile || '';
   const shopNum = (id) => shops.find(s=>s.id===id)?.shop_number || `#${id}`;
   const billRef = (id) => { const b = bills.find(x=>x.id===id); return b ? `#${b.id} · ${b.bill_type}` : `#${id}`; };
   const billTenant = (id) => { const b = bills.find(x=>x.id===id); return b ? userName(b.user_id) : '—'; };
+  const billTenantId = (id) => { const b = bills.find(x=>x.id===id); return b ? b.user_id : null; };
+  const billTenantMobile = (id) => { const b = bills.find(x=>x.id===id); return b ? userMobile(b.user_id) : ''; };
   const billShop = (id) => { const b = bills.find(x=>x.id===id); return b ? shopNum(b.shop_id) : '—'; };
+  const billShopId = (id) => { const b = bills.find(x=>x.id===id); return b ? b.shop_id : null; };
+  const billComplexId = (id) => { const b = bills.find(x=>x.id===id); if(!b) return null; const s=shops.find(s2=>s2.id===b.shop_id); return s?.complex_id||null; };
+  const complexName = (id) => complexes.find(c=>c.id===id)?.name || '';
+  const tenants = users.filter(u=>u.role==='tenant');
+  const methods = [...new Set(payments.map(p=>p.payment_method).filter(Boolean))];
 
   return `
-  <div class="toolbar"><input class="search-input" id="tableSearch" placeholder="Search payments…"></div>
+  <div class="filter-bar">
+    <div class="field search-full">
+      <label>Search</label>
+      <input class="search-input" id="paySearch" placeholder="Tenant name, shop #, receipt #, payment ID…" style="max-width:100%; min-width:0; width:100%;">
+    </div>
+    <div class="field">
+      <label>Complex</label>
+      <select id="payFilterComplex">
+        <option value="">All complexes</option>
+        ${complexes.map(c=>`<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field">
+      <label>Tenant</label>
+      <select id="payFilterUser">
+        <option value="">All tenants</option>
+        ${tenants.map(u=>`<option value="${u.id}">${escapeHtml(u.name)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field">
+      <label>Method</label>
+      <select id="payFilterMethod">
+        <option value="">All methods</option>
+        ${methods.map(m=>`<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field">
+      <label>Month</label>
+      <select id="payFilterMonth">
+        <option value="">Any month</option>
+        ${Array.from({length:12},(_,i)=>`<option value="${i+1}">${new Date(2000,i).toLocaleString('en-IN',{month:'long'})}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field">
+      <label>Year</label>
+      <input id="payFilterYear" type="number" min="2020" max="2099" placeholder="Year" style="width:90px;">
+    </div>
+    <div class="field">
+      <label>Sort</label>
+      <select id="paySort" class="sort-select">
+        <option value="newest">Newest first</option>
+        <option value="oldest">Oldest first</option>
+        <option value="amount-high">Highest amount</option>
+        <option value="amount-low">Lowest amount</option>
+        <option value="tenant">Tenant A-Z</option>
+      </select>
+    </div>
+    <button class="btn btn-ghost filter-clear-btn" id="payClearFilters">Clear filters</button>
+    <span class="filter-count" id="payCount"></span>
+  </div>
   ${payments.length === 0 ? emptyStateHtml('No payments recorded', 'Payments you record against bills will appear here.', emptyIcon()) : `
   <div class="table-wrap">
-    <table>
-      <thead><tr><th>Payment</th><th>Bill</th><th>Tenant</th><th>Shop</th><th class="num">Amount</th><th>Method</th><th>Date</th><th>Remarks</th></tr></thead>
-      <tbody>
-        ${payments.map(p => `
-          <tr data-search="${escapeHtml(billRef(p.bill_id)+' '+billTenant(p.bill_id)+' '+billShop(p.bill_id)+' '+p.payment_method)}">
+    <table id="paymentsTable">
+      <thead><tr><th>Payment</th><th>Bill</th><th>Tenant</th><th>Shop</th><th>Complex</th><th class="num">Amount</th><th>Method</th><th>Date</th><th>Remarks</th></tr></thead>
+      <tbody id="paymentsTbody">
+        ${payments.map(p => {
+          const tid = billTenantId(p.bill_id);
+          const sid = billShopId(p.bill_id);
+          const cid = billComplexId(p.bill_id);
+          return `
+          <tr data-pay-id="${p.id}" data-user-id="${tid||''}" data-shop-id="${sid||''}" data-complex-id="${cid||''}"
+              data-method="${escapeHtml(p.payment_method)}" data-date="${p.payment_date||''}" data-amount="${p.amount}"
+              data-search="${escapeHtml('#'+p.id+' '+billTenant(p.bill_id)+' '+billTenantMobile(p.bill_id)+' '+billShop(p.bill_id)+' '+complexName(cid)+' '+billRef(p.bill_id)+' '+p.payment_method)}">
             <td class="mono">#${p.id}</td>
             <td class="mono">${escapeHtml(billRef(p.bill_id))}</td>
             <td>${escapeHtml(billTenant(p.bill_id))}</td>
             <td class="mono">${escapeHtml(billShop(p.bill_id))}</td>
+            <td>${escapeHtml(complexName(cid))}</td>
             <td class="num">${currency(p.amount)}</td>
             <td>${escapeHtml(p.payment_method)}</td>
             <td>${dateFmt(p.payment_date)}</td>
             <td>${escapeHtml(p.remarks || '—')}</td>
-          </tr>`).join('')}
+          </tr>`;
+        }).join('')}
       </tbody>
     </table>
+    <div id="paymentsEmpty" class="empty-compact" style="display:none;">No payments match your filters.</div>
   </div>`}`;
 }
-function attachPaymentHandlers(){}
+
+function attachPaymentHandlers(){
+  initPaymentFilters();
+}
+
+function initPaymentFilters(){
+  const apply = () => {
+    const q = (document.getElementById('paySearch')?.value||'').trim().toLowerCase();
+    const cid = document.getElementById('payFilterComplex')?.value||'';
+    const uid = document.getElementById('payFilterUser')?.value||'';
+    const method = document.getElementById('payFilterMethod')?.value||'';
+    const month = document.getElementById('payFilterMonth')?.value||'';
+    const year = document.getElementById('payFilterYear')?.value||'';
+    const sort = document.getElementById('paySort')?.value||'newest';
+    const tbody = document.getElementById('paymentsTbody');
+    if (!tbody) return;
+    let rows = Array.from(tbody.querySelectorAll('tr'));
+    rows.forEach(tr => {
+      let show = true;
+      if (q && !tr.dataset.search?.toLowerCase().includes(q)) show = false;
+      if (cid && tr.dataset.complexId !== cid) show = false;
+      if (uid && tr.dataset.userId !== uid) show = false;
+      if (method && tr.dataset.method !== method) show = false;
+      if (month) { const d=tr.dataset.date; if(!d||String(new Date(d).getMonth()+1)!==month) show=false; }
+      if (year) { const d=tr.dataset.date; if(!d||String(new Date(d).getFullYear())!==year) show=false; }
+      tr.style.display = show ? '' : 'none';
+    });
+    const visRows = rows.filter(r=>r.style.display!=='none');
+    visRows.sort((a,b) => {
+      if (sort==='newest') return new Date(b.dataset.date)-new Date(a.dataset.date);
+      if (sort==='oldest') return new Date(a.dataset.date)-new Date(b.dataset.date);
+      if (sort==='amount-high') return Number(b.dataset.amount)-Number(a.dataset.amount);
+      if (sort==='amount-low') return Number(a.dataset.amount)-Number(b.dataset.amount);
+      if (sort==='tenant') return (a.dataset.search||'').localeCompare(b.dataset.search||'');
+      return 0;
+    });
+    visRows.forEach(r=>tbody.appendChild(r));
+    const count = visRows.length;
+    const countEl = document.getElementById('payCount');
+    if (countEl) countEl.textContent = count + ' record' + (count!==1?'s':'');
+    const emptyEl = document.getElementById('paymentsEmpty');
+    if (emptyEl) emptyEl.style.display = count===0?'block':'none';
+  };
+  ['paySearch','payFilterComplex','payFilterUser','payFilterMethod','payFilterMonth','payFilterYear','paySort']
+    .forEach(id => { const el=document.getElementById(id); if(el) el.addEventListener(el.tagName==='INPUT'?'input':'change', apply); });
+  document.getElementById('payClearFilters')?.addEventListener('click', () => {
+    ['paySearch','payFilterComplex','payFilterUser','payFilterMethod','payFilterMonth','payFilterYear'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+    apply();
+  });
+  apply();
+}
 
 /* ================================================================
    RESET PASSWORD MODAL
@@ -1388,6 +1775,7 @@ async function financeView(){
   const today = new Date();
   const month = today.getMonth()+1;
   const year = today.getFullYear();
+  const tenants = users.filter(u=>u.role==='tenant');
   return `
   <div class="card card-pad" style="margin-bottom:18px;">
     <div style="display:flex; gap:14px; align-items:flex-end; flex-wrap:wrap;">
@@ -1402,8 +1790,12 @@ async function financeView(){
         <label for="fiUser">Tenant</label>
         <select id="fiUser">
           <option value="">All tenants</option>
-          ${users.filter(u=>u.role==='tenant').map(u=>`<option value="${u.id}">${escapeHtml(u.name)}</option>`).join('')}
+          ${tenants.map(u=>`<option value="${u.id}">${escapeHtml(u.name)} · ${escapeHtml(u.mobile)}</option>`).join('')}
         </select>
+      </div>
+      <div class="field" style="margin-bottom:0; position:relative;">
+        <label for="fiSearch">Quick search</label>
+        <input id="fiSearch" placeholder="Name or mobile…" style="padding:11px 13px; border:1.5px solid var(--line); border-radius:var(--radius-sm); font-size:13.5px; width:200px;">
       </div>
       <div class="field" style="margin-bottom:0;">
         <label for="fiMonth">Month</label>
@@ -1419,12 +1811,108 @@ async function financeView(){
       <button class="btn btn-primary" id="loadFinanceBtn">Load</button>
     </div>
   </div>
+
+  <div id="fiUserDetailPanel" style="display:none;"></div>
   <div id="financeResults"><div class="empty-state">${emptyIcon()}<h3>Select filters and load</h3><p>Choose filters above and click Load to see the finance overview.</p></div></div>
   `;
 }
 
 function attachFinanceHandlers(){
   document.getElementById('loadFinanceBtn').addEventListener('click', loadFinanceOverview);
+
+  // Quick search by name or mobile
+  let _fiSearchTimer;
+  const fiSearch = document.getElementById('fiSearch');
+  if (fiSearch) {
+    fiSearch.addEventListener('input', () => {
+      clearTimeout(_fiSearchTimer);
+      _fiSearchTimer = setTimeout(() => {
+        const q = fiSearch.value.trim().toLowerCase();
+        if (!q) return;
+        const users = state.cache.users || [];
+        const match = users.find(u => u.role==='tenant' && (u.name.toLowerCase().includes(q) || u.mobile.includes(q)));
+        if (match) {
+          document.getElementById('fiUser').value = match.id;
+        }
+      }, 300);
+    });
+  }
+
+  // When a specific user is selected, show their detail panel
+  const fiUserSel = document.getElementById('fiUser');
+  if (fiUserSel) {
+    fiUserSel.addEventListener('change', async () => {
+      const uid = Number(fiUserSel.value);
+      const panel = document.getElementById('fiUserDetailPanel');
+      if (!uid) { panel.style.display='none'; panel.innerHTML=''; return; }
+      panel.style.display='block';
+      panel.innerHTML = `<div style="padding:16px 0; color:var(--muted); font-size:13px;">Loading user summary…</div>`;
+      try {
+        const d = await api(`/api/user/${uid}/financial-summary`);
+        const u = state.cache.users.find(x=>x.id===uid);
+        panel.innerHTML = renderUserFinancePanel(d, u);
+        panel.querySelectorAll('[data-panel-pay]').forEach(btn => btn.addEventListener('click', () => openPaymentModal()));
+        panel.querySelectorAll('[data-panel-deposit]').forEach(btn => btn.addEventListener('click', () => openDepositModal()));
+      } catch(err) {
+        panel.innerHTML = `<div class="error-banner"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg><span>${escapeHtml(err.message)}</span></div>`;
+      }
+    });
+  }
+}
+
+function renderUserFinancePanel(d, u){
+  const rs = d.rent_summary || {};
+  const ds = d.deposit_summary || {};
+  const ss = d.shops_summary || {};
+  return `
+  <div class="user-finance-card">
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:14px;">
+      <div>
+        <div class="ufc-name">${escapeHtml(u?.name||'Tenant')}</div>
+        <div class="ufc-meta">${escapeHtml(u?.mobile||'')}${u?.email?' · '+escapeHtml(u.email):''}</div>
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-primary btn-sm" data-panel-pay="1">Record Payment</button>
+        <button class="btn btn-ghost btn-sm" data-panel-deposit="1">Record Deposit</button>
+      </div>
+    </div>
+    <div class="stat-row" style="grid-template-columns:repeat(3,1fr); margin-bottom:14px;">
+      <div class="card stat-card"><div class="label">Shops</div><div class="value">${ss.total_shops||0}</div></div>
+      <div class="card stat-card accent-green"><div class="label">Monthly Rent</div><div class="value mono" style="font-size:17px;">${currency(rs.total_monthly_rent)}</div></div>
+      <div class="card stat-card accent-rust"><div class="label">Pending Rent</div><div class="value mono" style="font-size:17px;">${currency(rs.total_pending_rent)}</div></div>
+      <div class="card stat-card"><div class="label">Deposit Required</div><div class="value mono" style="font-size:17px;">${currency(ds.total_deposit_required)}</div></div>
+      <div class="card stat-card accent-green"><div class="label">Deposit Paid</div><div class="value mono" style="font-size:17px;">${currency(ds.total_deposit_paid)}</div></div>
+      <div class="card stat-card ${ds.remaining_deposit>0?'accent-rust':'accent-green'}"><div class="label">Remaining Deposit</div><div class="value mono" style="font-size:17px;">${currency(ds.remaining_deposit)}</div></div>
+    </div>
+    ${ss.shops?.length ? `
+    <h4 style="font-size:13px; margin:0 0 8px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em;">Assigned Shops</h4>
+    <div class="table-wrap" style="margin-bottom:0;">
+      <table><thead><tr><th>Shop</th><th>Complex</th><th class="num">Rent/mo</th><th class="num">Deposit</th></tr></thead>
+      <tbody>${ss.shops.map(s=>`<tr><td class="mono">${escapeHtml(s.shop_number)}</td><td>${escapeHtml(s.complex_name)}</td><td class="num">${currency(s.shop_rent)}</td><td class="num">${currency(s.shop_deposit)}</td></tr>`).join('')}</tbody>
+      </table>
+    </div>` : ''}
+    ${d.bills?.length ? `
+    <h4 style="font-size:13px; margin:14px 0 8px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em;">Recent Bills</h4>
+    <div class="table-wrap">
+      <table><thead><tr><th>Shop</th><th>Type</th><th class="num">Amount</th><th class="num">Pending</th><th>Status</th><th>Due</th></tr></thead>
+      <tbody>${d.bills.slice(0,8).map(b=>`<tr><td class="mono">${escapeHtml(b.shop_number)}</td><td>${escapeHtml(b.bill_type)}</td><td class="num">${currency(b.amount)}</td><td class="num">${currency(b.pending_amount)}</td><td>${stampHtml(b.status)}</td><td>${dateFmt(b.due_date)}</td></tr>`).join('')}</tbody>
+      </table>
+    </div>` : ''}
+    ${d.payment_history?.length ? `
+    <h4 style="font-size:13px; margin:14px 0 8px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em;">Payment History</h4>
+    <div class="table-wrap">
+      <table><thead><tr><th>Date</th><th>Shop</th><th>Type</th><th class="num">Amount</th><th>Method</th></tr></thead>
+      <tbody>${d.payment_history.slice(0,10).map(p=>`<tr><td>${dateFmt(p.payment_date)}</td><td class="mono">${escapeHtml(p.shop_number)}</td><td>${escapeHtml(p.bill_type)}</td><td class="num">${currency(p.amount)}</td><td>${escapeHtml(p.payment_method)}</td></tr>`).join('')}</tbody>
+      </table>
+    </div>` : ''}
+    ${d.deposit_payment_history?.length ? `
+    <h4 style="font-size:13px; margin:14px 0 8px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em;">Deposit Payment History</h4>
+    <div class="table-wrap">
+      <table><thead><tr><th>Date</th><th>Shop</th><th class="num">Amount</th><th>Remarks</th></tr></thead>
+      <tbody>${d.deposit_payment_history.map(p=>`<tr><td>${dateFmt(p.payment_date)}</td><td class="mono">${escapeHtml(p.shop_number)}</td><td class="num">${currency(p.amount)}</td><td>${escapeHtml(p.remarks||'—')}</td></tr>`).join('')}</tbody>
+      </table>
+    </div>` : ''}
+  </div>`;
 }
 
 async function loadFinanceOverview(){
@@ -3055,6 +3543,9 @@ document.getElementById('tenantRefreshBtn').addEventListener('click', async (e) 
   finally { e.currentTarget.classList.remove('spinning'); }
 });
 
+// Tenant portal filter state
+const tpFilters = { complex:'', shop:'', month:'', year:'', status:'', dateFrom:'', dateTo:'' };
+
 async function loadTenantPortal(){
   const content = document.getElementById('tenantContent');
   content.innerHTML = skeletonHtml();
@@ -3067,43 +3558,286 @@ async function loadTenantPortal(){
     ]);
     document.getElementById('tenantName').textContent = profile.name;
 
-    const pendingTotal = bills.reduce((sum,b)=>sum+Number(b.pending_amount||0),0);
+    // Compute summary
+    const totalRent = shops.reduce((s,sh)=>s+Number(sh.shop_rent||0),0);
+    const totalDeposit = shops.reduce((s,sh)=>s+Number(sh.shop_deposit||0),0);
+    const pendingBills = bills.filter(b=>b.status!=='paid');
+    const pendingTotal = pendingBills.reduce((s,b)=>s+Number(b.pending_amount||0),0);
+    const paidTotal = payments.reduce((s,p)=>s+Number(p.amount||0),0);
+    const nextDue = pendingBills.filter(b=>b.due_date).sort((a,b)=>new Date(a.due_date)-new Date(b.due_date))[0];
+
+    // Get unique complexes and shops from assigned shops
+    const complexIds = [...new Set(shops.map(s=>s.complex_id).filter(Boolean))];
+    const complexNames = {};
+    try {
+      const cx = await api('/api/complex');
+      cx.forEach(c => complexNames[c.id] = c.name);
+    } catch(e){}
+
+    // Deposit paid = sum from payments on deposit bills... approximate from total paid on 'Deposit' type bills
+    // If API provides deposit info, use it; otherwise compute from bills
+    let depositPaid = 0;
+    let depositRemaining = totalDeposit;
+    try {
+      const depPays = await api('/api/tenant/deposit-payments').catch(()=>[]);
+      depositPaid = depPays.reduce((s,p)=>s+Number(p.amount||0),0);
+      depositRemaining = Math.max(0, totalDeposit - depositPaid);
+    } catch(e){}
 
     content.innerHTML = `
-      <div class="stat-row" style="grid-template-columns:repeat(2,1fr);">
-        <div class="card stat-card"><div class="label">Your shops</div><div class="value">${shops.length}</div></div>
-        <div class="card stat-card accent-rust"><div class="label">Pending dues</div><div class="value mono">${currency(pendingTotal)}</div></div>
+    <!-- Summary Cards -->
+    <div class="tp-stat-grid">
+      <div class="tp-stat"><div class="tp-label">Assigned Shops</div><div class="tp-value">${shops.length}</div></div>
+      <div class="tp-stat accent-green"><div class="tp-label">Monthly Rent</div><div class="tp-value" style="font-size:16px;">${currency(totalRent)}</div></div>
+      <div class="tp-stat"><div class="tp-label">Deposit Required</div><div class="tp-value" style="font-size:16px;">${currency(totalDeposit)}</div></div>
+      <div class="tp-stat accent-green"><div class="tp-label">Deposit Paid</div><div class="tp-value" style="font-size:16px;">${currency(depositPaid)}</div></div>
+      <div class="tp-stat accent-rust"><div class="tp-label">Remaining Deposit</div><div class="tp-value" style="font-size:16px;">${currency(depositRemaining)}</div></div>
+      <div class="tp-stat accent-rust"><div class="tp-label">Pending Rent</div><div class="tp-value" style="font-size:16px;">${currency(pendingTotal)}</div></div>
+      <div class="tp-stat accent-green"><div class="tp-label">Total Paid</div><div class="tp-value" style="font-size:16px;">${currency(paidTotal)}</div></div>
+      <div class="tp-stat accent-partial"><div class="tp-label">Next Due Date</div><div class="tp-value" style="font-size:14px;">${nextDue ? dateFmt(nextDue.due_date) : '—'}</div></div>
+    </div>
+
+    <!-- Profile Section -->
+    <div class="collapsible-section">
+      <div class="collapsible-header" onclick="toggleCollapse(this)">
+        <h3>My Profile</h3>
+        <svg class="collapsible-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
       </div>
+      <div class="collapsible-body open">
+        <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:10px;">
+          <div><div style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.04em;">Name</div><div style="font-weight:600; margin-top:3px;">${escapeHtml(profile.name)}</div></div>
+          <div><div style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.04em;">Mobile</div><div class="mono" style="margin-top:3px;">${escapeHtml(profile.mobile)}</div></div>
+          ${profile.email ? `<div><div style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.04em;">Email</div><div style="margin-top:3px;">${escapeHtml(profile.email)}</div></div>` : ''}
+          <div><div style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.04em;">Tenant ID</div><div class="mono" style="margin-top:3px;">#${profile.id}</div></div>
+          <div><div style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.04em;">Status</div><div style="margin-top:3px;"><span class="pill ${profile.is_active?'active-pill':'inactive-pill'}"><span class="pill-dot"></span>${profile.is_active?'Active':'Inactive'}</span></div></div>
+          <div><div style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.04em;">Shops</div><div style="margin-top:3px; font-weight:700;">${shops.length}</div></div>
+        </div>
+      </div>
+    </div>
 
-      <div class="section-title">Your shops</div>
-      ${shops.length === 0 ? emptyStateHtml('No shops assigned', 'Once a shop is assigned to you, it will appear here.', emptyIcon()) :
-        shops.map(s => `
-        <div class="tenant-card">
-          <div class="row1"><span class="title mono">${escapeHtml(s.shop_number)}</span><span class="pill ${s.status}"><span class="pill-dot"></span>${escapeHtml(s.status)}</span></div>
-          <div class="meta">${Number(s.area_sqft).toLocaleString('en-IN')} sqft</div>
-        </div>`).join('')}
+    <!-- My Shops -->
+    <div class="collapsible-section">
+      <div class="collapsible-header" onclick="toggleCollapse(this)">
+        <h3>My Shops <span class="record-count-tag" style="margin-left:8px;">${shops.length}</span></h3>
+        <svg class="collapsible-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="collapsible-body open">
+        ${shops.length === 0 ? '<div class="empty-compact">No shops assigned to your account.</div>' :
+          shops.map(s=>`
+          <div class="tenant-card">
+            <div class="row1">
+              <span class="title mono">${escapeHtml(s.shop_number)}</span>
+              <span class="pill ${s.status}"><span class="pill-dot"></span>${escapeHtml(s.status)}</span>
+            </div>
+            <div class="meta">${escapeHtml(complexNames[s.complex_id]||'Complex #'+s.complex_id)} · ${Number(s.area_sqft||0).toLocaleString('en-IN')} sqft</div>
+            <div class="amt-row" style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; border:none; padding:0;">
+              <div><div style="font-size:11px; color:var(--muted); font-weight:600; text-transform:uppercase;">Rent/mo</div><div class="mono" style="font-weight:700; font-size:14px;">${currency(s.shop_rent||0)}</div></div>
+              <div><div style="font-size:11px; color:var(--muted); font-weight:600; text-transform:uppercase;">Deposit</div><div class="mono" style="font-weight:700; font-size:14px;">${currency(s.shop_deposit||0)}</div></div>
+            </div>
+          </div>`).join('')}
+      </div>
+    </div>
 
-      <div class="section-title">Bills</div>
-      ${bills.length === 0 ? emptyStateHtml('No bills', 'Bills raised against your shops will show here.', emptyIcon()) :
-        bills.map(b => `
-        <div class="tenant-card">
-          <div class="row1"><span class="title">${escapeHtml(b.bill_type)}</span>${stampHtml(b.status)}</div>
-          <div class="meta">${escapeHtml(b.description||'')} · due ${dateFmt(b.due_date)}</div>
-          <div class="amt-row"><span>Total ${currency(b.amount)}</span><span class="big">${currency(b.pending_amount)} due</span></div>
-        </div>`).join('')}
+    <!-- Deposit Summary -->
+    <div class="collapsible-section">
+      <div class="collapsible-header" onclick="toggleCollapse(this)">
+        <h3>Deposit Summary</h3>
+        <svg class="collapsible-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="collapsible-body">
+        <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:14px;">
+          <div class="card stat-card"><div class="label">Required</div><div class="value mono" style="font-size:18px;">${currency(totalDeposit)}</div></div>
+          <div class="card stat-card accent-green"><div class="label">Paid</div><div class="value mono" style="font-size:18px;">${currency(depositPaid)}</div></div>
+          <div class="card stat-card accent-rust"><div class="label">Remaining</div><div class="value mono" style="font-size:18px;">${currency(depositRemaining)}</div></div>
+        </div>
+        ${totalDeposit > 0 ? `
+        <div class="deposit-progress">
+          <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--muted); margin-bottom:4px;">
+            <span>Progress</span><span>${Math.round(depositPaid/totalDeposit*100)}%</span>
+          </div>
+          <div class="deposit-bar-wrap"><div class="deposit-bar" style="width:${Math.min(100,Math.round(depositPaid/totalDeposit*100))}%;"></div></div>
+        </div>` : ''}
+      </div>
+    </div>
 
-      <div class="section-title">Payment history</div>
-      ${payments.length === 0 ? emptyStateHtml('No payments yet', 'Payments made against your bills will appear here.', emptyIcon()) :
-        payments.map(p => `
-        <div class="tenant-card">
-          <div class="row1"><span class="title mono">${currency(p.amount)}</span><span class="meta">${escapeHtml(p.payment_method)}</span></div>
-          <div class="meta">${dateFmt(p.payment_date)}${p.remarks ? ' · '+escapeHtml(p.remarks) : ''}</div>
-        </div>`).join('')}
+    <!-- Bills Section -->
+    <div class="collapsible-section">
+      <div class="collapsible-header" onclick="toggleCollapse(this)">
+        <h3>Bills <span class="record-count-tag" style="margin-left:8px;">${bills.length}</span></h3>
+        <svg class="collapsible-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="collapsible-body open">
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
+          <select id="tpBillStatus" class="sort-select" style="font-size:12.5px; padding:7px 10px;">
+            <option value="">All statuses</option>
+            <option value="pending">Pending</option>
+            <option value="partial">Partial</option>
+            <option value="paid">Paid</option>
+          </select>
+          <select id="tpBillShop" class="sort-select" style="font-size:12.5px; padding:7px 10px;">
+            <option value="">All shops</option>
+            ${shops.map(s=>`<option value="${s.id}">${escapeHtml(s.shop_number)}</option>`).join('')}
+          </select>
+          <select id="tpBillMonth" class="sort-select" style="font-size:12.5px; padding:7px 10px;">
+            <option value="">Any month</option>
+            ${Array.from({length:12},(_,i)=>`<option value="${i+1}">${new Date(2000,i).toLocaleString('en-IN',{month:'short'})}</option>`).join('')}
+          </select>
+          <input id="tpBillYear" type="number" placeholder="Year" min="2020" max="2099" style="width:80px; padding:7px 10px; border:1.5px solid var(--line); border-radius:var(--radius-sm); font-size:12.5px;">
+          <button class="btn btn-ghost btn-sm" onclick="clearTpBillFilters()">Clear</button>
+        </div>
+        <div id="tpBillList">
+          ${bills.length === 0 ? '<div class="empty-compact">No bills found.</div>' :
+            bills.map(b=>`
+            <div class="tenant-card tp-bill-row" data-status="${b.status}" data-shop-id="${b.shop_id}" data-due="${b.due_date||''}">
+              <div class="row1"><span class="title">${escapeHtml(b.bill_type)}</span>${stampHtml(b.status)}</div>
+              <div class="meta">Bill #${b.id} · ${escapeHtml(shops.find(s=>s.id===b.shop_id)?.shop_number||'Shop #'+b.shop_id)} · due ${dateFmt(b.due_date)}</div>
+              ${b.description ? `<div class="meta" style="margin-top:2px;">${escapeHtml(b.description)}</div>` : ''}
+              <div class="amt-row"><span>Total ${currency(b.amount)} · Paid ${currency(b.paid_amount||0)}</span><span class="big" style="color:${b.pending_amount>0?'var(--rust)':'var(--success)'};">${currency(b.pending_amount)} due</span></div>
+            </div>`).join('')}
+        </div>
+        <div id="tpBillEmpty" class="empty-compact" style="display:none;">No bills match your filters.</div>
+      </div>
+    </div>
+
+    <!-- Payments Section -->
+    <div class="collapsible-section">
+      <div class="collapsible-header" onclick="toggleCollapse(this)">
+        <h3>Payment History <span class="record-count-tag" style="margin-left:8px;">${payments.length}</span></h3>
+        <svg class="collapsible-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="collapsible-body">
+        ${payments.length === 0 ? '<div class="empty-compact">No payments recorded yet.</div>' :
+          payments.map(p=>`
+          <div class="tenant-card">
+            <div class="row1"><span class="title mono">${currency(p.amount)}</span><span class="meta">${escapeHtml(p.payment_method)}</span></div>
+            <div class="meta">${dateFmt(p.payment_date)} · Receipt #${p.id}${p.remarks?' · '+escapeHtml(p.remarks):''}</div>
+          </div>`).join('')}
+      </div>
+    </div>
+
+    <!-- Monthly Summary -->
+    <div class="collapsible-section">
+      <div class="collapsible-header" onclick="toggleCollapse(this)">
+        <h3>Monthly Summary</h3>
+        <svg class="collapsible-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="collapsible-body">
+        ${renderMonthSummary(bills, payments)}
+      </div>
+    </div>
     `;
+
+    // Bill filters
+    ['tpBillStatus','tpBillShop','tpBillMonth','tpBillYear'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener(el.tagName==='INPUT'?'input':'change', applyTpBillFilters);
+    });
+    applyTpBillFilters();
+
+    // Toggle collapsibles
+    document.querySelectorAll('.month-row-head').forEach(h => {
+      h.addEventListener('click', () => {
+        const body = h.nextElementSibling;
+        body.classList.toggle('open');
+      });
+    });
+
   } catch (err) {
     content.innerHTML = errorBannerHtml(err.message);
     document.getElementById('retryBtn')?.addEventListener('click', loadTenantPortal);
   }
+}
+
+function toggleCollapse(header){
+  header.classList.toggle('open');
+  const body = header.nextElementSibling;
+  body.classList.toggle('open');
+}
+
+function applyTpBillFilters(){
+  const status = document.getElementById('tpBillStatus')?.value||'';
+  const shopId = document.getElementById('tpBillShop')?.value||'';
+  const month = document.getElementById('tpBillMonth')?.value||'';
+  const year = document.getElementById('tpBillYear')?.value||'';
+  const rows = document.querySelectorAll('.tp-bill-row');
+  let count = 0;
+  rows.forEach(r => {
+    let show = true;
+    if (status && r.dataset.status !== status) show = false;
+    if (shopId && String(r.dataset.shopId) !== shopId) show = false;
+    if (month) { const d=r.dataset.due; if(!d||String(new Date(d).getMonth()+1)!==month) show=false; }
+    if (year) { const d=r.dataset.due; if(!d||String(new Date(d).getFullYear())!==year) show=false; }
+    r.style.display = show ? '' : 'none';
+    if (show) count++;
+  });
+  const emp = document.getElementById('tpBillEmpty');
+  const lst = document.getElementById('tpBillList');
+  if (emp) emp.style.display = count===0 ? 'block' : 'none';
+  if (lst) lst.style.display = count===0 ? 'none' : '';
+}
+
+function clearTpBillFilters(){
+  ['tpBillStatus','tpBillShop','tpBillMonth','tpBillYear'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+  applyTpBillFilters();
+}
+
+function renderMonthSummary(bills, payments){
+  // Group by year-month
+  const months = {};
+  bills.forEach(b => {
+    const d = b.due_date || b.bill_date;
+    if (!d) return;
+    const dt = new Date(d);
+    const key = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}`;
+    if (!months[key]) months[key] = { bills:[], payments:[] };
+    months[key].bills.push(b);
+  });
+  payments.forEach(p => {
+    const d = p.payment_date;
+    if (!d) return;
+    const dt = new Date(d);
+    const key = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}`;
+    if (!months[key]) months[key] = { bills:[], payments:[] };
+    months[key].payments.push(p);
+  });
+
+  const sortedKeys = Object.keys(months).sort((a,b)=>b.localeCompare(a));
+  if (!sortedKeys.length) return '<div class="empty-compact">No billing history yet.</div>';
+
+  return sortedKeys.map(key => {
+    const [yr, mo] = key.split('-');
+    const mName = new Date(Number(yr), Number(mo)-1).toLocaleString('en-IN',{month:'long', year:'numeric'});
+    const mBills = months[key].bills;
+    const mPays = months[key].payments;
+    const rent = mBills.reduce((s,b)=>s+Number(b.amount||0),0);
+    const paid = mBills.reduce((s,b)=>s+Number(b.paid_amount||0),0);
+    const pending = mBills.reduce((s,b)=>s+Number(b.pending_amount||0),0);
+    return `
+    <div class="month-row">
+      <div class="month-row-head">
+        <div class="m-name">${mName}</div>
+        <div class="m-badges">
+          <span style="font-size:12px; color:var(--muted);">${currency(rent)} billed</span>
+          ${pending>0?`<span class="stamp pending" style="transform:none; font-size:10px;">${currency(pending)} due</span>`:`<span class="stamp paid" style="transform:none; font-size:10px;">paid</span>`}
+        </div>
+      </div>
+      <div class="month-row-body">
+        <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:10px;">
+          <div><div style="font-size:11px; color:var(--muted); font-weight:600; text-transform:uppercase;">Rent</div><div class="mono" style="font-weight:700;">${currency(rent)}</div></div>
+          <div><div style="font-size:11px; color:var(--muted); font-weight:600; text-transform:uppercase;">Paid</div><div class="mono" style="color:var(--success); font-weight:700;">${currency(paid)}</div></div>
+          <div><div style="font-size:11px; color:var(--muted); font-weight:600; text-transform:uppercase;">Pending</div><div class="mono" style="color:${pending>0?'var(--rust)':'var(--success)'}; font-weight:700;">${currency(pending)}</div></div>
+        </div>
+        ${mBills.length ? `<div style="font-size:12px; font-weight:600; color:var(--muted); margin-bottom:6px; text-transform:uppercase; letter-spacing:.04em;">Bills</div>
+          ${mBills.map(b=>`<div style="display:flex; justify-content:space-between; font-size:13px; padding:5px 0; border-bottom:1px dashed var(--line);">
+            <span>${escapeHtml(b.bill_type)} · #${b.id}</span><span style="display:flex; gap:8px; align-items:center;">${stampHtml(b.status)} ${currency(b.pending_amount)} due</span>
+          </div>`).join('')}` : ''}
+        ${mPays.length ? `<div style="font-size:12px; font-weight:600; color:var(--muted); margin:10px 0 6px; text-transform:uppercase; letter-spacing:.04em;">Payments</div>
+          ${mPays.map(p=>`<div style="display:flex; justify-content:space-between; font-size:13px; padding:5px 0; border-bottom:1px dashed var(--line);">
+            <span>${dateFmt(p.payment_date)} · ${escapeHtml(p.payment_method)}</span><span class="mono" style="color:var(--success); font-weight:700;">${currency(p.amount)}</span>
+          </div>`).join('')}` : ''}
+      </div>
+    </div>`;
+  }).join('');
 }
 </script>
 </body>

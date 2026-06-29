@@ -29,6 +29,7 @@ Self-healing behaviour:
 
 from datetime import datetime, timezone
 from decimal import Decimal
+from sqlalchemy import or_
 
 import bcrypt
 from sqlalchemy import (
@@ -443,7 +444,17 @@ def main():
         DEFAULT_PASSWORD = "Sujata8@Tekale8@"
         DEFAULT_NAME     = "Tejas Gund"
 
-        existing = db.query(User).filter(User.mobile == DEFAULT_MOBILE).first()
+#        existing = db.query(User).filter(User.mobile == DEFAULT_MOBILE).first()
+        existing = (
+            db.query(User)
+            .filter(
+                or_(
+                    User.email == "admin@tenantapp.com",
+                    User.mobile == DEFAULT_MOBILE,
+                )
+            )
+            .first()
+        )
         if existing:
             print("ℹ  Default admin already exists – skipping seed.\n")
         else:
