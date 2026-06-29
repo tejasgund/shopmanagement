@@ -248,9 +248,6 @@ input,select,textarea{font-family:var(--font-body);}
 .stat-card .sub{ font-size:12px; color:var(--muted); margin-top:4px; }
 .stat-card.accent-green .value{ color:var(--green-deep); }
 .stat-card.accent-rust .value{ color:var(--rust); }
-.glance-card{ font-family:inherit; transition:border-color .12s, transform .1s; }
-.glance-card:hover{ border-color:var(--green); }
-.glance-card:active{ transform:scale(0.98); }
 
 .table-wrap{ overflow-x:auto; border:1px solid var(--line); border-radius:var(--radius); background:var(--paper-raised); }
 table{ width:100%; border-collapse:collapse; font-size:13.8px; min-width:640px; }
@@ -327,7 +324,7 @@ td .row-actions{ display:flex; gap:6px; justify-content:flex-end; }
 .modal-overlay.show{ display:flex; animation:fade-in .15s ease; }
 @keyframes fade-in{ from{opacity:0;} to{opacity:1;} }
 .modal{
-  background:var(--paper-raised); border-radius:var(--radius); box-shadow:var(--shadow-lg); width:100%; max-width:560px;
+  background:var(--paper-raised); border-radius:var(--radius); box-shadow:var(--shadow-lg); width:100%; max-width:520px;
   max-height:90vh; overflow-y:auto; animation:modal-in .2s ease both;
 }
 @keyframes modal-in{ from{opacity:0; transform:translateY(12px) scale(0.98);} to{opacity:1; transform:translateY(0) scale(1);} }
@@ -433,30 +430,6 @@ td .row-actions{ display:flex; gap:6px; justify-content:flex-end; }
 .checkbox-row:hover{ background:var(--paper); }
 .checkbox-row input{ width:16px; height:16px; accent-color:var(--green); }
 
-/* ---- Shop picker list (bulk bill creation) ---- */
-.shop-pick-list{ display:flex; flex-direction:column; gap:7px; max-height:280px; overflow-y:auto; padding:2px; }
-.shop-pick-row{
-  display:flex; align-items:center; gap:11px; padding:10px 12px; border:1.5px solid var(--line);
-  border-radius:var(--radius-sm); cursor:pointer; transition:border-color .12s, background .12s;
-}
-.shop-pick-row:hover{ border-color:var(--green); }
-.shop-pick-row.checked-row{ border-color:var(--green); background:#F2F9F5; }
-.shop-pick-check{ width:17px; height:17px; accent-color:var(--green); flex-shrink:0; cursor:pointer; }
-.shop-pick-info{ flex:1; min-width:0; }
-.shop-pick-num{ font-weight:700; font-size:14px; }
-.shop-pick-meta{ font-size:11.5px; color:var(--muted); margin-top:2px; }
-.shop-pick-amt-wrap{ display:flex; align-items:center; gap:4px; flex-shrink:0; }
-.shop-pick-rupee{ font-family:var(--font-mono); color:var(--muted); font-size:13px; }
-.shop-pick-amount{
-  width:104px; padding:8px 9px; border:1.5px solid var(--line); border-radius:var(--radius-sm);
-  font-family:var(--font-mono); font-size:13.5px; text-align:right; background:var(--paper-raised);
-}
-.shop-pick-amount:focus{ border-color:var(--green); outline:none; }
-@media (max-width:480px){
-  .shop-pick-row{ flex-wrap:wrap; }
-  .shop-pick-amt-wrap{ width:100%; justify-content:flex-end; margin-left:28px; }
-}
-
 .visually-hidden{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); }
 
 /* Responsive */
@@ -475,15 +448,7 @@ td .row-actions{ display:flex; gap:6px; justify-content:flex-end; }
   .stat-row{ grid-template-columns:repeat(2,1fr); }
   table{ font-size:13px; }
   thead th, tbody td{ padding:10px 12px; }
-  .modal-overlay{ padding:0; align-items:flex-end; }
-  .modal{ max-width:100%; max-height:92vh; border-radius:var(--radius) var(--radius) 0 0; animation:modal-in-sheet .2s ease both; }
-  .modal-head{ padding:16px 16px 14px; }
-  .modal-body{ padding:16px; }
-  .modal-foot{ padding:12px 16px; padding-bottom:max(12px, env(safe-area-inset-bottom)); flex-wrap:wrap; }
-  .modal-foot .btn{ flex:1; }
-  .pay-summary, .info-card, .warn-box{ padding:11px 12px; }
 }
-@keyframes modal-in-sheet{ from{opacity:0; transform:translateY(24px);} to{opacity:1; transform:translateY(0);} }
 
 /* ============================================================
    ENHANCED UI — filters, advanced search, user dashboard
@@ -775,8 +740,6 @@ const state = {
   cache: { complexes: [], shops: [], users: [], bills: [], payments: [] },
   loaded: { complexes:false, shops:false, users:false, bills:false, payments:false },
 };
-// Set by dashboard "at a glance" cards to auto-apply a filter when the Bills view loads next.
-let pendingBillsViewFilter = null;
 
 const apiDisplay = document.getElementById('apiBaseDisplay');
 if (apiDisplay) {
@@ -970,7 +933,7 @@ const viewMeta = {
   complexes: { title:'Complexes', crumb:'Buildings and properties you manage', action:'Add complex' },
   shops:     { title:'Shops', crumb:'Units across all complexes', action:'Add shop' },
   users:     { title:'Users', crumb:'Admins and tenants', action:'Add user' },
-  bills:     { title:'Bills', crumb:'Charges raised to tenants', action:'Create bills' },
+  bills:     { title:'Bills', crumb:'Charges raised to tenants', action:'Add bill' },
   payments:  { title:'Payments', crumb:'Payments recorded against bills', action:'Record payment' },
   finance:   { title:'Finance Overview', crumb:'Aggregated rent, deposits and dues', action:null },
   deposits:  { title:'Deposit Payments', crumb:'Security deposit collection tracking', action:'Record deposit' },
@@ -1012,7 +975,7 @@ async function renderView(view){
   content.innerHTML = skeletonHtml();
   try {
     switch(view){
-      case 'dashboard': content.innerHTML = await dashboardView(); attachDashboardHandlers(); break;
+      case 'dashboard': content.innerHTML = await dashboardView(); break;
       case 'complexes': content.innerHTML = await complexesView(); attachComplexHandlers(); break;
       case 'shops': content.innerHTML = await shopsView(); attachShopHandlers(); break;
       case 'users': content.innerHTML = await usersView(); attachUserHandlers(); break;
@@ -1083,16 +1046,6 @@ async function dashboardView(){
 
   const recentBills = [...bills].sort((a,b) => new Date(b.bill_date) - new Date(a.bill_date)).slice(0,6);
 
-  // Billing-at-a-glance breakdown (computed client-side from already-loaded bills — no extra API calls)
-  const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const monthEnd = new Date(now.getFullYear(), now.getMonth()+1, 0, 23, 59, 59);
-  const overdueBills = bills.filter(b => b.status !== 'paid' && b.due_date && new Date(b.due_date) < now);
-  const dueThisMonthBills = bills.filter(b => b.status !== 'paid' && b.due_date && new Date(b.due_date) >= monthStart && new Date(b.due_date) <= monthEnd);
-  const paidBills = bills.filter(b => b.status === 'paid');
-  const partialBills = bills.filter(b => b.status === 'partial');
-  const usersWithPending = new Set(pendingBills.map(b=>b.user_id)).size;
-
   // Per-complex stats
   const complexStats = complexes.map(c => {
     const cShops = shops.filter(s => s.complex_id === c.id);
@@ -1114,25 +1067,6 @@ async function dashboardView(){
     <div class="card stat-card accent-green"><div class="label">Monthly rent</div><div class="value mono">${currency(totalMonthlyRent)}</div><div class="sub">from occupied shops</div></div>
     <div class="card stat-card accent-rust"><div class="label">Pending dues</div><div class="value mono">${currency(pendingTotal)}</div><div class="sub">${pendingBills.length} bills outstanding</div></div>
     <div class="card stat-card accent-green"><div class="label">Collected</div><div class="value mono">${currency(collectedTotal)}</div><div class="sub">across all bills</div></div>
-  </div>
-
-  <h3 style="font-size:15.5px; margin:0 0 14px;">Billing at a glance</h3>
-  <div class="glance-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px,1fr)); gap:12px; margin-bottom:24px;">
-    <button type="button" class="card stat-card glance-card" data-glance="overdue" style="text-align:left; cursor:pointer;">
-      <div class="label">Overdue</div><div class="value mono" style="color:var(--danger); font-size:22px;">${overdueBills.length}</div><div class="sub">${currency(overdueBills.reduce((s,b)=>s+Number(b.pending_amount||0),0))} at risk</div>
-    </button>
-    <button type="button" class="card stat-card glance-card" data-glance="due-this-month" style="text-align:left; cursor:pointer;">
-      <div class="label">Due this month</div><div class="value mono" style="font-size:22px;">${dueThisMonthBills.length}</div><div class="sub">${currency(dueThisMonthBills.reduce((s,b)=>s+Number(b.pending_amount||0),0))} expected</div>
-    </button>
-    <button type="button" class="card stat-card glance-card" data-glance="partial" style="text-align:left; cursor:pointer;">
-      <div class="label">Partially paid</div><div class="value mono" style="color:var(--partial); font-size:22px;">${partialBills.length}</div><div class="sub">in progress</div>
-    </button>
-    <button type="button" class="card stat-card glance-card" data-glance="paid" style="text-align:left; cursor:pointer;">
-      <div class="label">Paid</div><div class="value mono" style="color:var(--success); font-size:22px;">${paidBills.length}</div><div class="sub">settled in full</div>
-    </button>
-    <button type="button" class="card stat-card glance-card" data-glance="outstanding" style="text-align:left; cursor:pointer;">
-      <div class="label">Tenants with dues</div><div class="value mono" style="font-size:22px;">${usersWithPending}</div><div class="sub">of ${users.filter(u=>u.role==='tenant').length} tenants</div>
-    </button>
   </div>
 
   ${complexStats.length > 0 ? `
@@ -1178,15 +1112,6 @@ async function dashboardView(){
       </table>
     </div>`}
   </div>`;
-}
-
-function attachDashboardHandlers(){
-  document.querySelectorAll('.glance-card').forEach(card => {
-    card.addEventListener('click', () => {
-      pendingBillsViewFilter = card.dataset.glance;
-      navigateTo('bills');
-    });
-  });
 }
 
 function updatePendingBadge(count){
@@ -1425,7 +1350,6 @@ async function billsView(){
         <option value="pending">Pending</option>
         <option value="partial">Partial</option>
         <option value="paid">Paid</option>
-        <option value="overdue">Overdue</option>
       </select>
     </div>
     <div class="field">
@@ -1462,7 +1386,7 @@ async function billsView(){
     <button class="btn btn-ghost filter-clear-btn" id="billClearFilters">Clear filters</button>
     <span class="filter-count" id="billCount"></span>
   </div>
-  ${bills.length === 0 ? emptyStateHtml('No bills yet', 'Pick a tenant and create bills for one or more of their shops.', emptyIcon()) : `
+  ${bills.length === 0 ? emptyStateHtml('No bills yet', 'Raise a bill against a tenant and shop.', emptyIcon()) : `
   <div class="table-wrap">
     <table id="billsTable">
       <thead><tr><th>Bill</th><th>Tenant</th><th>Shop</th><th>Complex</th><th>Type</th><th class="num">Amount</th><th class="num">Pending</th><th>Status</th><th>Due</th><th></th></tr></thead>
@@ -1513,25 +1437,13 @@ function initBillFilters(){
     const sort = document.getElementById('billSort')?.value||'newest';
     const tbody = document.getElementById('billsTbody');
     if (!tbody) return;
-    const now = new Date();
     let rows = Array.from(tbody.querySelectorAll('tr'));
     rows.forEach(tr => {
       let show = true;
       if (q && !tr.dataset.search?.toLowerCase().includes(q)) show = false;
       if (cid && tr.dataset.complexId !== cid) show = false;
       if (uid && tr.dataset.userId !== uid) show = false;
-      if (status === 'overdue') {
-        const isOverdue = tr.dataset.status !== 'paid' && tr.dataset.due && new Date(tr.dataset.due) < now;
-        if (!isOverdue) show = false;
-      } else if (status === 'due-this-month') {
-        const due = tr.dataset.due ? new Date(tr.dataset.due) : null;
-        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-        const monthEnd = new Date(now.getFullYear(), now.getMonth()+1, 0, 23, 59, 59);
-        const isDueThisMonth = tr.dataset.status !== 'paid' && due && due >= monthStart && due <= monthEnd;
-        if (!isDueThisMonth) show = false;
-      } else if (status === 'outstanding') {
-        if (tr.dataset.status === 'paid') show = false;
-      } else if (status && tr.dataset.status !== status) show = false;
+      if (status && tr.dataset.status !== status) show = false;
       if (type && tr.dataset.type !== type) show = false;
       if (month) { const due = tr.dataset.due; if (!due || String(new Date(due).getMonth()+1) !== month) show = false; }
       if (year) { const due = tr.dataset.due || tr.dataset.date; if (!due || String(new Date(due).getFullYear()) !== year) show = false; }
@@ -1565,22 +1477,6 @@ function initBillFilters(){
     ['billSearch','billFilterComplex','billFilterUser','billFilterStatus','billFilterType','billFilterMonth','billFilterYear'].forEach(id => { const el=document.getElementById(id); if(el) { el.value=''; } });
     applyBillFilters();
   });
-
-  // Apply any filter requested from the dashboard's "at a glance" cards, then clear it
-  if (pendingBillsViewFilter) {
-    const statusSel = document.getElementById('billFilterStatus');
-    const pseudoLabels = { 'due-this-month':'Due this month', outstanding:'Tenants with dues (outstanding)' };
-    if (statusSel) {
-      if (pseudoLabels[pendingBillsViewFilter] && !statusSel.querySelector(`option[value="${pendingBillsViewFilter}"]`)) {
-        statusSel.insertAdjacentHTML('beforeend', `<option value="${pendingBillsViewFilter}">${pseudoLabels[pendingBillsViewFilter]}</option>`);
-      }
-      if (['overdue','partial','paid','pending','due-this-month','outstanding'].includes(pendingBillsViewFilter)) {
-        statusSel.value = pendingBillsViewFilter;
-      }
-    }
-    pendingBillsViewFilter = null;
-  }
-
   applyBillFilters();
 }
 
@@ -2944,220 +2840,176 @@ async function openBillModal(){
     ensureLoaded('users','/api/user'),
   ]);
 
-  const tenants = state.cache.users.filter(u => u.role === 'tenant');
+  const complexes = state.cache.complexes;
   const today = new Date(); const due = new Date(); due.setDate(today.getDate()+14);
-  const COMMON_TYPES = ['Rent','Electricity','Water','Maintenance','Repair','Damage','Parking','Penalty'];
 
-  openModal('Create bills', `
+  openModal('Add bill', `
     <div style="font-size:12px; color:var(--muted); background:var(--paper); border-radius:var(--radius-sm); padding:8px 11px; margin-bottom:16px; display:flex; align-items:center; gap:7px;">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-      Pick a tenant to see all their shops — select the ones to bill, then generate in one go.
+      Select a complex and shop first — only the assigned tenant can be billed for that shop.
     </div>
     <form id="billForm">
       <div class="field">
-        <label for="bTenant">Tenant</label>
-        <select id="bTenant">
-          <option value="">— select tenant —</option>
-          ${tenants.map(u => `<option value="${u.id}">${escapeHtml(u.name)} · ${escapeHtml(u.mobile)}</option>`).join('')}
+        <label for="bComplex">Complex</label>
+        <select id="bComplex">
+          <option value="">— select complex —</option>
+          ${complexes.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('')}
         </select>
       </div>
-
-      <div id="bNoShopsWarn" style="display:none;" class="warn-box">
-        ${warnIcon()}
-        <span>This tenant has no shops assigned yet. Assign a shop to them before raising a bill.</span>
+      <div class="field">
+        <label for="bShop">Shop</label>
+        <select id="bShop" disabled>
+          <option value="">— select complex first —</option>
+        </select>
       </div>
-
-      <div id="bShopSection" style="display:none;">
+      <div id="bTenantWrap" style="display:none;">
         <div class="field">
-          <label>Bill type</label>
-          <div class="chip-row" id="bTypeChips" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px;">
-            ${COMMON_TYPES.map((t,i) => `<button type="button" class="chip bill-type-chip${i===0?' active':''}" data-type="${escapeHtml(t)}">${escapeHtml(t)}</button>`).join('')}
-            <button type="button" class="chip bill-type-chip" data-type="__custom__">Custom…</button>
+          <label>Tenant</label>
+          <div class="info-card" id="bTenantCard"></div>
+        </div>
+      </div>
+      <div id="bUnoccupiedWarn" style="display:none;" class="warn-box">
+        ${warnIcon()}
+        <span>This shop has no tenant assigned. Assign a tenant to this shop before raising a bill.</span>
+      </div>
+      <div id="bBillFields" style="display:none;">
+        <div class="form-grid" style="margin-top:4px;">
+          <div class="field">
+            <label for="bType">Bill type</label>
+            <input id="bType" required placeholder="Maintenance / Electricity / Rent">
+            ${fieldErrorHtml('bTypeErr')}
           </div>
-          <input id="bType" value="Rent" placeholder="Bill type">
-          ${fieldErrorHtml('bTypeErr')}
-        </div>
-
-        <div class="field full" style="margin-top:2px;">
-          <label for="bDesc">Description <span style="color:var(--muted); font-weight:400; text-transform:none;">(optional)</span></label>
-          <input id="bDesc" placeholder="e.g. June 2026 electricity reading">
-        </div>
-
-        <div class="field full">
-          <label for="bDue">Due date</label>
-          <input id="bDue" type="date" value="${due.toISOString().slice(0,10)}">
-        </div>
-
-        <div class="field full" style="margin-bottom:8px;">
-          <label style="display:flex; align-items:center; justify-content:space-between;">
-            <span>Shops</span>
-            <span style="text-transform:none; font-weight:600; color:var(--muted); font-size:11.5px;"><label style="display:inline-flex; align-items:center; gap:5px; cursor:pointer; text-transform:none;"><input type="checkbox" id="bSelectAll" style="width:14px; height:14px; accent-color:var(--green); margin:0;"> Select all</label></span>
-          </label>
-          <div id="bShopList" class="shop-pick-list"></div>
-        </div>
-
-        <div class="pay-summary" id="bTotalSummary">
-          <div class="ps-row ps-total"><span class="ps-key">Total for selected shops</span><span class="ps-val" id="bTotalVal">${currency(0)}</span></div>
+          <div class="field">
+            <label for="bAmount">Amount (₹)</label>
+            <input id="bAmount" type="number" step="0.01" min="0.01" required placeholder="5000.00">
+            ${fieldErrorHtml('bAmountErr')}
+          </div>
+          <div class="field full">
+            <label for="bDesc">Description</label>
+            <input id="bDesc" placeholder="e.g. Monthly maintenance charges">
+          </div>
+          <div class="field full">
+            <label for="bDue">Due date</label>
+            <input id="bDue" type="date" value="${due.toISOString().slice(0,10)}">
+          </div>
         </div>
       </div>
     </form>
   `, `
     <button class="btn btn-ghost" id="cancelBtn">Cancel</button>
-    <button class="btn btn-primary" id="saveBtn" disabled>Create bills</button>
+    <button class="btn btn-primary" id="saveBtn" disabled>Add bill</button>
   `);
 
   document.getElementById('cancelBtn').addEventListener('click', closeModal);
 
-  function recalcTotal(){
-    const rows = Array.from(document.querySelectorAll('.shop-pick-row'));
-    let total = 0; let count = 0;
-    rows.forEach(row => {
-      const cb = row.querySelector('.shop-pick-check');
-      if (cb.checked){
-        const amt = parseFloat(row.querySelector('.shop-pick-amount').value) || 0;
-        total += amt; count++;
-      }
-    });
-    document.getElementById('bTotalVal').textContent = currency(total);
-    document.getElementById('saveBtn').disabled = count === 0;
-    document.getElementById('saveBtn').textContent = count > 0 ? `Create ${count} bill${count>1?'s':''}` : 'Create bills';
-    const allCb = document.getElementById('bSelectAll');
-    if (allCb) allCb.checked = rows.length > 0 && rows.every(r => r.querySelector('.shop-pick-check').checked);
-  }
+  // Complex → filter shops
+  document.getElementById('bComplex').addEventListener('change', () => {
+    const complexId = Number(document.getElementById('bComplex').value);
+    const shopSel = document.getElementById('bShop');
+    const tenantWrap = document.getElementById('bTenantWrap');
+    const billFields = document.getElementById('bBillFields');
+    const warnEl = document.getElementById('bUnoccupiedWarn');
+    const saveBtn = document.getElementById('saveBtn');
 
-  function renderShopList(userId){
-    const shopSection = document.getElementById('bShopSection');
-    const noShopsWarn = document.getElementById('bNoShopsWarn');
-    const listEl = document.getElementById('bShopList');
-    const ownedShops = state.cache.shops.filter(s => s.assigned_to?.id === userId);
+    tenantWrap.style.display = 'none';
+    billFields.style.display = 'none';
+    warnEl.style.display = 'none';
+    saveBtn.disabled = true;
 
-    if (ownedShops.length === 0){
-      shopSection.style.display = 'none';
-      noShopsWarn.style.display = 'flex';
-      document.getElementById('saveBtn').disabled = true;
+    if (!complexId){
+      shopSel.innerHTML = '<option value="">— select complex first —</option>';
+      shopSel.disabled = true;
       return;
     }
-    noShopsWarn.style.display = 'none';
-    shopSection.style.display = 'block';
 
-    const billType = document.getElementById('bType').value.trim() || 'Rent';
-    const isRent = billType.toLowerCase() === 'rent';
-
-    listEl.innerHTML = ownedShops.map(s => {
-      // agreed_rent (per-tenant override) wins over the shop's default rent when present
-      const rent = Number(s.agreed_rent ?? s.shop_rent ?? 0);
-      const prefill = isRent ? rent : 0;
-      return `
-      <label class="shop-pick-row" data-shop-id="${s.id}">
-        <input type="checkbox" class="shop-pick-check" ${isRent ? 'checked' : ''}>
-        <div class="shop-pick-info">
-          <div class="shop-pick-num mono">${escapeHtml(s.shop_number)}</div>
-          <div class="shop-pick-meta">${isRent ? `Rent/mo: ${currency(rent)}` : 'Custom amount'}</div>
-        </div>
-        <div class="shop-pick-amt-wrap">
-          <span class="shop-pick-rupee">₹</span>
-          <input type="number" class="shop-pick-amount" step="0.01" min="0" value="${prefill.toFixed(2)}">
-        </div>
-      </label>`;
-    }).join('');
-
-    listEl.querySelectorAll('.shop-pick-check').forEach(cb => cb.addEventListener('change', () => {
-      cb.closest('.shop-pick-row').classList.toggle('checked-row', cb.checked);
-      recalcTotal();
-    }));
-    listEl.querySelectorAll('.shop-pick-amount').forEach(inp => inp.addEventListener('input', recalcTotal));
-    listEl.querySelectorAll('.shop-pick-row').forEach(row => {
-      if (row.querySelector('.shop-pick-check').checked) row.classList.add('checked-row');
-    });
-    recalcTotal();
-  }
-
-  document.getElementById('bTenant').addEventListener('change', () => {
-    const uid = Number(document.getElementById('bTenant').value);
-    if (!uid){
-      document.getElementById('bShopSection').style.display = 'none';
-      document.getElementById('bNoShopsWarn').style.display = 'none';
-      document.getElementById('saveBtn').disabled = true;
+    const shopsInComplex = state.cache.shops.filter(s => s.complex_id === complexId);
+    if (shopsInComplex.length === 0){
+      shopSel.innerHTML = '<option value="">No shops in this complex</option>';
+      shopSel.disabled = true;
       return;
     }
-    renderShopList(uid);
+
+    shopSel.disabled = false;
+    shopSel.innerHTML = '<option value="">— select shop —</option>' +
+      shopsInComplex.map(s => {
+        const tenant = s.assigned_to ? ` · ${s.assigned_to.name}` : ' · unoccupied';
+        return `<option value="${s.id}" data-tenant-id="${s.assigned_to?.id || ''}">${escapeHtml(s.shop_number)}${escapeHtml(tenant)}</option>`;
+      }).join('');
+
+    // Trigger shop change to reset downstream
+    shopSel.dispatchEvent(new Event('change'));
   });
 
-  // Bill-type chips: clicking a preset fills the type field; "Custom…" focuses it for free text
-  document.querySelectorAll('.bill-type-chip').forEach(chip => {
-    chip.addEventListener('click', () => {
-      document.querySelectorAll('.bill-type-chip').forEach(c => c.classList.remove('active'));
-      const typeInput = document.getElementById('bType');
-      if (chip.dataset.type === '__custom__'){
-        chip.classList.add('active');
-        typeInput.value = '';
-        typeInput.focus();
-      } else {
-        chip.classList.add('active');
-        typeInput.value = chip.dataset.type;
-      }
-      // Re-render shop amounts: only "Rent" auto-fills from agreed rent / shop rent
-      const uid = Number(document.getElementById('bTenant').value);
-      if (uid) renderShopList(uid);
-    });
-  });
-  document.getElementById('bType').addEventListener('input', () => {
-    const val = document.getElementById('bType').value.trim().toLowerCase();
-    document.querySelectorAll('.bill-type-chip').forEach(c => {
-      c.classList.toggle('active', c.dataset.type !== '__custom__' && c.dataset.type.toLowerCase() === val);
-    });
-  });
+  // Shop → lock tenant + show bill fields
+  document.getElementById('bShop').addEventListener('change', () => {
+    const shopId = Number(document.getElementById('bShop').value);
+    const tenantWrap = document.getElementById('bTenantWrap');
+    const tenantCard = document.getElementById('bTenantCard');
+    const billFields = document.getElementById('bBillFields');
+    const warnEl = document.getElementById('bUnoccupiedWarn');
+    const saveBtn = document.getElementById('saveBtn');
 
-  document.getElementById('bSelectAll').addEventListener('change', (e) => {
-    document.querySelectorAll('.shop-pick-check').forEach(cb => {
-      cb.checked = e.target.checked;
-      cb.closest('.shop-pick-row').classList.toggle('checked-row', cb.checked);
-    });
-    recalcTotal();
+    tenantWrap.style.display = 'none';
+    billFields.style.display = 'none';
+    warnEl.style.display = 'none';
+    saveBtn.disabled = true;
+
+    if (!shopId) return;
+
+    const shop = state.cache.shops.find(s => s.id === shopId);
+    if (!shop) return;
+
+    if (!shop.assigned_to){
+      warnEl.style.display = 'flex';
+      return;
+    }
+
+    const user = state.cache.users.find(u => u.id === shop.assigned_to.id);
+    tenantCard.innerHTML = `
+      <div class="info-row"><span class="info-label">Name</span><span class="info-val">${escapeHtml(shop.assigned_to.name)}</span></div>
+      <div class="info-row"><span class="info-label">Mobile</span><span class="info-val">${escapeHtml(user?.mobile || '—')}</span></div>
+      <div class="info-row"><span class="info-label">Shop</span><span class="info-val">${escapeHtml(shop.shop_number)}</span></div>
+    `;
+    tenantWrap.style.display = 'block';
+    billFields.style.display = 'block';
+    saveBtn.disabled = false;
   });
 
   document.getElementById('saveBtn').addEventListener('click', async () => {
     const form = document.getElementById('billForm');
     clearFieldErrors(form);
-    const userId = Number(document.getElementById('bTenant').value);
+    const shopId = Number(document.getElementById('bShop').value);
     const bill_type = document.getElementById('bType').value.trim();
+    const amount = parseFloat(document.getElementById('bAmount').value);
     const description = document.getElementById('bDesc').value.trim();
     const due_date = document.getElementById('bDue').value;
 
-    if (!userId){ showToast('Select a tenant first', 'error'); return; }
-    if (!bill_type){ showFieldError('bTypeErr','Bill type is required'); document.getElementById('bType').classList.add('invalid'); return; }
+    if (!shopId){ showToast('Select a shop first', 'error'); return; }
+    const shop = state.cache.shops.find(s => s.id === shopId);
+    if (!shop || !shop.assigned_to){ showToast('This shop has no tenant assigned', 'error'); return; }
 
-    const selectedRows = Array.from(document.querySelectorAll('.shop-pick-row')).filter(r => r.querySelector('.shop-pick-check').checked);
-    if (selectedRows.length === 0){ showToast('Select at least one shop', 'error'); return; }
+    let ok = true;
+    if (!bill_type){ showFieldError('bTypeErr','Bill type is required'); document.getElementById('bType').classList.add('invalid'); ok=false; }
+    if (isNaN(amount) || amount <= 0){ showFieldError('bAmountErr','Enter a valid amount'); document.getElementById('bAmount').classList.add('invalid'); ok=false; }
+    if (!ok) return;
 
-    const items = selectedRows.map(row => ({
-      shop_id: Number(row.dataset.shopId),
-      amount: parseFloat(row.querySelector('.shop-pick-amount').value)
-    }));
-    const badRow = items.find(it => isNaN(it.amount) || it.amount <= 0);
-    if (badRow){ showToast('Every selected shop needs a valid amount', 'error'); return; }
+    // Final conflict check: make sure user_id actually owns this shop right now
+    const user_id = shop.assigned_to.id;
 
     await withSavingState('saveBtn', async () => {
-      let created = 0, failed = 0;
-      for (const item of items){
-        try {
-          await api('/api/bill', { method:'POST', body:{
-            user_id: userId,
-            shop_id: item.shop_id,
-            bill_type,
-            amount: item.amount,
-            description,
-            due_date: due_date ? new Date(due_date).toISOString() : null
-          }});
-          created++;
-        } catch(e){ failed++; }
-      }
+      await api('/api/bill', { method:'POST', body:{
+        user_id,
+        shop_id: shopId,
+        bill_type,
+        amount,
+        description,
+        due_date: due_date ? new Date(due_date).toISOString() : null
+      }});
       state.loaded.bills = false;
       closeModal();
-      if (failed === 0) showToast(`${created} bill${created>1?'s':''} created`, 'success');
-      else showToast(`${created} bill${created>1?'s':''} created, ${failed} failed`, created>0 ? 'default' : 'error');
+      showToast('Bill added', 'success');
       await renderView('bills');
-    }, 'Creating…');
+    });
   });
 }
 
@@ -3722,25 +3574,15 @@ async function loadTenantPortal(){
       cx.forEach(c => complexNames[c.id] = c.name);
     } catch(e){}
 
-    // Deposit paid: try the dedicated endpoint first; if it's unavailable, fall back
-    // to computing it from data we already have so the dashboard never silently shows ₹0.
+    // Deposit paid = sum from payments on deposit bills... approximate from total paid on 'Deposit' type bills
+    // If API provides deposit info, use it; otherwise compute from bills
     let depositPaid = 0;
     let depositRemaining = totalDeposit;
-    let depositSourceFailed = false;
     try {
-      const depPays = await api('/api/tenant/deposit-payments');
-      depositPaid = (depPays||[]).reduce((s,p)=>s+Number(p.amount||0),0);
-    } catch(e){
-      depositSourceFailed = true;
-      // Fallback: some backends record deposit collection as a bill_type of "Deposit"
-      // rather than via a separate deposit-payments table. Recover paid amount from
-      // the tenant's own bills/payments if such records exist.
-      const depositBillIds = new Set(bills.filter(b => /deposit/i.test(b.bill_type||'')).map(b=>b.id));
-      if (depositBillIds.size > 0) {
-        depositPaid = payments.filter(p => depositBillIds.has(p.bill_id)).reduce((s,p)=>s+Number(p.amount||0),0);
-      }
-    }
-    depositRemaining = Math.max(0, totalDeposit - depositPaid);
+      const depPays = await api('/api/tenant/deposit-payments').catch(()=>[]);
+      depositPaid = depPays.reduce((s,p)=>s+Number(p.amount||0),0);
+      depositRemaining = Math.max(0, totalDeposit - depositPaid);
+    } catch(e){}
 
     content.innerHTML = `
     <!-- Summary Cards -->
@@ -3749,7 +3591,7 @@ async function loadTenantPortal(){
       <div class="tp-stat accent-green"><div class="tp-label">Monthly Rent</div><div class="tp-value" style="font-size:16px;">${currency(totalRent)}</div></div>
       <div class="tp-stat"><div class="tp-label">Deposit Required</div><div class="tp-value" style="font-size:16px;">${currency(totalDeposit)}</div></div>
       <div class="tp-stat accent-green"><div class="tp-label">Deposit Paid</div><div class="tp-value" style="font-size:16px;">${currency(depositPaid)}</div></div>
-      <div class="tp-stat ${depositRemaining>0?'accent-rust':'accent-green'}"><div class="tp-label">Deposit Status</div><div class="tp-value" style="font-size:14px;">${depositRemaining<=0 && totalDeposit>0 ? 'Fully paid' : currency(depositRemaining)+' due'}</div></div>
+      <div class="tp-stat accent-rust"><div class="tp-label">Remaining Deposit</div><div class="tp-value" style="font-size:16px;">${currency(depositRemaining)}</div></div>
       <div class="tp-stat accent-rust"><div class="tp-label">Pending Rent</div><div class="tp-value" style="font-size:16px;">${currency(pendingTotal)}</div></div>
       <div class="tp-stat accent-green"><div class="tp-label">Total Paid</div><div class="tp-value" style="font-size:16px;">${currency(paidTotal)}</div></div>
       <div class="tp-stat accent-partial"><div class="tp-label">Next Due Date</div><div class="tp-value" style="font-size:14px;">${nextDue ? dateFmt(nextDue.due_date) : '—'}</div></div>
@@ -3814,15 +3656,6 @@ async function loadTenantPortal(){
             <span>Progress</span><span>${Math.round(depositPaid/totalDeposit*100)}%</span>
           </div>
           <div class="deposit-bar-wrap"><div class="deposit-bar" style="width:${Math.min(100,Math.round(depositPaid/totalDeposit*100))}%;"></div></div>
-        </div>` : ''}
-        ${shops.length ? `
-        <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:8px; margin-top:14px;">
-          ${shops.map(s=>`<div class="info-card"><div class="info-row"><span class="info-label">${escapeHtml(s.shop_number)}</span><span class="info-val">${currency(s.shop_deposit||0)}</span></div></div>`).join('')}
-        </div>` : ''}
-        ${depositSourceFailed && depositPaid === 0 ? `
-        <div class="warn-box" style="margin-top:12px;">
-          ${warnIcon()}
-          <span>We couldn't load your deposit payment history right now. The "Required" amount above is accurate, but "Paid" may not reflect deposit payments your admin has already recorded — contact your admin if this looks wrong.</span>
         </div>` : ''}
       </div>
     </div>
