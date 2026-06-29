@@ -98,6 +98,9 @@ class Complex(Base):
 # ──────────────────────────────────────────────
 # shops
 # ──────────────────────────────────────────────
+# ──────────────────────────────────────────────
+# shops
+# ──────────────────────────────────────────────
 class Shop(Base):
     __tablename__ = "shops"
 
@@ -107,9 +110,8 @@ class Shop(Base):
     status       = Column(Enum("available", "occupied", "maintenance", name="shop_status"),
                           nullable=False, default="available")
     complex_id   = Column(Integer, ForeignKey("complexes.id", ondelete="SET NULL"), nullable=True, index=True)
-    # Default/standard monthly rent & deposit for this shop (used to prefill
-    # UserShop.agreed_rent when a tenant is assigned, and as the fallback
-    # rent figure wherever a tenant-specific agreed_rent has not been set).
+    # Current monthly rent for this shop – this is the single source of truth
+    # for rent billing. All future Rent bills are created using this value.
     shop_rent    = Column(Numeric(10, 2), nullable=False, default=0)
     shop_deposit = Column(Numeric(10, 2), nullable=False, default=0)
     created_at   = Column(DateTime, nullable=False, default=now_utc)
@@ -131,12 +133,6 @@ class UserShop(Base):
     id          = Column(Integer, primary_key=True, autoincrement=True)
     user_id     = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     shop_id     = Column(Integer, ForeignKey("shops.id", ondelete="CASCADE"), nullable=False, index=True)
-    # Rent actually agreed with this tenant for this shop. Prefilled from
-    # Shop.shop_rent at assignment time, but editable per-tenant so two
-    # tenants in the same shop over time (or negotiated discounts) are
-    # represented accurately. This is the figure the bill-creation "Rent"
-    # flow should auto-fill from.
-    agreed_rent = Column(Numeric(10, 2), nullable=True)
     assigned_at = Column(DateTime, nullable=False, default=now_utc)
 
     # Relationships
