@@ -361,7 +361,10 @@ td .row-actions{ display:flex; gap:6px; justify-content:flex-end; }
 .info-card .info-label{ color:var(--muted); font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.03em; }
 .info-card .info-val{ font-weight:600; font-family:var(--font-mono); font-size:13px; }
 .info-card .info-val.good{ color:var(--success); }
-.info-card .info-val.warn{ color:var(--rust); }
+.info-card .info-val.warn{ co
+
+
+lor:var(--rust); }
 
 /* ---- Step / path toggle inside modal ---- */
 .path-toggle{
@@ -2235,233 +2238,346 @@ async function openDepositModal(){
 }
 
 /* ================================================================
-   REPORTS VIEW - Pending Bills & Payments Report Generator
+   REPORTS VIEW (updated with tabs)
    ================================================================ */
+let reportDateRange = { start: null, end: null };
 
 async function reportsView(){
   const complexes = await ensureLoaded('complexes','/api/complex');
   const users = await ensureLoaded('users','/api/user');
   const today = new Date();
   const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-  const startVal = monthStart.toISOString().slice(0,10);
-  const endVal = today.toISOString().slice(0,10);
+  const startVal = reportDateRange.start || monthStart.toISOString().slice(0,10);
+  const endVal = reportDateRange.end || today.toISOString().slice(0,10);
 
   return `
-  <div class="card card-pad" style="margin-bottom:18px;">
-   <h3 style="margin-top:0; font-size:16px;">Report Filters</h3>
-   <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px; align-items:flex-end;">
-     <div class="field">
-       <label for="repStart">From Date</label>
-       <input type="date" id="repStart" value="${startVal}">
-     </div>
-     <div class="field">
-       <label for="repEnd">To Date</label>
-       <input type="date" id="repEnd" value="${endVal}">
-     </div>
-     <div class="field">
-       <label for="repComplex">Complex</label>
-       <select id="repComplex">
-         <option value="">All complexes</option>
-         ${complexes.map(c=>`<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('')}
-       </select>
-     </div>
-     <div class="field">
-       <label for="repUser">Tenant</label>
-       <select id="repUser">
-         <option value="">All tenants</option>
-         ${users.filter(u=>u.role==='tenant').map(u=>`<option value="${u.id}">${escapeHtml(u.name)}</option>`).join('')}
-       </select>
-     </div>
-     <div class="field">
-       <label for="repMethod">Payment Method</label>
-       <select id="repMethod">
-         <option value="">All methods</option>
-         <option value="Cash">Cash</option>
-         <option value="Cheque">Cheque</option>
-         <option value="Online Transfer">Online Transfer</option>
-         <option value="Credit Card">Credit Card</option>
-       </select>
-     </div>
-    </div>
-   <div style="display:flex; gap:10px; margin-top:16px; flex-wrap:wrap;">
-     <button class="btn btn-primary" id="genPendingBillsBtn">📋 Pending Bills Report</button>
-     <button class="btn btn-primary" id="genPaymentsBtn">💰 Payments Report</button>
-   </div>
+  <div class="path-toggle" id="reportTabToggle" style="margin-bottom:18px;">
+    <button class="path-btn active" data-rtab="summary">Summary</button>
+    <button class="path-btn" data-rtab="rent-collection">Rent Collection</button>
+    <button class="path-btn" data-rtab="deposit">Deposits</button>
+    <button class="path-btn" data-rtab="occupancy">Occupancy</button>
+    <button class="path-btn" data-rtab="user-wise">User-wise</button>
   </div>
 
-  <div id="reportResults">
-   <div class="empty-state">
-     <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-bottom:12px; color:var(--muted);"><path d="M3 3v18h18"/><path d="M18 9l-5 5-3-3-4 4"/></svg>
-     <h3>No Report Generated</h3>
-     <p>Select filters and click a report button to generate.</p>
-   </div>
+  <div class="card card-pad" style="margin-bottom:18px;">
+    <div style="display:flex; gap:14px; align-items:flex-end; flex-wrap:wrap;">
+      <div class="field" style="margin-bottom:0;">
+        <label for="repStart">From</label>
+        <input type="date" id="repStart" value="${startVal}">
+      </div>
+      <div class="field" style="margin-bottom:0;">
+        <label for="repEnd">To</label>
+        <input type="date" id="repEnd" value="${endVal}">
+      </div>
+      <div class="field" style="margin-bottom:0;">
+        <label for="repComplex">Complex</label>
+        <select id="repComplex">
+          <option value="">All complexes</option>
+          ${complexes.map(c=>`<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field" style="margin-bottom:0;">
+        <label for="repUser">Tenant</label>
+        <select id="repUser">
+          <option value="">All tenants</option>
+          ${users.filter(u=>u.role==='tenant').map(u=>`<option value="${u.id}">${escapeHtml(u.name)}</option>`).join('')}
+        </select>
+      </div>
+      <button class="btn btn-primary" id="genReportBtn">Generate report</button>
+      <button class="btn btn-ghost" id="exportReportBtn" style="display:none;">Download</button>
+    </div>
   </div>
+  <div id="reportResults"><div class="empty-state">${emptyIcon()}<h3>No report generated yet</h3><p>Choose a report type tab, set filters, and click Generate.</p></div></div>
   `;
 }
 
 function attachReportsHandlers(){
-  document.getElementById('genPendingBillsBtn')?.addEventListener('click', () => generatePendingBillsReport());
-  document.getElementById('genPaymentsBtn')?.addEventListener('click', () => generatePaymentsReport());
+  let _activeTab = 'summary';
+  document.querySelectorAll('[data-rtab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('[data-rtab]').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      _activeTab = btn.dataset.rtab;
+    });
+  });
+  document.getElementById('genReportBtn').addEventListener('click', () => generateReport(_activeTab));
 }
 
-async function generatePendingBillsReport(){
+async function generateReport(tab){
   const start = document.getElementById('repStart').value;
   const end = document.getElementById('repEnd').value;
   const complexId = document.getElementById('repComplex').value;
   const userId = document.getElementById('repUser').value;
-  
+  reportDateRange = { start, end };
   const resultsEl = document.getElementById('reportResults');
-  resultsEl.innerHTML = '<div style="text-align:center; padding:40px;"><div class="spinner"></div><p>Loading pending bills report...</p></div>';
-  
+  const btn = document.getElementById('genReportBtn');
+  const original = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = `<span class="spinner"></span> Generating…`;
+  resultsEl.innerHTML = skeletonHtml();
+
   try {
-   const params = new URLSearchParams();
-   if (start) params.set('start_date', new Date(start).toISOString());
-   if (end) params.set('end_date', new Date(new Date(end).setHours(23,59,59)).toISOString());
-   if (complexId) params.set('complex_id', complexId);
-   if (userId) params.set('user_id', userId);
-    
-   const response = await api(`/api/reports/pending-bills?${params}`);
-    
-   if (!response.data || response.data.length === 0) {
-     resultsEl.innerHTML = '<div class="empty-state"><p style="margin:0;">No pending bills found for the selected filters.</p></div>';
-     return;
-   }
-    
-   const totalAmount = response.data.reduce((sum, row) => sum + Number(row.amount || 0), 0);
-   const totalPending = response.data.reduce((sum, row) => sum + Number(row.pending_amount || 0), 0);
-    
-   resultsEl.innerHTML = `
-     <div class="stat-row" style="margin-bottom:18px;">
-       <div class="card stat-card"><div class="label">Total Bills</div><div class="value">${response.data.length}</div></div>
-       <div class="card stat-card accent-rust"><div class="label">Total Amount</div><div class="value mono">${currency(totalAmount)}</div></div>
-       <div class="card stat-card accent-rust"><div class="label">Pending Amount</div><div class="value mono">${currency(totalPending)}</div></div>
-     </div>
-     <div class="table-wrap">
-       <table>
-         <thead>
-           <tr>
-             <th>Bill ID</th>
-             <th>Tenant</th>
-             <th>Shop</th>
-             <th>Complex</th>
-             <th class="num">Amount</th>
-             <th class="num">Paid</th>
-             <th class="num">Pending</th>
-             <th>Status</th>
-             <th>Due Date</th>
-           </tr>
-         </thead>
-         <tbody>
-           ${response.data.map(row => `
-             <tr>
-               <td class="mono">#${row.bill_id}</td>
-               <td>${escapeHtml(row.tenant_name)}</td>
-               <td class="mono">${escapeHtml(row.shop_number)}</td>
-               <td>${escapeHtml(row.complex_name)}</td>
-               <td class="num">${currency(row.amount)}</td>
-               <td class="num">${currency(row.paid_amount)}</td>
-               <td class="num" style="color:var(--rust); font-weight:700;">${currency(row.pending_amount)}</td>
-               <td>${stampHtml(row.status)}</td>
-               <td>${dateFmt(row.due_date)}</td>
-             </tr>
-           `).join('')}
-         </tbody>
-       </table>
-     </div>
-     <div style="margin-top:20px; display:flex; gap:10px;">
-       <button class="btn btn-primary" id="downloadPdfBtn" onclick="downloadReportPdf('pending-bills', '${start}', '${end}')">📥 Download PDF</button>
-     </div>
-   `;
+    await Promise.all([ensureLoaded('users','/api/user'), ensureLoaded('shops','/api/shop')]);
+
+    if (tab === 'summary'){
+      const params = new URLSearchParams();
+      if (start) params.set('start_date', new Date(start).toISOString());
+      if (end) params.set('end_date', new Date(new Date(end).setHours(23,59,59)).toISOString());
+      const rep = await api(`/api/reports/summary?${params}`);
+      state._lastReport = rep;
+      resultsEl.innerHTML = renderReportHtml(rep, start, end);
+      document.getElementById('exportReportBtn').style.display = 'inline-flex';
+      document.getElementById('exportReportBtn').onclick = () => downloadReportText(rep, start, end);
+
+    } else if (tab === 'rent-collection'){
+      const params = new URLSearchParams();
+      if (start) params.set('start_date', new Date(start).toISOString());
+      if (end) params.set('end_date', new Date(new Date(end).setHours(23,59,59)).toISOString());
+      if (complexId) params.set('complex_id', complexId);
+      if (userId) params.set('user_id', userId);
+      const rep = await api(`/api/reports/rent-collection?${params}`);
+      const s = rep.summary;
+      resultsEl.innerHTML = `
+        <div class="stat-row" style="margin-bottom:18px;">
+          <div class="card stat-card"><div class="label">Total billed</div><div class="value mono">${currency(s.total_billed)}</div><div class="sub">${s.bills_count} bills</div></div>
+          <div class="card stat-card accent-green"><div class="label">Collected</div><div class="value mono">${currency(s.total_collected)}</div><div class="sub">${s.paid_count} paid</div></div>
+          <div class="card stat-card accent-rust"><div class="label">Pending</div><div class="value mono">${currency(s.total_pending)}</div><div class="sub">${s.pending_count} pending · ${s.partial_count} partial</div></div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Bill</th><th>Tenant</th><th>Mobile</th><th>Complex</th><th>Shop</th><th>Type</th><th class="num">Amount</th><th class="num">Paid</th><th class="num">Pending</th><th>Status</th><th>Due</th></tr></thead>
+            <tbody>
+              ${rep.records.map(r=>`<tr>
+                <td class="mono">#${r.bill_id}</td>
+                <td>${escapeHtml(r.user_name)}</td>
+                <td class="mono">${escapeHtml(r.mobile)}</td>
+                <td>${escapeHtml(r.complex_name)}</td>
+                <td class="mono">${escapeHtml(r.shop_number)}</td>
+                <td>${escapeHtml(r.bill_type)}</td>
+                <td class="num">${currency(r.amount)}</td>
+                <td class="num">${currency(r.paid_amount)}</td>
+                <td class="num">${r.pending_amount > 0 ? `<span style="color:var(--rust);font-weight:700;">${currency(r.pending_amount)}</span>` : currency(r.pending_amount)}</td>
+                <td>${stampHtml(r.status)}</td>
+                <td>${dateFmt(r.due_date)}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+      document.getElementById('exportReportBtn').style.display = 'none';
+
+    } else if (tab === 'deposit'){
+      const params = new URLSearchParams();
+      if (complexId) params.set('complex_id', complexId);
+      if (userId) params.set('user_id', userId);
+      const rep = await api(`/api/reports/deposit?${params}`);
+      const s = rep.summary;
+      const statusColor = (st) => st==='full'?'var(--success)':st==='partial'?'var(--partial)':'var(--rust)';
+      resultsEl.innerHTML = `
+        <div class="stat-row" style="margin-bottom:18px;">
+          <div class="card stat-card"><div class="label">Deposit required</div><div class="value mono">${currency(s.total_deposit_required)}</div></div>
+          <div class="card stat-card accent-green"><div class="label">Collected</div><div class="value mono">${currency(s.total_deposit_collected)}</div><div class="sub">${s.tenants_with_full_deposit} tenants fully paid</div></div>
+          <div class="card stat-card accent-rust"><div class="label">Remaining</div><div class="value mono">${currency(s.total_deposit_remaining)}</div><div class="sub">${s.tenants_with_partial_deposit} partial · ${s.tenants_with_no_deposit} none</div></div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Tenant</th><th>Mobile</th><th>Complex</th><th>Shop</th><th class="num">Required</th><th class="num">Paid</th><th class="num">Remaining</th><th>Status</th><th>Last payment</th></tr></thead>
+            <tbody>
+              ${rep.records.map(r=>`<tr>
+                <td>${escapeHtml(r.user_name)}</td>
+                <td class="mono">${escapeHtml(r.mobile)}</td>
+                <td>${escapeHtml(r.complex_name)}</td>
+                <td class="mono">${escapeHtml(r.shop_number)}</td>
+                <td class="num">${currency(r.deposit_required)}</td>
+                <td class="num">${currency(r.deposit_paid)}</td>
+                <td class="num">${r.deposit_remaining > 0 ? `<span style="color:var(--rust);font-weight:700;">${currency(r.deposit_remaining)}</span>` : '—'}</td>
+                <td><span style="color:${statusColor(r.deposit_status)}; font-weight:700; font-size:12px; text-transform:uppercase;">${r.deposit_status}</span></td>
+                <td>${dateFmt(r.last_deposit_date)}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+      document.getElementById('exportReportBtn').style.display = 'none';
+
+    } else if (tab === 'occupancy'){
+      const params = new URLSearchParams();
+      if (complexId) params.set('complex_id', complexId);
+      const rep = await api(`/api/reports/occupancy?${params}`);
+      const s = rep.summary;
+      resultsEl.innerHTML = `
+        <div class="stat-row" style="margin-bottom:18px;">
+          <div class="card stat-card"><div class="label">Total shops</div><div class="value">${s.total_shops}</div></div>
+          <div class="card stat-card accent-green"><div class="label">Occupied</div><div class="value">${s.occupied}</div></div>
+          <div class="card stat-card"><div class="label">Available</div><div class="value">${s.available}</div></div>
+          <div class="card stat-card"><div class="label">Occupancy rate</div><div class="value">${s.occupancy_rate_percent}%</div></div>
+        </div>
+        ${rep.by_complex?.length ? `
+        <h3 style="font-size:15.5px; margin:0 0 12px;">By complex</h3>
+        <div class="table-wrap" style="margin-bottom:18px;">
+          <table><thead><tr><th>Complex</th><th class="num">Total</th><th class="num">Occupied</th><th class="num">Available</th><th class="num">Rate</th><th class="num">Rent potential</th><th class="num">Rent actual</th></tr></thead>
+          <tbody>${rep.by_complex.map(c=>`<tr>
+            <td>${escapeHtml(c.complex_name)}</td>
+            <td class="num">${c.total_shops}</td>
+            <td class="num">${c.occupied}</td>
+            <td class="num">${c.available}</td>
+            <td class="num">${c.occupancy_rate_percent}%</td>
+            <td class="num">${currency(c.monthly_rent_potential)}</td>
+            <td class="num">${currency(c.monthly_rent_actual)}</td>
+          </tr>`).join('')}</tbody>
+          </table>
+        </div>` : ''}
+        <h3 style="font-size:15.5px; margin:0 0 12px;">Shop details</h3>
+        <div class="table-wrap">
+          <table><thead><tr><th>Shop</th><th>Complex</th><th class="num">Area (sqft)</th><th class="num">Rent</th><th>Status</th><th>Tenant</th></tr></thead>
+          <tbody>${rep.shop_details.map(s=>`<tr>
+            <td class="mono"><strong>${escapeHtml(s.shop_number)}</strong></td>
+            <td>${escapeHtml(s.complex_name)}</td>
+            <td class="num">${Number(s.area_sqft).toLocaleString('en-IN')}</td>
+            <td class="num">${currency(s.shop_rent)}</td>
+            <td><span class="pill ${s.status}"><span class="pill-dot"></span>${s.status}</span></td>
+            <td>${s.tenant_name ? `<span class="tenant-tag">${escapeHtml(s.tenant_name)}</span> <span style="color:var(--muted); font-size:12px;">${escapeHtml(s.tenant_mobile||'')}</span>` : '<span style="color:var(--muted);">—</span>'}</td>
+          </tr>`).join('')}</tbody>
+          </table>
+        </div>
+      `;
+      document.getElementById('exportReportBtn').style.display = 'none';
+
+    } else if (tab === 'user-wise'){
+      const params = new URLSearchParams();
+      if (start) params.set('start_date', new Date(start).toISOString());
+      if (end) params.set('end_date', new Date(new Date(end).setHours(23,59,59)).toISOString());
+      if (complexId) params.set('complex_id', complexId);
+      const recs = await api(`/api/reports/user-wise?${params}`);
+      resultsEl.innerHTML = `
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Tenant</th><th>Shops</th><th class="num">Billed</th><th class="num">Collected</th><th class="num">Pending</th><th class="num">Deposit paid</th><th class="num">Deposit rem.</th><th>Payments</th><th>Last payment</th></tr></thead>
+            <tbody>
+              ${recs.map(r=>`<tr>
+                <td><strong>${escapeHtml(r.user_name)}</strong><div style="font-size:12px; color:var(--muted);">${escapeHtml(r.mobile)}</div></td>
+                <td class="mono" style="font-size:12.5px;">${r.shops?.map(s=>escapeHtml(s.shop_number)).join(', ')||'—'}</td>
+                <td class="num">${currency(r.total_billed)}</td>
+                <td class="num">${currency(r.total_collected)}</td>
+                <td class="num">${r.total_pending > 0 ? `<span style="color:var(--rust);font-weight:700;">${currency(r.total_pending)}</span>` : '—'}</td>
+                <td class="num">${currency(r.deposit_paid)}</td>
+                <td class="num">${r.deposit_remaining > 0 ? `<span style="color:var(--rust);">${currency(r.deposit_remaining)}</span>` : '—'}</td>
+                <td class="num">${r.payment_count}</td>
+                <td>${dateFmt(r.last_payment_date)}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+      document.getElementById('exportReportBtn').style.display = 'none';
+    }
   } catch (err) {
-   resultsEl.innerHTML = `<div class="error-banner"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg><span>${err.message}</span></div>`;
+    resultsEl.innerHTML = errorBannerHtml(err.message);
+    document.getElementById('retryBtn')?.addEventListener('click', () => generateReport(tab));
+  } finally {
+    btn.disabled = false; btn.innerHTML = original;
   }
 }
 
-async function generatePaymentsReport(){
-  const start = document.getElementById('repStart').value;
-  const end = document.getElementById('repEnd').value;
-  const complexId = document.getElementById('repComplex').value;
-  const userId = document.getElementById('repUser').value;
-  const method = document.getElementById('repMethod').value;
-  
-  const resultsEl = document.getElementById('reportResults');
-  resultsEl.innerHTML = '<div style="text-align:center; padding:40px;"><div class="spinner"></div><p>Loading payments report...</p></div>';
-  
-  try {
-   const params = new URLSearchParams();
-   if (start) params.set('start_date', new Date(start).toISOString());
-   if (end) params.set('end_date', new Date(new Date(end).setHours(23,59,59)).toISOString());
-   if (complexId) params.set('complex_id', complexId);
-   if (userId) params.set('user_id', userId);
-   if (method) params.set('payment_method', method);
-    
-   const response = await api(`/api/reports/payments?${params}`);
-    
-   if (!response.data || response.data.length === 0) {
-     resultsEl.innerHTML = '<div class="empty-state"><p style="margin:0;">No payments found for the selected filters.</p></div>';
-     return;
-   }
-    
-   const totalAmount = response.data.reduce((sum, row) => sum + Number(row.amount || 0), 0);
-    
-   resultsEl.innerHTML = `
-     <div class="stat-row" style="margin-bottom:18px;">
-       <div class="card stat-card accent-green"><div class="label">Total Payments</div><div class="value">${response.data.length}</div></div>
-       <div class="card stat-card accent-green"><div class="label">Total Amount Paid</div><div class="value mono">${currency(totalAmount)}</div></div>
-     </div>
-     <div class="table-wrap">
-       <table>
-         <thead>
-           <tr>
-             <th>Payment ID</th>
-             <th>Tenant</th>
-             <th>Shop</th>
-             <th>Complex</th>
-             <th class="num">Amount</th>
-             <th>Method</th>
-             <th>Date</th>
-             <th>Remarks</th>
-           </tr>
-         </thead>
-         <tbody>
-           ${response.data.map(row => `
-             <tr>
-               <td class="mono">#${row.payment_id}</td>
-               <td>${escapeHtml(row.tenant_name)}</td>
-               <td class="mono">${escapeHtml(row.shop_number)}</td>
-               <td>${escapeHtml(row.complex_name)}</td>
-               <td class="num" style="color:var(--success); font-weight:700;">${currency(row.amount)}</td>
-               <td>${escapeHtml(row.payment_method)}</td>
-               <td>${dateFmt(row.payment_date)}</td>
-               <td>${escapeHtml(row.remarks || '—')}</td>
-             </tr>
-           `).join('')}
-         </tbody>
-       </table>
-     </div>
-     <div style="margin-top:20px; display:flex; gap:10px;">
-       <button class="btn btn-primary" id="downloadPdfBtn" onclick="downloadReportPdf('payments', '${start}', '${end}')">📥 Download PDF</button>
-     </div>
-   `;
-  } catch (err) {
-   resultsEl.innerHTML = `<div class="error-banner"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg><span>${err.message}</span></div>`;
-  }
+function renderReportHtml(rep, start, end){
+  const occ = rep.occupancy, col = rep.collections, due = rep.outstanding_dues;
+  const occupancyRate = occ.total_shops > 0 ? Math.round((occ.occupied / occ.total_shops) * 100) : 0;
+  const users = state.cache.users || [];
+  const shops = state.cache.shops || [];
+  const userName = (id) => users.find(u=>u.id===id)?.name || `#${id}`;
+  const shopNum = (id) => shops.find(s=>s.id===id)?.shop_number || `#${id}`;
+
+  return `
+  <div class="card-pad" style="padding:0 0 14px;"><div class="crumb">Report period: ${start ? dateFmt(start) : 'all time'} — ${end ? dateFmt(end) : 'today'}</div></div>
+
+  <div class="stat-row">
+    <div class="card stat-card"><div class="label">Occupancy</div><div class="value">${occupancyRate}%</div><div class="sub">${occ.occupied}/${occ.total_shops} shops occupied</div></div>
+    <div class="card stat-card accent-green"><div class="label">Collected</div><div class="value mono">${currency(col.total_collected_in_range)}</div><div class="sub">${col.payments_received_count} payments</div></div>
+    <div class="card stat-card"><div class="label">Billed</div><div class="value mono">${currency(col.total_billed_in_range)}</div><div class="sub">${col.bills_raised_count} bills raised</div></div>
+    <div class="card stat-card accent-rust"><div class="label">Outstanding (all-time)</div><div class="value mono">${currency(due.total_outstanding)}</div><div class="sub">${due.bill_count} unpaid bills</div></div>
+  </div>
+
+  <div class="card" style="margin-bottom:18px;">
+    <div class="card-pad" style="padding-bottom:0;"><h3 style="font-size:15.5px;">Shop occupancy breakdown</h3></div>
+    <div class="card-pad" style="padding-top:14px; display:flex; gap:18px; flex-wrap:wrap;">
+      <span class="pill occupied"><span class="pill-dot"></span>${occ.occupied} occupied</span>
+      <span class="pill available"><span class="pill-dot"></span>${occ.available} available</span>
+      ${occ.maintenance > 0 ? `<span class="pill" style="background:var(--partial-soft); color:var(--partial);"><span class="pill-dot" style="background:var(--partial);"></span>${occ.maintenance} maintenance</span>` : ''}
+    </div>
+  </div>
+
+  ${Object.keys(col.collected_by_method).length > 0 ? `
+  <div class="card" style="margin-bottom:18px;">
+    <div class="card-pad" style="padding-bottom:0;"><h3 style="font-size:15.5px;">Collections by payment method</h3></div>
+    <div class="table-wrap" style="border:none; border-radius:0; box-shadow:none; margin-top:10px;">
+      <table><tbody>
+        ${Object.entries(col.collected_by_method).map(([method,amt]) => `<tr><td>${escapeHtml(method)}</td><td class="num">${currency(amt)}</td></tr>`).join('')}
+      </tbody></table>
+    </div>
+  </div>` : ''}
+
+  <div class="card">
+    <div class="card-pad" style="padding-bottom:0;"><h3 style="font-size:15.5px;">Outstanding dues</h3></div>
+    ${due.bills.length === 0 ? emptyStateHtml('No outstanding dues', 'All bills are fully paid.', emptyIcon()) : `
+    <div class="table-wrap" style="border:none; border-radius:0; box-shadow:none; margin-top:10px;">
+      <table>
+        <thead><tr><th>Bill</th><th>Tenant</th><th>Shop</th><th>Type</th><th class="num">Pending</th><th>Status</th><th>Due</th></tr></thead>
+        <tbody>
+          ${due.bills.map(b => `<tr>
+            <td class="mono">#${b.bill_id}</td>
+            <td>${escapeHtml(userName(b.user_id))}</td>
+            <td class="mono">${escapeHtml(shopNum(b.shop_id))}</td>
+            <td>${escapeHtml(b.bill_type)}</td>
+            <td class="num">${currency(b.pending_amount)}</td>
+            <td>${stampHtml(b.status)}</td>
+            <td>${dateFmt(b.due_date)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`}
+  </div>`;
 }
 
-function downloadReportPdf(reportType, startDate, endDate){
-  const params = new URLSearchParams();
-  if (startDate) params.set('start_date', new Date(startDate).toISOString());
-  if (endDate) params.set('end_date', new Date(new Date(endDate).setHours(23,59,59)).toISOString());
-  
-  const url = `/api/reports/${reportType}/download?${params}`;
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `${reportType}-report.pdf`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-}
+function downloadReportText(rep, start, end){
+  const occ = rep.occupancy, col = rep.collections, due = rep.outstanding_dues;
+  const users = state.cache.users || [];
+  const shops = state.cache.shops || [];
+  const userName = (id) => users.find(u=>u.id===id)?.name || `#${id}`;
+  const shopNum = (id) => shops.find(s=>s.id===id)?.shop_number || `#${id}`;
 
+  const lines = [
+    'TENANT MANAGEMENT — BUSINESS REPORT',
+    `Period: ${start ? dateFmt(start) : 'all time'} to ${end ? dateFmt(end) : 'today'}`,
+    `Generated: ${new Date().toLocaleString('en-IN')}`,
+    '',
+    '--- OCCUPANCY ---',
+    `Total shops: ${occ.total_shops}`,
+    `Occupied: ${occ.occupied}`,
+    `Available: ${occ.available}`,
+    `Maintenance: ${occ.maintenance}`,
+    '',
+    '--- COLLECTIONS (in range) ---',
+    `Total billed: ${currency(col.total_billed_in_range)}`,
+    `Total collected: ${currency(col.total_collected_in_range)}`,
+    `Bills raised: ${col.bills_raised_count}`,
+    `Payments received: ${col.payments_received_count}`,
+    ...Object.entries(col.collected_by_method).map(([m,a]) => `  ${m}: ${currency(a)}`),
+    '',
+    '--- OUTSTANDING DUES (all-time) ---',
+    `Total outstanding: ${currency(due.total_outstanding)}`,
+    `Unpaid bills: ${due.bill_count}`,
+    ...due.bills.map(b => `  #${b.bill_id} | ${userName(b.user_id)} | Shop ${shopNum(b.shop_id)} | ${b.bill_type} | ${currency(b.pending_amount)} pending | due ${dateFmt(b.due_date)}`),
+  ];
+
+  const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `business-report-${start||'all'}-to-${end||'today'}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 /* ================================================================
    MODAL ENGINE
@@ -3918,3 +4034,4 @@ function renderMonthSummary(bills, payments){
 </script>
 </body>
 </html>
+

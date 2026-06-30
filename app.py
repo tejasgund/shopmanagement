@@ -17,11 +17,10 @@ import os
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import List, Optional
-from io import BytesIO
 
 import bcrypt
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from pydantic import BaseModel, EmailStr, Field
@@ -31,12 +30,6 @@ from sqlalchemy import text
 from db_config import get_db
 from log import get_logger, log_request_middleware
 from fastapi.middleware.cors import CORSMiddleware
-
-#from reportlab.lib.pagesizes import letter
-#from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-#from reportlab.lib.units import inch
-#from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-#from reportlab.lib import colors
 
 
 # Import ORM models from create_tables so we have a single schema source-of-truth
