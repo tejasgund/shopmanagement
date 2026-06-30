@@ -21,6 +21,3 @@ email-validator==2.2.0
 
 # Environment variables (optional – load .env file)
 python-dotenv==1.0.1
-
-# PDF Generation
-reportlab==4.0.9
