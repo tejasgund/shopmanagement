@@ -32,11 +32,11 @@ from db_config import get_db
 from log import get_logger, log_request_middleware
 from fastapi.middleware.cors import CORSMiddleware
 
-from reportlab.lib.pagesizes import letter
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-from reportlab.lib import colors
+#from reportlab.lib.pagesizes import letter
+#from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+#from reportlab.lib.units import inch
+#from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+#from reportlab.lib import colors
 
 
 # Import ORM models from create_tables so we have a single schema source-of-truth
