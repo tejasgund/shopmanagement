@@ -1457,6 +1457,10 @@ async function billsView(){
         <option value="amount-low">Lowest amount</option>
         <option value="pending-first">Pending first</option>
         <option value="tenant">Tenant A-Z</option>
+        <option value="bill-date-asc">Bill Date ↑</option>
+        <option value="bill-date-desc">Bill Date ↓</option>
+        <option value="created-at-asc">Created At ↑</option>
+        <option value="created-at-desc">Created At ↓</option>
       </select>
     </div>
     <button class="btn btn-ghost filter-clear-btn" id="billClearFilters">Clear filters</button>
@@ -1465,7 +1469,7 @@ async function billsView(){
   ${bills.length === 0 ? emptyStateHtml('No bills yet', 'Pick a tenant and create bills for one or more of their shops.', emptyIcon()) : `
   <div class="table-wrap">
     <table id="billsTable">
-      <thead><tr><th>Bill</th><th>Tenant</th><th>Shop</th><th>Complex</th><th>Type</th><th class="num">Amount</th><th class="num">Pending</th><th>Status</th><th>Due</th><th></th></tr></thead>
+      <thead><tr><th>Bill</th><th>Tenant</th><th>Shop</th><th>Complex</th><th>Type</th><th class="num">Amount</th><th class="num">Pending</th><th>Status</th><th>Bill Date</th><th>Created At</th><th>Due</th><th></th></tr></thead>
       <tbody id="billsTbody">
         ${bills.map(b => {
           const cid = shopComplexId(b.shop_id);
@@ -1474,6 +1478,8 @@ async function billsView(){
               data-status="${b.status}" data-type="${escapeHtml(b.bill_type)}"
               data-due="${b.due_date||''}" data-amount="${b.amount}" data-pending="${b.pending_amount}"
               data-date="${b.bill_date||b.created_at||''}"
+              data-bill-date="${b.bill_date||''}"
+              data-created-at="${b.created_at||''}"
               data-search="${escapeHtml(userName(b.user_id)+' '+userMobile(b.user_id)+' '+shopNum(b.shop_id)+' '+complexName(cid)+' '+b.bill_type+' #'+b.id)}">
             <td class="mono">#${b.id}</td>
             <td>${escapeHtml(userName(b.user_id))}</td>
@@ -1483,6 +1489,8 @@ async function billsView(){
             <td class="num">${currency(b.amount)}</td>
             <td class="num">${currency(b.pending_amount)}</td>
             <td>${stampHtml(b.status)}</td>
+            <td>${dateFmt(b.bill_date)}</td>
+            <td>${dateFmt(b.created_at)}</td>
             <td>${dateFmt(b.due_date)}</td>
             <td><div class="row-actions">
               ${b.status !== 'paid' ? `<button class="btn-icon" data-record-payment="${b.id}" aria-label="Record payment">${rupeeIcon()}</button>` : ''}
@@ -1548,6 +1556,10 @@ function initBillFilters(){
       if (sort === 'amount-low') return Number(a.dataset.amount) - Number(b.dataset.amount);
       if (sort === 'pending-first') return Number(b.dataset.pending) - Number(a.dataset.pending);
       if (sort === 'tenant') return (a.dataset.search||'').localeCompare(b.dataset.search||'');
+      if (sort === 'bill-date-asc') return new Date(a.dataset.billDate) - new Date(b.dataset.billDate);
+      if (sort === 'bill-date-desc') return new Date(b.dataset.billDate) - new Date(a.dataset.billDate);
+      if (sort === 'created-at-asc') return new Date(a.dataset.createdAt) - new Date(b.dataset.createdAt);
+      if (sort === 'created-at-desc') return new Date(b.dataset.createdAt) - new Date(a.dataset.createdAt);
       return 0;
     });
     visRows.forEach(r => tbody.appendChild(r));
@@ -1566,7 +1578,7 @@ function initBillFilters(){
     applyBillFilters();
   });
 
-  // Apply any filter requested from the dashboard's "at a glance" cards, then clear it
+  // Apply any filter requested from the dashboard's "at a glance" cards
   if (pendingBillsViewFilter) {
     const statusSel = document.getElementById('billFilterStatus');
     const pseudoLabels = { 'due-this-month':'Due this month', outstanding:'Tenants with dues (outstanding)' };
@@ -2945,7 +2957,9 @@ async function openBillModal(){
   ]);
 
   const tenants = state.cache.users.filter(u => u.role === 'tenant');
-  const today = new Date(); const due = new Date(); due.setDate(today.getDate()+14);
+  const today = new Date();
+  const due = new Date(); due.setDate(today.getDate()+14);
+  const todayStr = today.toISOString().slice(0,10);
   const COMMON_TYPES = ['Rent','Electricity','Water','Maintenance','Repair','Damage','Parking','Penalty'];
 
   openModal('Create bills', `
@@ -2981,6 +2995,12 @@ async function openBillModal(){
         <div class="field full" style="margin-top:2px;">
           <label for="bDesc">Description <span style="color:var(--muted); font-weight:400; text-transform:none;">(optional)</span></label>
           <input id="bDesc" placeholder="e.g. June 2026 electricity reading">
+        </div>
+
+        <!-- BILL DATE (NEW) -->
+        <div class="field full">
+          <label for="bBillDate">Bill Date</label>
+          <input id="bBillDate" type="date" value="${todayStr}">
         </div>
 
         <div class="field full">
@@ -3044,7 +3064,6 @@ async function openBillModal(){
     const isRent = billType.toLowerCase() === 'rent';
 
     listEl.innerHTML = ownedShops.map(s => {
-      // agreed_rent (per-tenant override) wins over the shop's default rent when present
       const rent = Number(s.shop_rent ?? 0);
       const prefill = isRent ? rent : 0;
       return `
@@ -3083,7 +3102,6 @@ async function openBillModal(){
     renderShopList(uid);
   });
 
-  // Bill-type chips: clicking a preset fills the type field; "Custom…" focuses it for free text
   document.querySelectorAll('.bill-type-chip').forEach(chip => {
     chip.addEventListener('click', () => {
       document.querySelectorAll('.bill-type-chip').forEach(c => c.classList.remove('active'));
@@ -3096,11 +3114,11 @@ async function openBillModal(){
         chip.classList.add('active');
         typeInput.value = chip.dataset.type;
       }
-      // Re-render shop amounts: only "Rent" auto-fills from agreed rent / shop rent
       const uid = Number(document.getElementById('bTenant').value);
       if (uid) renderShopList(uid);
     });
   });
+
   document.getElementById('bType').addEventListener('input', () => {
     const val = document.getElementById('bType').value.trim().toLowerCase();
     document.querySelectorAll('.bill-type-chip').forEach(c => {
@@ -3123,6 +3141,9 @@ async function openBillModal(){
     const bill_type = document.getElementById('bType').value.trim();
     const description = document.getElementById('bDesc').value.trim();
     const due_date = document.getElementById('bDue').value;
+    const bill_date = document.getElementById('bBillDate').value
+      ? new Date(document.getElementById('bBillDate').value).toISOString()
+      : null;
 
     if (!userId){ showToast('Select a tenant first', 'error'); return; }
     if (!bill_type){ showFieldError('bTypeErr','Bill type is required'); document.getElementById('bType').classList.add('invalid'); return; }
@@ -3147,7 +3168,8 @@ async function openBillModal(){
             bill_type,
             amount: item.amount,
             description,
-            due_date: due_date ? new Date(due_date).toISOString() : null
+            due_date: due_date ? new Date(due_date).toISOString() : null,
+            bill_date: bill_date   // <-- NEW: send bill_date
           }});
           created++;
         } catch(e){ failed++; }
@@ -3952,7 +3974,7 @@ function renderMonthSummary(bills, payments){
   // Group by year-month
   const months = {};
   bills.forEach(b => {
-    const d = b.due_date || b.bill_date;
+    const d = b.bill_date || b.created_at || b.due_date;
     if (!d) return;
     const dt = new Date(d);
     const key = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}`;

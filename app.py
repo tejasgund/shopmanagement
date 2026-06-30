@@ -17,15 +17,21 @@ import os
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import List, Optional
+from io import BytesIO
 
 import bcrypt
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
+from reportlab.lib.units import inch
 
 from db_config import get_db
 from log import get_logger, log_request_middleware
@@ -431,6 +437,50 @@ def _pending_rent_for_user(db: Session, user_id: int) -> float:
         .all()
     )
     return sum(_decimal_to_float(b.pending_amount) for b in rows)
+
+
+def generate_pdf(title: str, table_data: List[List], filename: str) -> BytesIO:
+    """Generate a PDF with table data and return as BytesIO."""
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
+    
+    story = []
+    
+    # Add title
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=16,
+        textColor=colors.HexColor('#1f4788'),
+        spaceAfter=20,
+    )
+    story.append(Paragraph(title, title_style))
+    story.append(Spacer(1, 0.2 * inch))
+    
+    # Add table
+    if table_data:
+        col_widths = [1.5 * inch] * len(table_data[0])
+        table = Table(table_data, colWidths=col_widths)
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f4788')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 11),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('FONTSIZE', (0, 1), (-1, -1), 9),
+        ]))
+        story.append(table)
+    
+    story.append(Spacer(1, 0.3 * inch))
+    story.append(Paragraph(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
+    
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
 
 
 def _build_user_financial_summary(db: Session, user: User) -> dict:
@@ -2895,6 +2945,278 @@ def list_payments_paginated(
             for p, b, u, s in rows
         ],
     }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ── ROUTES: Filtered Reports (Post-Login)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/reports/pending-bills", tags=["Reports"])
+def report_pending_bills(
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    complex_id: Optional[int] = None,
+    user_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """
+    Pending bills report with date range filter.
+    Shows all pending and partially paid bills.
+    Admin only.
+    """
+    q = db.query(Bill, User, Shop).join(User, User.id == Bill.user_id).join(Shop, Shop.id == Bill.shop_id)
+    q = q.filter(Bill.status.in_(["pending", "partial"]))
+    
+    if start_date:
+        q = q.filter(Bill.bill_date >= start_date)
+    if end_date:
+        q = q.filter(Bill.bill_date <= end_date)
+    if complex_id:
+        q = q.filter(Shop.complex_id == complex_id)
+    if user_id:
+        q = q.filter(Bill.user_id == user_id)
+    
+    bills = q.order_by(Bill.bill_date.desc()).all()
+    complexes = {c.id: c.name for c in db.query(Complex).all()}
+    
+    records = []
+    total_pending = 0.0
+    for b, u, s in bills:
+        pending_amt = _decimal_to_float(b.pending_amount)
+        total_pending += pending_amt
+        records.append({
+            "bill_id": b.id,
+            "user_id": u.id,
+            "user_name": u.name,
+            "mobile": u.mobile,
+            "shop_id": s.id,
+            "shop_number": s.shop_number,
+            "complex_id": s.complex_id,
+            "complex_name": complexes.get(s.complex_id),
+            "bill_type": b.bill_type,
+            "bill_date": b.bill_date,
+            "due_date": b.due_date,
+            "amount": _decimal_to_float(b.amount),
+            "paid_amount": _decimal_to_float(b.paid_amount),
+            "pending_amount": pending_amt,
+            "status": b.status,
+        })
+    
+    return {
+        "success": True,
+        "period": {"start_date": start_date, "end_date": end_date},
+        "filters": {"complex_id": complex_id, "user_id": user_id},
+        "summary": {
+            "total_bills": len(records),
+            "total_pending_amount": round(total_pending, 2),
+        },
+        "records": records,
+    }
+
+
+@app.get("/api/reports/pending-bills/download", tags=["Reports"])
+def download_pending_bills_pdf(
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    complex_id: Optional[int] = None,
+    user_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Download pending bills report as PDF with applied filters."""
+    q = db.query(Bill, User, Shop).join(User, User.id == Bill.user_id).join(Shop, Shop.id == Bill.shop_id)
+    q = q.filter(Bill.status.in_(["pending", "partial"]))
+    
+    if start_date:
+        q = q.filter(Bill.bill_date >= start_date)
+    if end_date:
+        q = q.filter(Bill.bill_date <= end_date)
+    if complex_id:
+        q = q.filter(Shop.complex_id == complex_id)
+    if user_id:
+        q = q.filter(Bill.user_id == user_id)
+    
+    bills = q.order_by(Bill.bill_date.desc()).all()
+    complexes = {c.id: c.name for c in db.query(Complex).all()}
+    
+    # Prepare table data
+    table_data = [["Bill ID", "User Name", "Mobile", "Shop", "Complex", "Amount", "Paid", "Pending", "Status", "Date"]]
+    total_pending = 0.0
+    
+    for b, u, s in bills:
+        pending_amt = _decimal_to_float(b.pending_amount)
+        total_pending += pending_amt
+        table_data.append([
+            str(b.id),
+            u.name,
+            u.mobile,
+            s.shop_number,
+            complexes.get(s.complex_id, ""),
+            f"₹{_decimal_to_float(b.amount):.2f}",
+            f"₹{_decimal_to_float(b.paid_amount):.2f}",
+            f"₹{pending_amt:.2f}",
+            b.status,
+            str(b.bill_date.date()) if b.bill_date else "",
+        ])
+    
+    table_data.append(["", "", "", "", "TOTAL", "", "", f"₹{total_pending:.2f}", "", ""])
+    
+    title = "Pending Bills Report"
+    if start_date and end_date:
+        title += f" ({start_date.date()} to {end_date.date()})"
+    elif start_date:
+        title += f" (from {start_date.date()})"
+    elif end_date:
+        title += f" (until {end_date.date()})"
+    
+    pdf_buffer = generate_pdf(title, table_data, "pending_bills_report.pdf")
+    
+    return FileResponse(
+        pdf_buffer,
+        media_type="application/pdf",
+        filename=f"pending_bills_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+    )
+
+
+@app.get("/api/reports/payments", tags=["Reports"])
+def report_payments(
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    complex_id: Optional[int] = None,
+    user_id: Optional[int] = None,
+    payment_method: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """
+    Payment report with date range filter.
+    Shows all payments made in a period.
+    Admin only.
+    """
+    q = (
+        db.query(Payment, Bill, User, Shop)
+        .join(Bill, Bill.id == Payment.bill_id)
+        .join(User, User.id == Bill.user_id)
+        .join(Shop, Shop.id == Bill.shop_id)
+    )
+    
+    if start_date:
+        q = q.filter(Payment.payment_date >= start_date)
+    if end_date:
+        q = q.filter(Payment.payment_date <= end_date)
+    if complex_id:
+        q = q.filter(Shop.complex_id == complex_id)
+    if user_id:
+        q = q.filter(Bill.user_id == user_id)
+    if payment_method:
+        q = q.filter(Payment.payment_method == payment_method)
+    
+    payments = q.order_by(Payment.payment_date.desc()).all()
+    complexes = {c.id: c.name for c in db.query(Complex).all()}
+    
+    records = []
+    total_collected = 0.0
+    for p, b, u, s in payments:
+        amount = _decimal_to_float(p.amount)
+        total_collected += amount
+        records.append({
+            "payment_id": p.id,
+            "bill_id": b.id,
+            "user_id": u.id,
+            "user_name": u.name,
+            "mobile": u.mobile,
+            "shop_id": s.id,
+            "shop_number": s.shop_number,
+            "complex_id": s.complex_id,
+            "complex_name": complexes.get(s.complex_id),
+            "bill_type": b.bill_type,
+            "payment_method": p.payment_method,
+            "amount": amount,
+            "payment_date": p.payment_date,
+            "remarks": p.remarks,
+        })
+    
+    return {
+        "success": True,
+        "period": {"start_date": start_date, "end_date": end_date},
+        "filters": {"complex_id": complex_id, "user_id": user_id, "payment_method": payment_method},
+        "summary": {
+            "total_payments": len(records),
+            "total_collected": round(total_collected, 2),
+        },
+        "records": records,
+    }
+
+
+@app.get("/api/reports/payments/download", tags=["Reports"])
+def download_payments_pdf(
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    complex_id: Optional[int] = None,
+    user_id: Optional[int] = None,
+    payment_method: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Download payment report as PDF with applied filters."""
+    q = (
+        db.query(Payment, Bill, User, Shop)
+        .join(Bill, Bill.id == Payment.bill_id)
+        .join(User, User.id == Bill.user_id)
+        .join(Shop, Shop.id == Bill.shop_id)
+    )
+    
+    if start_date:
+        q = q.filter(Payment.payment_date >= start_date)
+    if end_date:
+        q = q.filter(Payment.payment_date <= end_date)
+    if complex_id:
+        q = q.filter(Shop.complex_id == complex_id)
+    if user_id:
+        q = q.filter(Bill.user_id == user_id)
+    if payment_method:
+        q = q.filter(Payment.payment_method == payment_method)
+    
+    payments = q.order_by(Payment.payment_date.desc()).all()
+    complexes = {c.id: c.name for c in db.query(Complex).all()}
+    
+    # Prepare table data
+    table_data = [["Payment ID", "User Name", "Mobile", "Shop", "Complex", "Bill Type", "Amount", "Method", "Date"]]
+    total_collected = 0.0
+    
+    for p, b, u, s in payments:
+        amount = _decimal_to_float(p.amount)
+        total_collected += amount
+        table_data.append([
+            str(p.id),
+            u.name,
+            u.mobile,
+            s.shop_number,
+            complexes.get(s.complex_id, ""),
+            b.bill_type,
+            f"₹{amount:.2f}",
+            p.payment_method,
+            str(p.payment_date.date()) if p.payment_date else "",
+        ])
+    
+    table_data.append(["", "", "", "", "", "TOTAL", f"₹{total_collected:.2f}", "", ""])
+    
+    title = "Payment Report"
+    if start_date and end_date:
+        title += f" ({start_date.date()} to {end_date.date()})"
+    elif start_date:
+        title += f" (from {start_date.date()})"
+    elif end_date:
+        title += f" (until {end_date.date()})"
+    
+    pdf_buffer = generate_pdf(title, table_data, "payment_report.pdf")
+    
+    return FileResponse(
+        pdf_buffer,
+        media_type="application/pdf",
+        filename=f"payment_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+    )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
