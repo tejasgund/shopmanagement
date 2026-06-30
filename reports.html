@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reports - Shop & Tenant Management</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ink: #15201B;
+  --paper: #F7F4EC;
+  --paper-raised: #FFFFFF;
+  --green: #2F6F4F;
+  --green-deep: #1F4D38;
+  --rust: #C0612B;
+  --rust-soft: #F3E3D6;
+  --line: #E8E2D2;
+  --success: #1F8A6B;
+  --success-soft: #E1F0E8;
+  --pending-soft: #F3E3D6;
+  --partial-soft: #FBEFD0;
+  --partial: #A87A12;
+  --muted: #6B6457;
+  --danger: #B43B2E;
+  --danger-soft: #F6E0DC;
+
+  --font-display: 'Fraunces', serif;
+  --font-body: 'Inter', system-ui, sans-serif;
+  --radius: 10px;
+  --shadow-md: 0 4px 16px rgba(21,32,27,0.10);
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.5;
+  margin: 0;
+  padding: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1 { font-family: var(--font-display); font-weight: 600; font-size: 32px; margin: 0 0 8px 0; }
+h2 { font-family: var(--font-display); font-weight: 600; font-size: 24px; margin: 20px 0 10px 0; }
+h3 { font-family: var(--font-display); font-weight: 600; font-size: 18px; margin: 15px 0 8px 0; }
+
+.container {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.tab-menu {
+  display: flex;
+  gap: 8px;
+  margin: 20px 0;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 0;
+}
+
+.tab-btn {
+  padding: 12px 20px;
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  color: var(--muted);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 14px;
+}
+
+.tab-btn:hover {
+  color: var(--ink);
+}
+
+.tab-btn.active {
+  color: var(--green-deep);
+  border-bottom-color: var(--green);
+}
+
+.tab-content {
+  display: none;
+  animation: fadeIn 0.3s ease;
+}
+
+.tab-content.active {
+  display: block;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.filters {
+  background: var(--paper-raised);
+  padding: 20px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  margin-bottom: 20px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 15px;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.filter-group label {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+input[type="date"],
+input[type="text"],
+select {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-family: var(--font-body);
+  font-size: 14px;
+  background: var(--paper-raised);
+  color: var(--ink);
+}
+
+input[type="date"]:focus,
+input[type="text"]:focus,
+select:focus {
+  outline: none;
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px rgba(47, 111, 79, 0.1);
+}
+
+.filter-actions {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: var(--font-body);
+}
+
+.btn-primary {
+  background: var(--green);
+  color: white;
+}
+
+.btn-primary:hover {
+  background: var(--green-deep);
+}
+
+.btn-secondary {
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+
+.btn-secondary:hover {
+  background: var(--line);
+}
+
+.btn-success {
+  background: var(--success);
+  color: white;
+}
+
+.btn-success:hover {
+  background: #157a5f;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.loading {
+  text-align: center;
+  padding: 40px;
+  color: var(--muted);
+}
+
+.spinner {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 3px solid var(--line);
+  border-top-color: var(--green);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.summary-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+.summary-card {
+  background: var(--paper-raised);
+  border: 1px solid var(--line);
+  padding: 20px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+}
+
+.summary-card .label {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 8px;
+}
+
+.summary-card .value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--green);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.table-wrapper {
+  background: var(--paper-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow-x: auto;
+  box-shadow: var(--shadow-md);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+thead {
+  background: var(--green-deep);
+  color: white;
+}
+
+th {
+  padding: 15px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+td {
+  padding: 12px 15px;
+  border-bottom: 1px solid var(--line);
+}
+
+tbody tr:hover {
+  background: var(--paper);
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.status-paid {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.status-pending {
+  background: var(--pending-soft);
+  color: var(--rust);
+}
+
+.status-partial {
+  background: var(--partial-soft);
+  color: var(--partial);
+}
+
+.currency {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+}
+
+.error {
+  background: var(--danger-soft);
+  color: var(--danger);
+  padding: 15px;
+  border-radius: 6px;
+  margin-bottom: 20px;
+  border: 1px solid var(--danger);
+}
+
+.success {
+  background: var(--success-soft);
+  color: var(--success);
+  padding: 15px;
+  border-radius: 6px;
+  margin-bottom: 20px;
+  border: 1px solid var(--success);
+}
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--muted);
+}
+
+.empty-state h3 {
+  color: var(--ink);
+  margin-bottom: 10px;
+}
+
+.pagination {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 20px;
+  align-items: center;
+}
+
+.pagination button {
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  background: var(--paper-raised);
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.pagination button:hover:not(:disabled) {
+  background: var(--green);
+  color: white;
+  border-color: var(--green);
+}
+
+.pagination button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.modal {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal.active {
+  display: flex;
+}
+
+.modal-content {
+  background: var(--paper-raised);
+  padding: 30px;
+  border-radius: var(--radius);
+  max-width: 500px;
+  width: 90%;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.modal-close {
+  float: right;
+  font-size: 24px;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+@media (max-width: 768px) {
+  .filters {
+    grid-template-columns: 1fr;
+  }
+  
+  .summary-cards {
+    grid-template-columns: 1fr;
+  }
+  
+  table {
+    font-size: 12px;
+  }
+  
+  th, td {
+    padding: 8px 10px;
+  }
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+  <header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+    <div>
+      <h1>Reports</h1>
+      <p style="margin: 0; color: var(--muted);">Generate and download financial reports with filters</p>
+    </div>
+    <button onclick="logout()" class="btn btn-secondary">Logout</button>
+  </header>
+
+  <div class="tab-menu">
+    <button class="tab-btn active" data-tab="pending-bills">Pending Bills</button>
+    <button class="tab-btn" data-tab="payments">Payments</button>
+  </div>
+
+  <!-- ========== PENDING BILLS TAB ========== -->
+  <div id="pending-bills" class="tab-content active">
+    <div class="filters">
+      <div class="filter-group">
+        <label for="pb-start-date">Start Date</label>
+        <input type="date" id="pb-start-date">
+      </div>
+      <div class="filter-group">
+        <label for="pb-end-date">End Date</label>
+        <input type="date" id="pb-end-date">
+      </div>
+      <div class="filter-group">
+        <label for="pb-complex">Complex</label>
+        <select id="pb-complex">
+          <option value="">All Complexes</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label for="pb-user">User/Tenant</label>
+        <select id="pb-user">
+          <option value="">All Users</option>
+        </select>
+      </div>
+      <div class="filter-actions">
+        <button class="btn btn-primary" onclick="loadPendingBills()">Load Report</button>
+        <button class="btn btn-success" onclick="downloadPendingBillsPDF()">
+          📥 Download PDF
+        </button>
+        <button class="btn btn-secondary" onclick="clearPendingFilters()">Reset Filters</button>
+      </div>
+    </div>
+
+    <div id="pb-summary" class="summary-cards" style="display: none;">
+      <div class="summary-card">
+        <div class="label">Total Bills</div>
+        <div class="value" id="pb-total-bills">0</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">Total Pending</div>
+        <div class="value" id="pb-total-pending" style="color: var(--rust);">₹0.00</div>
+      </div>
+    </div>
+
+    <div id="pb-content"></div>
+  </div>
+
+  <!-- ========== PAYMENTS TAB ========== -->
+  <div id="payments" class="tab-content">
+    <div class="filters">
+      <div class="filter-group">
+        <label for="py-start-date">Start Date</label>
+        <input type="date" id="py-start-date">
+      </div>
+      <div class="filter-group">
+        <label for="py-end-date">End Date</label>
+        <input type="date" id="py-end-date">
+      </div>
+      <div class="filter-group">
+        <label for="py-complex">Complex</label>
+        <select id="py-complex">
+          <option value="">All Complexes</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label for="py-user">User/Tenant</label>
+        <select id="py-user">
+          <option value="">All Users</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label for="py-method">Payment Method</label>
+        <select id="py-method">
+          <option value="">All Methods</option>
+          <option value="Cash">Cash</option>
+          <option value="Cheque">Cheque</option>
+          <option value="Online Transfer">Online Transfer</option>
+          <option value="Credit Card">Credit Card</option>
+        </select>
+      </div>
+      <div class="filter-actions">
+        <button class="btn btn-primary" onclick="loadPayments()">Load Report</button>
+        <button class="btn btn-success" onclick="downloadPaymentsPDF()">
+          📥 Download PDF
+        </button>
+        <button class="btn btn-secondary" onclick="clearPaymentFilters()">Reset Filters</button>
+      </div>
+    </div>
+
+    <div id="py-summary" class="summary-cards" style="display: none;">
+      <div class="summary-card">
+        <div class="label">Total Payments</div>
+        <div class="value" id="py-total-payments">0</div>
+      </div>
+      <div class="summary-card">
+        <div class="label">Total Collected</div>
+        <div class="value" id="py-total-collected" style="color: var(--success);">₹0.00</div>
+      </div>
+    </div>
+
+    <div id="py-content"></div>
+  </div>
+
+</div>
+
+<script>
+// ============================================================
+// API & AUTH
+// ============================================================
+const API_BASE = 'http://localhost:8000/api';
+let token = localStorage.getItem('token');
+
+function getHeaders() {
+  return {
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json'
+  };
+}
+
+function logout() {
+  localStorage.removeItem('token');
+  window.location.href = 'tenant-management-system.html';
+}
+
+// ============================================================
+// UTILITIES
+// ============================================================
+function currency(val) {
+  return '₹' + parseFloat(val || 0).toFixed(2);
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return '—';
+  const d = new Date(dateStr);
+  return d.toLocaleDateString('en-IN');
+}
+
+function getFilterParams(prefix) {
+  const params = new URLSearchParams();
+  const startDate = document.getElementById(`${prefix}-start-date`).value;
+  const endDate = document.getElementById(`${prefix}-end-date`).value;
+  const complex = document.getElementById(`${prefix}-complex`).value;
+  const user = document.getElementById(`${prefix}-user`).value;
+  
+  if (startDate) params.append('start_date', startDate + 'T00:00:00');
+  if (endDate) params.append('end_date', endDate + 'T23:59:59');
+  if (complex) params.append('complex_id', complex);
+  if (user) params.append('user_id', user);
+  
+  return params.toString() ? '?' + params.toString() : '';
+}
+
+// ============================================================
+// DROPDOWNS
+// ============================================================
+async function loadDropdowns() {
+  try {
+    // Load Complexes
+    const complexRes = await fetch(`${API_BASE}/complex`, { headers: getHeaders() });
+    if (complexRes.ok) {
+      const complexes = await complexRes.json();
+      [
+        document.getElementById('pb-complex'),
+        document.getElementById('py-complex')
+      ].forEach(select => {
+        complexes.forEach(c => {
+          const opt = document.createElement('option');
+          opt.value = c.id;
+          opt.textContent = c.name;
+          select.appendChild(opt);
+        });
+      });
+    }
+
+    // Load Users
+    const userRes = await fetch(`${API_BASE}/user`, { headers: getHeaders() });
+    if (userRes.ok) {
+      const users = await userRes.json();
+      [
+        document.getElementById('pb-user'),
+        document.getElementById('py-user')
+      ].forEach(select => {
+        users.forEach(u => {
+          const opt = document.createElement('option');
+          opt.value = u.id;
+          opt.textContent = `${u.name} (${u.mobile})`;
+          select.appendChild(opt);
+        });
+      });
+    }
+  } catch (err) {
+    console.error('Error loading dropdowns:', err);
+  }
+}
+
+// ============================================================
+// PENDING BILLS REPORT
+// ============================================================
+async function loadPendingBills() {
+  const content = document.getElementById('pb-content');
+  content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+  try {
+    const params = getFilterParams('pb');
+    const response = await fetch(`${API_BASE}/reports/pending-bills${params}`, {
+      headers: getHeaders()
+    });
+
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+
+    if (!data.records || data.records.length === 0) {
+      content.innerHTML = `
+        <div class="empty-state">
+          <h3>No Pending Bills</h3>
+          <p>All bills are paid! Try adjusting your filters.</p>
+        </div>
+      `;
+      document.getElementById('pb-summary').style.display = 'none';
+      return;
+    }
+
+    // Show summary
+    document.getElementById('pb-total-bills').textContent = data.records.length;
+    document.getElementById('pb-total-pending').textContent = currency(data.summary.total_pending_amount);
+    document.getElementById('pb-summary').style.display = 'grid';
+
+    // Render table
+    const html = `
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Bill ID</th>
+              <th>Tenant</th>
+              <th>Shop</th>
+              <th>Complex</th>
+              <th>Bill Type</th>
+              <th>Amount</th>
+              <th>Paid</th>
+              <th>Pending</th>
+              <th>Status</th>
+              <th>Date</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${data.records.map(r => `
+              <tr>
+                <td><strong>#${r.bill_id}</strong></td>
+                <td>${r.user_name}<br><span style="font-size:12px; color:var(--muted);">${r.mobile}</span></td>
+                <td>${r.shop_number}</td>
+                <td>${r.complex_name || '—'}</td>
+                <td>${r.bill_type}</td>
+                <td><span class="currency">${currency(r.amount)}</span></td>
+                <td><span class="currency" style="color:var(--success);">${currency(r.paid_amount)}</span></td>
+                <td><span class="currency" style="color:var(--rust);">${currency(r.pending_amount)}</span></td>
+                <td>
+                  <span class="status-badge status-${r.status}">
+                    ${r.status}
+                  </span>
+                </td>
+                <td>${formatDate(r.bill_date)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+    content.innerHTML = html;
+  } catch (err) {
+    content.innerHTML = `<div class="error">Error loading report: ${err.message}</div>`;
+  }
+}
+
+async function downloadPendingBillsPDF() {
+  try {
+    const btn = event.target;
+    btn.disabled = true;
+    btn.textContent = '⏳ Generating...';
+
+    const params = getFilterParams('pb');
+    const response = await fetch(`${API_BASE}/reports/pending-bills/download${params}`, {
+      headers: getHeaders()
+    });
+
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `pending_bills_${new Date().toISOString().slice(0, 10)}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    a.remove();
+
+    btn.disabled = false;
+    btn.textContent = '📥 Download PDF';
+  } catch (err) {
+    alert('Error downloading PDF: ' + err.message);
+    event.target.disabled = false;
+    event.target.textContent = '📥 Download PDF';
+  }
+}
+
+function clearPendingFilters() {
+  document.getElementById('pb-start-date').value = '';
+  document.getElementById('pb-end-date').value = '';
+  document.getElementById('pb-complex').value = '';
+  document.getElementById('pb-user').value = '';
+  document.getElementById('pb-content').innerHTML = '';
+  document.getElementById('pb-summary').style.display = 'none';
+}
+
+// ============================================================
+// PAYMENTS REPORT
+// ============================================================
+async function loadPayments() {
+  const content = document.getElementById('py-content');
+  content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+  try {
+    let params = getFilterParams('py');
+    const method = document.getElementById('py-method').value;
+    if (method) {
+      params += (params ? '&' : '?') + `payment_method=${encodeURIComponent(method)}`;
+    }
+
+    const response = await fetch(`${API_BASE}/reports/payments${params}`, {
+      headers: getHeaders()
+    });
+
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+
+    if (!data.records || data.records.length === 0) {
+      content.innerHTML = `
+        <div class="empty-state">
+          <h3>No Payments Found</h3>
+          <p>Try adjusting your filters.</p>
+        </div>
+      `;
+      document.getElementById('py-summary').style.display = 'none';
+      return;
+    }
+
+    // Show summary
+    document.getElementById('py-total-payments').textContent = data.records.length;
+    document.getElementById('py-total-collected').textContent = currency(data.summary.total_collected);
+    document.getElementById('py-summary').style.display = 'grid';
+
+    // Render table
+    const html = `
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Payment ID</th>
+              <th>Tenant</th>
+              <th>Shop</th>
+              <th>Complex</th>
+              <th>Bill Type</th>
+              <th>Amount</th>
+              <th>Method</th>
+              <th>Date</th>
+              <th>Remarks</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${data.records.map(r => `
+              <tr>
+                <td><strong>#${r.payment_id}</strong></td>
+                <td>${r.user_name}<br><span style="font-size:12px; color:var(--muted);">${r.mobile}</span></td>
+                <td>${r.shop_number}</td>
+                <td>${r.complex_name || '—'}</td>
+                <td>${r.bill_type}</td>
+                <td><span class="currency" style="color:var(--success);">${currency(r.amount)}</span></td>
+                <td><span style="font-weight:600; font-size:13px;">${r.payment_method}</span></td>
+                <td>${formatDate(r.payment_date)}</td>
+                <td><span style="color:var(--muted); font-size:12px;">${r.remarks || '—'}</span></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+    content.innerHTML = html;
+  } catch (err) {
+    content.innerHTML = `<div class="error">Error loading report: ${err.message}</div>`;
+  }
+}
+
+async function downloadPaymentsPDF() {
+  try {
+    const btn = event.target;
+    btn.disabled = true;
+    btn.textContent = '⏳ Generating...';
+
+    let params = getFilterParams('py');
+    const method = document.getElementById('py-method').value;
+    if (method) {
+      params += (params ? '&' : '?') + `payment_method=${encodeURIComponent(method)}`;
+    }
+
+    const response = await fetch(`${API_BASE}/reports/payments/download${params}`, {
+      headers: getHeaders()
+    });
+
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `payments_${new Date().toISOString().slice(0, 10)}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    a.remove();
+
+    btn.disabled = false;
+    btn.textContent = '📥 Download PDF';
+  } catch (err) {
+    alert('Error downloading PDF: ' + err.message);
+    event.target.disabled = false;
+    event.target.textContent = '📥 Download PDF';
+  }
+}
+
+function clearPaymentFilters() {
+  document.getElementById('py-start-date').value = '';
+  document.getElementById('py-end-date').value = '';
+  document.getElementById('py-complex').value = '';
+  document.getElementById('py-user').value = '';
+  document.getElementById('py-method').value = '';
+  document.getElementById('py-content').innerHTML = '';
+  document.getElementById('py-summary').style.display = 'none';
+}
+
+// ============================================================
+// TAB SWITCHING
+// ============================================================
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const tabName = btn.dataset.tab;
+    
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    
+    btn.classList.add('active');
+    document.getElementById(tabName).classList.add('active');
+  });
+});
+
+// ============================================================
+// INIT
+// ============================================================
+window.addEventListener('load', () => {
+  if (!token) {
+    window.location.href = 'tenant-management-system.html';
+  }
+  loadDropdowns();
+});
+</script>
+
+</body>
+</html>
