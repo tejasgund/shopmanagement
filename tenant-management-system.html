@@ -3692,6 +3692,11 @@ async function renderPaymentForm(presel){
       </div>
     </div>
 
+    <div id="pDuesSummary" style="display:none;" class="pay-summary">
+      <div class="ps-row"><span class="ps-key">Total bills</span><span class="ps-val" id="pDuesCount">—</span></div>
+      <div class="ps-row ps-total"><span class="ps-key">Total remaining</span><span class="ps-val" id="pDuesRemaining">—</span></div>
+    </div>
+
     <!-- BILLS section — shown after shop/tenant resolved -->
     <div id="pBillSection" style="display:none;">
       <div class="field">
@@ -3859,6 +3864,18 @@ async function renderPaymentForm(presel){
   });
 
 
+  function showDuesSummary(userId, shopId){
+    // shopId null => aggregate across all shops for this tenant
+    const scoped = state.cache.bills.filter(b => b.user_id === userId && (shopId ? b.shop_id === shopId : true));
+    const remaining = scoped.reduce((s,b) => s + Number(b.pending_amount||0), 0);
+    document.getElementById('pDuesCount').textContent = scoped.length;
+    document.getElementById('pDuesRemaining').textContent = currency(remaining);
+    document.getElementById('pDuesSummary').style.display = 'block';
+  }
+  function hideDuesSummary(){
+    document.getElementById('pDuesSummary').style.display = 'none';
+  }
+
   function resetBillSection(){
     _selectedBillId = null;
     _autoStep = 'input';
@@ -3876,6 +3893,7 @@ async function renderPaymentForm(presel){
   function resetFromPath(){
     _selectedUserId = null;
     _selectedShopId = null;
+    hideDuesSummary();
     resetBillSection();
   }
 
@@ -4068,6 +4086,7 @@ async function renderPaymentForm(presel){
       <div class="info-row"><span class="info-label">Mobile</span><span class="info-val">${escapeHtml(user?.mobile || '—')}</span></div>
     `;
     tenantInfo.style.display = 'block';
+    showDuesSummary(shop.assigned_to.id, shopId);
     // Render bills: only for this tenant + this shop (no cross-contamination)
     if (_mode === 'auto') enableAutoSection(shop.assigned_to.id, shopId);
     else renderBills(shop.assigned_to.id, shopId);
@@ -4099,6 +4118,7 @@ async function renderPaymentForm(presel){
       <div class="info-row"><span class="info-label">Shop</span><span class="info-val">${escapeHtml(s.shop_number)}</span></div>
     `).join('');
     shopInfo.style.display = 'block';
+    showDuesSummary(userId, null); // tenant-wide totals across all their shops
 
     if (_mode === 'auto'){
       if (userShops.length > 1){
@@ -4107,7 +4127,9 @@ async function renderPaymentForm(presel){
             <input type="checkbox" id="pAllShops" checked> Apply across all shops above (FIFO)
           </label>`;
         document.getElementById('pAllShops').addEventListener('change', (e) => {
-          enableAutoSection(userId, e.target.checked ? null : userShops[0].id);
+          const scopedShopId = e.target.checked ? null : userShops[0].id;
+          enableAutoSection(userId, scopedShopId);
+          showDuesSummary(userId, scopedShopId);
         });
         enableAutoSection(userId, null);
       } else {
