@@ -3706,7 +3706,7 @@ async function renderPaymentForm(presel){
     <!-- AMOUNT + METHOD — shown after bill selected -->
     <div id="pAmtSection" style="display:none;">
       <div class="form-grid">
-        <div class="field">
+        <div class="field" id="pAmountField">
           <label for="pAmount">Amount paying (₹)</label>
           <input id="pAmount" type="number" step="0.01" min="0.01" placeholder="0.00">
           ${fieldErrorHtml('pAmountErr')}
@@ -3735,9 +3735,23 @@ async function renderPaymentForm(presel){
         <div class="ps-row ps-total"><span class="ps-key">Paying now</span><span class="ps-val" id="psNow">—</span></div>
       </div>
     </div>
+
+    <!-- AUTO-ALLOCATE PREVIEW — admin reviews/edits before anything is created -->
+    <div id="pPreviewSection" style="display:none;">
+      <div style="font-size:12px; color:var(--muted); background:var(--paper); border-radius:var(--radius-sm); padding:8px 11px; margin:14px 0 10px; display:flex; align-items:center; gap:7px;">
+        Review the allocation below — edit any amount, then confirm to actually record the payments.
+      </div>
+      <div id="pPreviewRows"></div>
+      <div class="pay-summary" style="margin-top:10px;">
+        <div class="ps-row"><span class="ps-key">Amount received</span><span class="ps-val" id="pvReceived">—</span></div>
+        <div class="ps-row"><span class="ps-key">Allocated to bills</span><span class="ps-val" id="pvAllocated">—</span></div>
+        <div class="ps-row ps-total"><span class="ps-key">Unallocated (left over)</span><span class="ps-val" id="pvUnallocated">—</span></div>
+      </div>
+    </div>
   `, `
     <button class="btn btn-ghost" id="cancelBtn">Cancel</button>
-    <button class="btn btn-primary" id="pSaveBtn" disabled>Record payment</button>
+    <button class="btn btn-ghost" id="pBackBtn" style="display:none;">Back / edit</button>
+    <button class="btn btn-primary" id="pSaveBtn" disabled>Preview allocation</button>
   `);
 
   document.getElementById('cancelBtn').addEventListener('click', closeModal);
@@ -3748,7 +3762,62 @@ async function renderPaymentForm(presel){
   let _selectedBillId = null;
   let _currentPath = 'shop'; // 'shop' | 'user'
   let _mode = 'auto'; // 'auto' | 'manual'
-  let _autoAllShops = false;
+  let _autoStep = 'input'; // 'input' | 'preview'
+  let _previewRows = []; // last preview rows from server, editable by admin
+  let _amountReceived = 0;
+
+  function resetAutoPreview(){
+    _autoStep = 'input';
+    _previewRows = [];
+    document.getElementById('pPreviewSection').style.display = 'none';
+    document.getElementById('pPreviewRows').innerHTML = '';
+    document.getElementById('pBackBtn').style.display = 'none';
+    document.getElementById('pAmtSection').style.display = _selectedUserId ? 'block' : 'none';
+    document.getElementById('pAmountField').style.display = 'block';
+    document.getElementById('pSaveBtn').textContent = 'Preview allocation';
+    document.getElementById('pSaveBtn').disabled = !(parseFloat(document.getElementById('pAmount')?.value) > 0);
+  }
+
+  function renderPreviewRows(){
+    const wrap = document.getElementById('pPreviewRows');
+    if (_previewRows.length === 0){
+      wrap.innerHTML = `<div style="font-size:13px; color:var(--muted); padding:8px 0;">No pending bills found for this selection — nothing to allocate.</div>`;
+      return;
+    }
+    wrap.innerHTML = _previewRows.map((r, i) => `
+      <label class="bill-row" style="align-items:center;">
+        <div class="bill-row-info">
+          <div class="btype">${escapeHtml(r.bill_type)}${r.shop_number ? ` <span style="font-size:11.5px; color:var(--muted); font-weight:400;">· Shop ${escapeHtml(r.shop_number)}</span>` : ''}</div>
+          <div class="bmeta">Bill #${r.bill_id} · due ${dateFmt(r.due_date)} · outstanding ${currency(r.outstanding)} → will be <strong>${r.resulting_status}</strong></div>
+        </div>
+        <div class="bill-row-amt">
+          <input type="number" step="0.01" min="0" max="${r.outstanding}" value="${r.allocated.toFixed(2)}"
+                 data-preview-idx="${i}" style="width:110px; text-align:right;" class="preview-amt-input">
+        </div>
+      </label>
+    `).join('');
+
+    wrap.querySelectorAll('.preview-amt-input').forEach(inp => {
+      inp.addEventListener('input', () => {
+        const idx = Number(inp.dataset.previewIdx);
+        let val = parseFloat(inp.value);
+        const max = _previewRows[idx].outstanding;
+        if (isNaN(val) || val < 0) val = 0;
+        if (val > max) val = max; // never exceed the bill's outstanding balance
+        _previewRows[idx].allocated = val;
+        inp.value = val.toFixed(2);
+        updatePreviewTotals();
+      });
+    });
+    updatePreviewTotals();
+  }
+
+  function updatePreviewTotals(){
+    const allocated = _previewRows.reduce((s, r) => s + r.allocated, 0);
+    document.getElementById('pvReceived').textContent = currency(_amountReceived);
+    document.getElementById('pvAllocated').textContent = currency(allocated);
+    document.getElementById('pvUnallocated').textContent = currency(Math.max(0, _amountReceived - allocated));
+  }
 
   function enableAutoSection(userId, shopId){
     _selectedUserId = userId;
@@ -3765,9 +3834,11 @@ async function renderPaymentForm(presel){
       : 'Applied across all this tenant\'s shops, oldest bills first (FIFO).';
     document.getElementById('pSummary').style.display = 'none';
     amtInput.oninput = () => { document.getElementById('pSaveBtn').disabled = !(parseFloat(amtInput.value) > 0); };
-    document.getElementById('pSaveBtn').disabled = true;
+    resetAutoPreview();
     amtInput.focus();
   }
+
+  document.getElementById('pBackBtn').addEventListener('click', resetAutoPreview);
 
   document.getElementById('modeAuto').addEventListener('click', () => {
     _mode = 'auto';
@@ -3781,14 +3852,24 @@ async function renderPaymentForm(presel){
     document.getElementById('modeManual').classList.add('active');
     document.getElementById('modeAuto').classList.remove('active');
     document.getElementById('pModeHint').textContent = 'Pick a specific bill and enter a custom amount for it.';
+    document.getElementById('pPreviewSection').style.display = 'none';
+    document.getElementById('pBackBtn').style.display = 'none';
+    document.getElementById('pSaveBtn').textContent = 'Record payment';
     resetFromPath();
   });
 
+
   function resetBillSection(){
     _selectedBillId = null;
+    _autoStep = 'input';
+    _previewRows = [];
     document.getElementById('pBillSection').style.display = 'none';
     document.getElementById('pAmtSection').style.display = 'none';
+    document.getElementById('pAmountField').style.display = 'block';
     document.getElementById('pSummary').style.display = 'none';
+    document.getElementById('pPreviewSection').style.display = 'none';
+    document.getElementById('pBackBtn').style.display = 'none';
+    document.getElementById('pSaveBtn').textContent = _mode === 'auto' ? 'Preview allocation' : 'Record payment';
     document.getElementById('pSaveBtn').disabled = true;
   }
 
@@ -4094,28 +4175,51 @@ async function renderPaymentForm(presel){
   document.getElementById('pSaveBtn').addEventListener('click', async () => {
     if (_mode === 'auto'){
       if (!_selectedUserId){ showToast('Select a tenant/shop first', 'error'); return; }
-      const amount = parseFloat(document.getElementById('pAmount').value);
-      if (isNaN(amount) || amount <= 0){
-        showFieldError('pAmountErr', 'Enter a valid amount');
-        document.getElementById('pAmount').classList.add('invalid');
-        return;
-      }
       const payment_method = document.getElementById('pMethod').value;
       const remarks = document.getElementById('pRemarks').value.trim();
 
+      // STEP 1: build & show the preview — nothing is saved yet
+      if (_autoStep === 'input'){
+        const amount = parseFloat(document.getElementById('pAmount').value);
+        if (isNaN(amount) || amount <= 0){
+          showFieldError('pAmountErr', 'Enter a valid amount');
+          document.getElementById('pAmount').classList.add('invalid');
+          return;
+        }
+        await withSavingState('pSaveBtn', async () => {
+          const res = await api('/api/payment/auto-allocate/preview', { method:'POST', body:{
+            user_id: _selectedUserId, shop_id: _selectedShopId, amount
+          }});
+          _amountReceived = amount;
+          _previewRows = res.rows.map(r => ({...r})); // editable copy
+          _autoStep = 'preview';
+          document.getElementById('pPreviewSection').style.display = 'block';
+          document.getElementById('pAmountField').style.display = 'none';
+          document.getElementById('pBackBtn').style.display = 'inline-flex';
+          document.getElementById('pSaveBtn').textContent = 'Confirm & record payment(s)';
+          document.getElementById('pSaveBtn').disabled = _previewRows.length === 0;
+          renderPreviewRows();
+        });
+        return;
+      }
+
+      // STEP 2: admin has reviewed/edited the preview — actually create the payments
+      const allocations = _previewRows.filter(r => r.allocated > 0).map(r => ({ bill_id: r.bill_id, amount: r.allocated }));
+      if (allocations.length === 0){ showToast('Nothing to allocate — all amounts are 0', 'error'); return; }
+
       await withSavingState('pSaveBtn', async () => {
-        const res = await api('/api/payment/auto-allocate', { method:'POST', body:{
-          user_id: _selectedUserId,
-          shop_id: _selectedShopId,
-          amount, payment_method, remarks
+        const res = await api('/api/payment/auto-allocate/confirm', { method:'POST', body:{
+          user_id: _selectedUserId, amount_received: _amountReceived,
+          payment_method, remarks, allocations
         }});
         state.loaded.bills = false;
         state.loaded.payments = false;
         closeModal();
         const n = res.allocations.length;
-        const msg = res.unallocated_amount > 0.005
-          ? `${currency(res.total_allocated)} allocated across ${n} bill(s); ${currency(res.unallocated_amount)} left unallocated (no more dues).`
-          : `${currency(res.total_allocated)} allocated across ${n} bill(s).`;
+        const capped = res.allocations.filter(a => a.note).length;
+        let msg = `${currency(res.total_allocated)} allocated across ${n} bill(s).`;
+        if (res.unallocated_amount > 0.005) msg += ` ${currency(res.unallocated_amount)} left unallocated.`;
+        if (capped > 0) msg += ` ${capped} amount(s) were capped — balances had changed since preview.`;
         showToast(msg, 'success');
         await renderView(state.view === 'bills' ? 'bills' : 'payments');
       });
