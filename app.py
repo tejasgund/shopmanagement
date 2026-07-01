@@ -1448,14 +1448,16 @@ def reports_summary(
         by_method[p.payment_method] = by_method.get(p.payment_method, 0.0) + _decimal_to_float(p.amount)
 
     # ── Outstanding dues across ALL bills (current liability, not range-limited) ──
-    all_bills = db.query(Bill).filter(Bill.status != "paid").all()
+    all_bills = db.query(Bill).filter(Bill.status != "paid").order_by(Bill.bill_date).all()
     outstanding = [
         {
             "bill_id": b.id,
             "user_id": b.user_id,
             "shop_id": b.shop_id,
             "bill_type": b.bill_type,
+            "description": b.description,
             "pending_amount": _decimal_to_float(b.pending_amount),
+            "bill_date": b.bill_date,
             "due_date": b.due_date,
             "status": b.status,
         }
@@ -1913,8 +1915,31 @@ def report_business_overview(
             "collected": round(m_collected, 2),
         })
 
+    # ── Daily-ops snapshot: today's collections, bills due today / this week ──
+    day_start = datetime(today.year, today.month, today.day, tzinfo=timezone.utc)
+    day_end = day_start + timedelta(days=1)
+    week_end = day_start + timedelta(days=7)
+
+    today_payments = db.query(Payment).filter(Payment.payment_date >= day_start, Payment.payment_date < day_end).all()
+    collections_today = round(sum(_decimal_to_float(p.amount) for p in today_payments), 2)
+
+    due_today = [b for b in unpaid_bills if b.due_date and day_start.date() <= (b.due_date.date() if isinstance(b.due_date, datetime) else b.due_date) < day_end.date()]
+    due_this_week = [b for b in unpaid_bills if b.due_date and today <= (b.due_date.date() if isinstance(b.due_date, datetime) else b.due_date) <= week_end.date()]
+
+    today_snapshot = {
+        "collections_today": collections_today,
+        "payments_today_count": len(today_payments),
+        "due_today_amount": round(sum(_decimal_to_float(b.pending_amount) for b in due_today), 2),
+        "due_today_count": len(due_today),
+        "due_this_week_amount": round(sum(_decimal_to_float(b.pending_amount) for b in due_this_week), 2),
+        "due_this_week_count": len(due_this_week),
+        "overdue_amount": round(sum(v for k, v in buckets.items() if k != "current"), 2),
+        "overdue_count": sum(c for k, c in bucket_counts.items() if k != "current"),
+    }
+
     return {
         "range": {"start_date": start_date, "end_date": end_date},
+        "today_snapshot": today_snapshot,
         "collection_efficiency": {
             "total_billed_in_range": round(total_billed, 2),
             "total_collected_in_range": round(total_collected_of_range_bills, 2),
@@ -1928,6 +1953,86 @@ def report_business_overview(
         "complex_performance": complex_performance,
         "top_defaulters": top_defaulters,
         "monthly_trend": trend,
+    }
+
+
+@app.get("/api/reports/tenant-statement", tags=["Reports"])
+def report_tenant_statement(
+    user_id:    int,
+    start_date: Optional[datetime] = None,
+    end_date:   Optional[datetime] = None,
+    db:         Session = Depends(get_db),
+    _:          User    = Depends(require_admin),
+):
+    """
+    Full bill + payment ledger for one tenant — every bill they've ever been
+    raised, each bill's payments, sorted chronologically by bill_date, so the
+    tenant can see month-by-month exactly what's paid and what's pending.
+    Admin only.
+    """
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    bill_q = db.query(Bill).filter(Bill.user_id == user_id)
+    if start_date is not None:
+        bill_q = bill_q.filter(Bill.bill_date >= start_date)
+    if end_date is not None:
+        bill_q = bill_q.filter(Bill.bill_date <= end_date)
+    bills = bill_q.order_by(Bill.bill_date).all()
+
+    shops = {s.id: s for s in db.query(Shop).all()}
+    complexes = {c.id: c.name for c in db.query(Complex).all()}
+    bill_ids = [b.id for b in bills]
+    payments = db.query(Payment).filter(Payment.bill_id.in_(bill_ids)).order_by(Payment.payment_date).all() if bill_ids else []
+    payments_by_bill = {}
+    for p in payments:
+        payments_by_bill.setdefault(p.bill_id, []).append(p)
+
+    ledger = []
+    for b in bills:
+        s = shops.get(b.shop_id)
+        bd = b.bill_date.date() if isinstance(b.bill_date, datetime) else b.bill_date
+        ledger.append({
+            "bill_id": b.id,
+            "bill_month": bd.strftime("%b %Y") if bd else None,
+            "bill_date": b.bill_date,
+            "due_date": b.due_date,
+            "bill_type": b.bill_type,
+            "description": b.description,
+            "shop_number": s.shop_number if s else None,
+            "complex_name": complexes.get(s.complex_id) if s else None,
+            "amount": _decimal_to_float(b.amount),
+            "paid_amount": _decimal_to_float(b.paid_amount),
+            "pending_amount": _decimal_to_float(b.pending_amount),
+            "status": b.status,
+            "payments": [
+                {
+                    "payment_id": p.id,
+                    "payment_date": p.payment_date,
+                    "amount": _decimal_to_float(p.amount),
+                    "payment_method": p.payment_method,
+                }
+                for p in payments_by_bill.get(b.id, [])
+            ],
+        })
+
+    total_billed = sum(x["amount"] for x in ledger)
+    total_paid = sum(x["paid_amount"] for x in ledger)
+    total_pending = sum(x["pending_amount"] for x in ledger)
+
+    return {
+        "user": {"id": user.id, "name": user.name, "mobile": user.mobile, "email": user.email},
+        "range": {"start_date": start_date, "end_date": end_date},
+        "summary": {
+            "total_billed": round(total_billed, 2),
+            "total_paid": round(total_paid, 2),
+            "total_pending": round(total_pending, 2),
+            "bills_count": len(ledger),
+            "paid_count": sum(1 for x in ledger if x["status"] == "paid"),
+            "pending_count": sum(1 for x in ledger if x["status"] in ("pending", "partial")),
+        },
+        "ledger": ledger,
     }
 
 
