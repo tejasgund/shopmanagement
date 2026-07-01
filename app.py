@@ -2909,6 +2909,10 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"success": False, "detail": "Internal server error"},
     )
 
+#=======================================================
+#Bulk Payment:
+
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Entrypoint (for direct `python app.py` execution)
