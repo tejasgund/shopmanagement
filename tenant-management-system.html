@@ -4486,7 +4486,7 @@ async function loadTenantPortal(){
             bills.map(b=>`
             <div class="tenant-card tp-bill-row" data-status="${b.status}" data-shop-id="${b.shop_id}" data-due="${b.due_date||''}">
               <div class="row1"><span class="title">${escapeHtml(b.bill_type)}</span>${stampHtml(b.status)}</div>
-              <div class="meta">Bill #${b.id} · ${escapeHtml(shops.find(s=>s.id===b.shop_id)?.shop_number||'Shop #'+b.shop_id)} · due ${dateFmt(b.due_date)}</div>
+              <div class="meta">Bill #${b.id} · ${escapeHtml(shops.find(s=>s.id===b.shop_id)?.shop_number||'Shop #'+b.shop_id)} · billed ${dateFmt(b.bill_date)} · due ${dateFmt(b.due_date)} · created ${dateFmt(b.created_at)}</div>
               ${b.description ? `<div class="meta" style="margin-top:2px;">${escapeHtml(b.description)}</div>` : ''}
               <div class="amt-row"><span>Total ${currency(b.amount)} · Paid ${currency(b.paid_amount||0)}</span><span class="big" style="color:${b.pending_amount>0?'var(--rust)':'var(--success)'};">${currency(b.pending_amount)} due</span></div>
             </div>`).join('')}
@@ -4506,7 +4506,7 @@ async function loadTenantPortal(){
       payments.map(p=>`
       <div class="tenant-card">
         <div class="row1"><span class="title mono">${currency(p.amount)}</span><span class="meta">${escapeHtml(p.payment_method)}</span></div>
-        <div class="meta">${dateFmt(p.payment_date)} · Receipt #${p.id}${p.remarks?' · '+escapeHtml(p.remarks):''}</div>
+        <div class="meta">Paid ${dateFmt(p.payment_date)} · Receipt #${p.id} · created ${dateFmt(p.created_at)}${p.remarks?' · '+escapeHtml(p.remarks):''}</div>
       </div>`).join('')}
   </div>
 </div>
@@ -4624,12 +4624,13 @@ function renderMonthSummary(bills, payments){
           <div><div style="font-size:11px; color:var(--muted); font-weight:600; text-transform:uppercase;">Pending</div><div class="mono" style="color:${pending>0?'var(--rust)':'var(--success)'}; font-weight:700;">${currency(pending)}</div></div>
         </div>
         ${mBills.length ? `<div style="font-size:12px; font-weight:600; color:var(--muted); margin-bottom:6px; text-transform:uppercase; letter-spacing:.04em;">Bills</div>
-          ${mBills.map(b=>`<div style="display:flex; justify-content:space-between; font-size:13px; padding:5px 0; border-bottom:1px dashed var(--line);">
-            <span>${escapeHtml(b.bill_type)} · #${b.id}</span><span style="display:flex; gap:8px; align-items:center;">${stampHtml(b.status)} ${currency(b.pending_amount)} due</span>
+          ${mBills.map(b=>`<div style="font-size:13px; padding:6px 0; border-bottom:1px dashed var(--line);">
+            <div style="display:flex; justify-content:space-between;"><span>${escapeHtml(b.bill_type)} · #${b.id}</span><span style="display:flex; gap:8px; align-items:center;">${stampHtml(b.status)} ${currency(b.pending_amount)} due</span></div>
+            <div style="font-size:11.5px; color:var(--muted); margin-top:2px;">Bill date: ${dateFmt(b.bill_date)} · Due date: ${dateFmt(b.due_date)}${b.description ? ' · Description: '+escapeHtml(b.description) : ''}</div>
           </div>`).join('')}` : ''}
         ${mPays.length ? `<div style="font-size:12px; font-weight:600; color:var(--muted); margin:10px 0 6px; text-transform:uppercase; letter-spacing:.04em;">Payments</div>
           ${mPays.map(p=>`<div style="display:flex; justify-content:space-between; font-size:13px; padding:5px 0; border-bottom:1px dashed var(--line);">
-            <span>${dateFmt(p.payment_date)} · ${escapeHtml(p.payment_method)}</span><span class="mono" style="color:var(--success); font-weight:700;">${currency(p.amount)}</span>
+            <span>Paid on: ${dateFmt(p.payment_date)} · ${escapeHtml(p.payment_method)}${p.remarks ? ' · Remarks: '+escapeHtml(p.remarks) : ''}</span><span class="mono" style="color:var(--success); font-weight:700;">${currency(p.amount)}</span>
           </div>`).join('')}` : ''}
       </div>
     </div>`;
