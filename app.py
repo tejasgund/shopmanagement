@@ -1771,6 +1771,166 @@ def report_user_wise(
     return results
 
 
+@app.get("/api/reports/business-overview", tags=["Reports"])
+def report_business_overview(
+    complex_id: Optional[int] = None,
+    start_date: Optional[datetime] = None,
+    end_date:   Optional[datetime] = None,
+    db:         Session = Depends(get_db),
+    _:          User    = Depends(require_admin),
+):
+    """
+    Consolidated business-health report: collection efficiency, overdue aging buckets,
+    complex-wise performance comparison, top defaulters, and a 6-month collection trend.
+    Admin only.
+    """
+    today = datetime.now(timezone.utc).date()
+
+    # ── Base bill query (optionally scoped to a complex), used for range figures ──
+    def _bills_query(q):
+        if complex_id is not None:
+            q = q.join(Shop, Shop.id == Bill.shop_id).filter(Shop.complex_id == complex_id)
+        return q
+
+    bill_q = _bills_query(db.query(Bill))
+    if start_date is not None:
+        bill_q = bill_q.filter(Bill.bill_date >= start_date)
+    if end_date is not None:
+        bill_q = bill_q.filter(Bill.bill_date <= end_date)
+    bills_in_range = bill_q.all()
+
+    total_billed = sum(_decimal_to_float(b.amount) for b in bills_in_range)
+    total_collected_of_range_bills = sum(_decimal_to_float(b.paid_amount) for b in bills_in_range)
+    collection_efficiency_percent = round((total_collected_of_range_bills / total_billed) * 100, 1) if total_billed else 0.0
+
+    # ── Overdue aging buckets (based on ALL unpaid bills, not range-limited — it's a liability snapshot) ──
+    unpaid_q = _bills_query(db.query(Bill)).filter(Bill.status != "paid")
+    unpaid_bills = unpaid_q.all()
+    users = {u.id: u for u in db.query(User).all()}
+    shops = {s.id: s for s in db.query(Shop).all()}
+    complexes = {c.id: c.name for c in db.query(Complex).all()}
+
+    buckets = {"current": 0.0, "0_30": 0.0, "31_60": 0.0, "61_90": 0.0, "90_plus": 0.0}
+    bucket_counts = {"current": 0, "0_30": 0, "31_60": 0, "61_90": 0, "90_plus": 0}
+    for b in unpaid_bills:
+        pending = _decimal_to_float(b.pending_amount)
+        due = b.due_date.date() if isinstance(b.due_date, datetime) else b.due_date
+        days_overdue = (today - due).days if due else 0
+        if days_overdue <= 0:
+            key = "current"
+        elif days_overdue <= 30:
+            key = "0_30"
+        elif days_overdue <= 60:
+            key = "31_60"
+        elif days_overdue <= 90:
+            key = "61_90"
+        else:
+            key = "90_plus"
+        buckets[key] += pending
+        bucket_counts[key] += 1
+    buckets = {k: round(v, 2) for k, v in buckets.items()}
+
+    # ── Complex-wise performance comparison ──
+    all_shops = db.query(Shop).all() if complex_id is None else db.query(Shop).filter(Shop.complex_id == complex_id).all()
+    by_complex = {}
+    for s in all_shops:
+        cdata = by_complex.setdefault(s.complex_id, {
+            "complex_id": s.complex_id,
+            "complex_name": complexes.get(s.complex_id),
+            "total_shops": 0, "occupied": 0,
+            "billed": 0.0, "collected": 0.0,
+        })
+        cdata["total_shops"] += 1
+        if s.status == "occupied":
+            cdata["occupied"] += 1
+    for b in bills_in_range:
+        s = shops.get(b.shop_id)
+        if not s or s.complex_id not in by_complex:
+            continue
+        by_complex[s.complex_id]["billed"] += _decimal_to_float(b.amount)
+        by_complex[s.complex_id]["collected"] += _decimal_to_float(b.paid_amount)
+
+    complex_performance = []
+    for cdata in by_complex.values():
+        ct = cdata["total_shops"]
+        billed = cdata["billed"]
+        complex_performance.append({
+            "complex_id": cdata["complex_id"],
+            "complex_name": cdata["complex_name"],
+            "total_shops": ct,
+            "occupied": cdata["occupied"],
+            "occupancy_rate_percent": round((cdata["occupied"] / ct) * 100) if ct else 0,
+            "billed": round(billed, 2),
+            "collected": round(cdata["collected"], 2),
+            "collection_rate_percent": round((cdata["collected"] / billed) * 100, 1) if billed else 0.0,
+        })
+    complex_performance.sort(key=lambda r: r["collection_rate_percent"])
+
+    # ── Top defaulters (highest pending amount, current unpaid bills only) ──
+    defaulter_totals = {}
+    for b in unpaid_bills:
+        defaulter_totals.setdefault(b.user_id, 0.0)
+        defaulter_totals[b.user_id] += _decimal_to_float(b.pending_amount)
+    top_defaulters = []
+    for uid, pending in sorted(defaulter_totals.items(), key=lambda kv: kv[1], reverse=True)[:10]:
+        u = users.get(uid)
+        oldest_due = min(
+            (b.due_date for b in unpaid_bills if b.user_id == uid and b.due_date),
+            default=None,
+        )
+        top_defaulters.append({
+            "user_id": uid,
+            "user_name": u.name if u else None,
+            "mobile": u.mobile if u else None,
+            "total_pending": round(pending, 2),
+            "oldest_due_date": oldest_due,
+        })
+
+    # ── 6-month collection trend (billed vs collected, by calendar month) ──
+    trend = []
+    for i in range(5, -1, -1):
+        ref = today.replace(day=1)
+        # step back i months
+        y, m = ref.year, ref.month - i
+        while m <= 0:
+            m += 12
+            y -= 1
+        m_start = datetime(y, m, 1, tzinfo=timezone.utc)
+        m_end_year, m_end_month = (y + 1, 1) if m == 12 else (y, m + 1)
+        m_end = datetime(m_end_year, m_end_month, 1, tzinfo=timezone.utc)
+
+        m_bill_q = _bills_query(db.query(Bill)).filter(Bill.bill_date >= m_start, Bill.bill_date < m_end)
+        m_billed = sum(_decimal_to_float(b.amount) for b in m_bill_q.all())
+
+        m_pay_q = db.query(Payment).filter(Payment.payment_date >= m_start, Payment.payment_date < m_end)
+        if complex_id is not None:
+            m_pay_q = m_pay_q.join(Bill, Bill.id == Payment.bill_id).join(Shop, Shop.id == Bill.shop_id).filter(Shop.complex_id == complex_id)
+        m_collected = sum(_decimal_to_float(p.amount) for p in m_pay_q.all())
+
+        trend.append({
+            "month": m_start.strftime("%b %Y"),
+            "billed": round(m_billed, 2),
+            "collected": round(m_collected, 2),
+        })
+
+    return {
+        "range": {"start_date": start_date, "end_date": end_date},
+        "collection_efficiency": {
+            "total_billed_in_range": round(total_billed, 2),
+            "total_collected_in_range": round(total_collected_of_range_bills, 2),
+            "collection_efficiency_percent": collection_efficiency_percent,
+        },
+        "aging": {
+            "buckets": buckets,
+            "bucket_counts": bucket_counts,
+            "total_outstanding": round(sum(buckets.values()), 2),
+        },
+        "complex_performance": complex_performance,
+        "top_defaulters": top_defaulters,
+        "monthly_trend": trend,
+    }
+
+
 @app.get("/api/finance/overview", tags=["Reports"])
 def finance_overview(
     complex_id: Optional[int] = None,
@@ -2908,6 +3068,10 @@ async def global_exception_handler(request: Request, exc: Exception):
         status_code=500,
         content={"success": False, "detail": "Internal server error"},
     )
+
+#=======================================================
+#Bulk Payment:
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════

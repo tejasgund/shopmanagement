@@ -361,10 +361,7 @@ td .row-actions{ display:flex; gap:6px; justify-content:flex-end; }
 .info-card .info-label{ color:var(--muted); font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.03em; }
 .info-card .info-val{ font-weight:600; font-family:var(--font-mono); font-size:13px; }
 .info-card .info-val.good{ color:var(--success); }
-.info-card .info-val.warn{ co
-
-
-lor:var(--rust); }
+.info-card .info-val.warn{ color:var(--rust); }
 
 /* ---- Step / path toggle inside modal ---- */
 .path-toggle{
@@ -569,6 +566,8 @@ lor:var(--rust); }
 .year-btn.active{ background:var(--ink); color:#fff; border-color:var(--ink); }
 .year-btn:hover:not(.active){ border-color:var(--ink); color:var(--ink); }
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 </head>
 <body>
 
@@ -1472,7 +1471,7 @@ async function billsView(){
   ${bills.length === 0 ? emptyStateHtml('No bills yet', 'Pick a tenant and create bills for one or more of their shops.', emptyIcon()) : `
   <div class="table-wrap">
     <table id="billsTable">
-      <thead><tr><th>Bill</th><th>Tenant</th><th>Shop</th><th>Complex</th><th>Type</th><th class="num">Amount</th><th class="num">Pending</th><th>Status</th><th>Bill Date</th><th>Created At</th><th>Due</th><th></th></tr></thead>
+      <thead><tr><th>Bill</th><th>Tenant</th><th>Shop</th><th>Complex</th><th>Type</th><th>Description</th><th class="num">Amount</th><th class="num">Pending</th><th>Status</th><th>Bill Date</th><th>Created At</th><th>Due</th><th></th></tr></thead>
       <tbody id="billsTbody">
         ${bills.map(b => {
           const cid = shopComplexId(b.shop_id);
@@ -1483,12 +1482,13 @@ async function billsView(){
               data-date="${b.bill_date||b.created_at||''}"
               data-bill-date="${b.bill_date||''}"
               data-created-at="${b.created_at||''}"
-              data-search="${escapeHtml(userName(b.user_id)+' '+userMobile(b.user_id)+' '+shopNum(b.shop_id)+' '+complexName(cid)+' '+b.bill_type+' #'+b.id)}">
+              data-search="${escapeHtml(userName(b.user_id)+' '+userMobile(b.user_id)+' '+shopNum(b.shop_id)+' '+complexName(cid)+' '+b.bill_type+' '+(b.description||'')+' #'+b.id)}">
             <td class="mono">#${b.id}</td>
             <td>${escapeHtml(userName(b.user_id))}</td>
             <td class="mono">${escapeHtml(shopNum(b.shop_id))}</td>
             <td>${escapeHtml(complexName(cid))}</td>
             <td>${escapeHtml(b.bill_type)}</td>
+            <td>${escapeHtml(b.description || '—')}</td>
             <td class="num">${currency(b.amount)}</td>
             <td class="num">${currency(b.pending_amount)}</td>
             <td>${stampHtml(b.status)}</td>
@@ -2252,7 +2252,8 @@ async function reportsView(){
 
   return `
   <div class="path-toggle" id="reportTabToggle" style="margin-bottom:18px;">
-    <button class="path-btn active" data-rtab="summary">Summary</button>
+    <button class="path-btn active" data-rtab="business-overview">Business Overview</button>
+    <button class="path-btn" data-rtab="summary">Summary</button>
     <button class="path-btn" data-rtab="rent-collection">Rent Collection</button>
     <button class="path-btn" data-rtab="deposit">Deposits</button>
     <button class="path-btn" data-rtab="occupancy">Occupancy</button>
@@ -2292,7 +2293,7 @@ async function reportsView(){
 }
 
 function attachReportsHandlers(){
-  let _activeTab = 'summary';
+  let _activeTab = 'business-overview';
   document.querySelectorAll('[data-rtab]').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('[data-rtab]').forEach(b=>b.classList.remove('active'));
@@ -2318,15 +2319,27 @@ async function generateReport(tab){
   try {
     await Promise.all([ensureLoaded('users','/api/user'), ensureLoaded('shops','/api/shop')]);
 
-    if (tab === 'summary'){
+    if (tab === 'business-overview'){
+      const params = new URLSearchParams();
+      if (start) params.set('start_date', new Date(start).toISOString());
+      if (end) params.set('end_date', new Date(new Date(end).setHours(23,59,59)).toISOString());
+      if (complexId) params.set('complex_id', complexId);
+      const rep = await api(`/api/reports/business-overview?${params}`);
+      state._lastReportData = { tab, rep, start, end, complexId };
+      resultsEl.innerHTML = renderBusinessOverviewHtml(rep, start, end);
+      document.getElementById('exportReportBtn').style.display = 'inline-flex';
+      document.getElementById('exportReportBtn').onclick = () => exportReportPdf();
+
+    } else if (tab === 'summary'){
       const params = new URLSearchParams();
       if (start) params.set('start_date', new Date(start).toISOString());
       if (end) params.set('end_date', new Date(new Date(end).setHours(23,59,59)).toISOString());
       const rep = await api(`/api/reports/summary?${params}`);
       state._lastReport = rep;
+      state._lastReportData = { tab, rep, start, end, complexId };
       resultsEl.innerHTML = renderReportHtml(rep, start, end);
       document.getElementById('exportReportBtn').style.display = 'inline-flex';
-      document.getElementById('exportReportBtn').onclick = () => downloadReportText(rep, start, end);
+      document.getElementById('exportReportBtn').onclick = () => exportReportPdf();
 
     } else if (tab === 'rent-collection'){
       const params = new URLSearchParams();
@@ -2335,6 +2348,7 @@ async function generateReport(tab){
       if (complexId) params.set('complex_id', complexId);
       if (userId) params.set('user_id', userId);
       const rep = await api(`/api/reports/rent-collection?${params}`);
+      state._lastReportData = { tab, rep, start, end, complexId };
       const s = rep.summary;
       resultsEl.innerHTML = `
         <div class="stat-row" style="margin-bottom:18px;">
@@ -2363,13 +2377,15 @@ async function generateReport(tab){
           </table>
         </div>
       `;
-      document.getElementById('exportReportBtn').style.display = 'none';
+      document.getElementById('exportReportBtn').style.display = 'inline-flex';
+      document.getElementById('exportReportBtn').onclick = () => exportReportPdf();
 
     } else if (tab === 'deposit'){
       const params = new URLSearchParams();
       if (complexId) params.set('complex_id', complexId);
       if (userId) params.set('user_id', userId);
       const rep = await api(`/api/reports/deposit?${params}`);
+      state._lastReportData = { tab, rep, start, end, complexId };
       const s = rep.summary;
       const statusColor = (st) => st==='full'?'var(--success)':st==='partial'?'var(--partial)':'var(--rust)';
       resultsEl.innerHTML = `
@@ -2397,12 +2413,14 @@ async function generateReport(tab){
           </table>
         </div>
       `;
-      document.getElementById('exportReportBtn').style.display = 'none';
+      document.getElementById('exportReportBtn').style.display = 'inline-flex';
+      document.getElementById('exportReportBtn').onclick = () => exportReportPdf();
 
     } else if (tab === 'occupancy'){
       const params = new URLSearchParams();
       if (complexId) params.set('complex_id', complexId);
       const rep = await api(`/api/reports/occupancy?${params}`);
+      state._lastReportData = { tab, rep, start, end, complexId };
       const s = rep.summary;
       resultsEl.innerHTML = `
         <div class="stat-row" style="margin-bottom:18px;">
@@ -2440,7 +2458,8 @@ async function generateReport(tab){
           </table>
         </div>
       `;
-      document.getElementById('exportReportBtn').style.display = 'none';
+      document.getElementById('exportReportBtn').style.display = 'inline-flex';
+      document.getElementById('exportReportBtn').onclick = () => exportReportPdf();
 
     } else if (tab === 'user-wise'){
       const params = new URLSearchParams();
@@ -2448,6 +2467,7 @@ async function generateReport(tab){
       if (end) params.set('end_date', new Date(new Date(end).setHours(23,59,59)).toISOString());
       if (complexId) params.set('complex_id', complexId);
       const recs = await api(`/api/reports/user-wise?${params}`);
+      state._lastReportData = { tab, rep: recs, start, end, complexId };
       resultsEl.innerHTML = `
         <div class="table-wrap">
           <table>
@@ -2468,7 +2488,8 @@ async function generateReport(tab){
           </table>
         </div>
       `;
-      document.getElementById('exportReportBtn').style.display = 'none';
+      document.getElementById('exportReportBtn').style.display = 'inline-flex';
+      document.getElementById('exportReportBtn').onclick = () => exportReportPdf();
     }
   } catch (err) {
     resultsEl.innerHTML = errorBannerHtml(err.message);
@@ -2577,6 +2598,241 @@ function downloadReportText(rep, start, end){
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+/* ---------- Business Overview tab: renderer + SVG charts ---------- */
+
+function svgBarChart({width=560, height=200, bars, valueFormatter=(v)=>v, barColorFn=null, defaultColor='var(--ink)'}){
+  const max = Math.max(1, ...bars.map(b=>b.value));
+  const padL = 46, padB = 28, padT = 10, padR = 10;
+  const plotW = width - padL - padR, plotH = height - padT - padB;
+  const bw = plotW / bars.length;
+  const gridLines = [0, 0.25, 0.5, 0.75, 1].map(f => {
+    const y = padT + plotH - f*plotH;
+    const val = Math.round(max*f);
+    return `<line x1="${padL}" y1="${y}" x2="${width-padR}" y2="${y}" stroke="var(--line)" stroke-width="1"/>
+            <text x="${padL-8}" y="${y+4}" font-size="10" fill="var(--muted)" text-anchor="end">${valueFormatter(val)}</text>`;
+  }).join('');
+  const barsHtml = bars.map((b,i)=>{
+    const bh = (b.value/max) * plotH;
+    const x = padL + i*bw + bw*0.2;
+    const y = padT + plotH - bh;
+    const w = bw*0.6;
+    const color = barColorFn ? barColorFn(b) : defaultColor;
+    return `<rect x="${x}" y="${y}" width="${w}" height="${Math.max(bh,1)}" fill="${color}" rx="2"/>
+            <text x="${x+w/2}" y="${padT+plotH+18}" font-size="10.5" fill="var(--muted)" text-anchor="middle">${escapeHtml(b.label)}</text>`;
+  }).join('');
+  return `<svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}" style="overflow:visible;">${gridLines}${barsHtml}</svg>`;
+}
+
+function svgGroupedTrendChart({width=640, height=220, months, valueFormatter=(v)=>v}){
+  const max = Math.max(1, ...months.flatMap(m=>[m.billed, m.collected]));
+  const padL = 52, padB = 28, padT = 12, padR = 10;
+  const plotW = width - padL - padR, plotH = height - padT - padB;
+  const groupW = plotW / months.length;
+  const gridLines = [0, 0.25, 0.5, 0.75, 1].map(f => {
+    const y = padT + plotH - f*plotH;
+    const val = Math.round(max*f);
+    return `<line x1="${padL}" y1="${y}" x2="${width-padR}" y2="${y}" stroke="var(--line)" stroke-width="1"/>
+            <text x="${padL-8}" y="${y+4}" font-size="10" fill="var(--muted)" text-anchor="end">${valueFormatter(val)}</text>`;
+  }).join('');
+  const bars = months.map((m,i)=>{
+    const gx = padL + i*groupW;
+    const bw = groupW*0.32;
+    const bhBilled = (m.billed/max)*plotH, bhCollected = (m.collected/max)*plotH;
+    const x1 = gx + groupW*0.14, x2 = gx + groupW*0.54;
+    return `
+      <rect x="${x1}" y="${padT+plotH-bhBilled}" width="${bw}" height="${Math.max(bhBilled,1)}" fill="var(--muted)" opacity="0.55" rx="2"/>
+      <rect x="${x2}" y="${padT+plotH-bhCollected}" width="${bw}" height="${Math.max(bhCollected,1)}" fill="var(--success, #3a7d5c)" rx="2"/>
+      <text x="${gx+groupW/2}" y="${padT+plotH+18}" font-size="10.5" fill="var(--muted)" text-anchor="middle">${escapeHtml(m.month)}</text>`;
+  }).join('');
+  return `
+    <svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}" style="overflow:visible;">${gridLines}${bars}</svg>
+    <div style="display:flex; gap:16px; margin-top:8px; font-size:12px; color:var(--muted);">
+      <span><span style="display:inline-block; width:10px; height:10px; background:var(--muted); opacity:0.55; border-radius:2px; margin-right:5px;"></span>Billed</span>
+      <span><span style="display:inline-block; width:10px; height:10px; background:var(--success, #3a7d5c); border-radius:2px; margin-right:5px;"></span>Collected</span>
+    </div>`;
+}
+
+function renderBusinessOverviewHtml(rep, start, end){
+  const ce = rep.collection_efficiency, aging = rep.aging;
+  const bucketLabels = { current: 'Not due', '0_30': '0–30 days', '31_60': '31–60 days', '61_90': '61–90 days', '90_plus': '90+ days' };
+  const agingBars = Object.entries(aging.buckets).map(([k,v]) => ({ label: bucketLabels[k]||k, value: v }));
+
+  return `
+  <div class="card-pad" style="padding:0 0 14px;"><div class="crumb">Report period: ${start ? dateFmt(start) : 'all time'} — ${end ? dateFmt(end) : 'today'}</div></div>
+
+  <div class="stat-row" style="margin-bottom:18px;">
+    <div class="card stat-card accent-green"><div class="label">Collection efficiency</div><div class="value">${ce.collection_efficiency_percent}%</div><div class="sub">${currency(ce.total_collected_in_range)} of ${currency(ce.total_billed_in_range)} billed</div></div>
+    <div class="card stat-card accent-rust"><div class="label">Total outstanding</div><div class="value mono">${currency(aging.total_outstanding)}</div><div class="sub">across all unpaid bills</div></div>
+    <div class="card stat-card"><div class="label">90+ days overdue</div><div class="value mono">${currency(aging.buckets['90_plus'])}</div><div class="sub">${aging.bucket_counts['90_plus']} bill(s) — highest risk</div></div>
+    <div class="card stat-card"><div class="label">Top defaulter</div><div class="value" style="font-size:16px;">${rep.top_defaulters[0] ? escapeHtml(rep.top_defaulters[0].user_name) : '—'}</div><div class="sub">${rep.top_defaulters[0] ? currency(rep.top_defaulters[0].total_pending)+' pending' : 'no outstanding dues'}</div></div>
+  </div>
+
+  <div class="card" style="margin-bottom:18px;">
+    <div class="card-pad" style="padding-bottom:0;"><h3 style="font-size:15.5px;">6-month collection trend</h3></div>
+    <div class="card-pad" style="padding-top:14px;">${svgGroupedTrendChart({months: rep.monthly_trend, valueFormatter: v=>'₹'+(v>=1000? Math.round(v/1000)+'k' : v)})}</div>
+  </div>
+
+  <div class="card" style="margin-bottom:18px;">
+    <div class="card-pad" style="padding-bottom:0;"><h3 style="font-size:15.5px;">Overdue aging (outstanding dues by age)</h3></div>
+    <div class="card-pad" style="padding-top:14px;">${svgBarChart({bars: agingBars, valueFormatter: v=>'₹'+(v>=1000? Math.round(v/1000)+'k' : v), barColorFn: b => b.label==='90+ days' ? 'var(--rust)' : (b.label==='Not due' ? 'var(--success, #3a7d5c)' : 'var(--partial, #b8863b)')})}</div>
+  </div>
+
+  <div class="card" style="margin-bottom:18px;">
+    <div class="card-pad" style="padding-bottom:0;"><h3 style="font-size:15.5px;">Complex-wise performance</h3><p style="font-size:12.5px; color:var(--muted); margin:4px 0 0;">Sorted by collection rate, lowest first — needs attention.</p></div>
+    <div class="table-wrap" style="border:none; border-radius:0; box-shadow:none; margin-top:10px;">
+      <table>
+        <thead><tr><th>Complex</th><th class="num">Shops</th><th class="num">Occupancy</th><th class="num">Billed</th><th class="num">Collected</th><th class="num">Collection rate</th></tr></thead>
+        <tbody>
+          ${rep.complex_performance.map(c=>`<tr>
+            <td>${escapeHtml(c.complex_name||'Unassigned')}</td>
+            <td class="num">${c.total_shops}</td>
+            <td class="num">${c.occupancy_rate_percent}%</td>
+            <td class="num">${currency(c.billed)}</td>
+            <td class="num">${currency(c.collected)}</td>
+            <td class="num">${c.collection_rate_percent < 70 ? `<span style="color:var(--rust);font-weight:700;">${c.collection_rate_percent}%</span>` : c.collection_rate_percent+'%'}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-pad" style="padding-bottom:0;"><h3 style="font-size:15.5px;">Top defaulters</h3><p style="font-size:12.5px; color:var(--muted); margin:4px 0 0;">Highest pending amounts, current unpaid bills.</p></div>
+    ${rep.top_defaulters.length === 0 ? emptyStateHtml('No defaulters', 'Every bill is fully paid — great job.', emptyIcon()) : `
+    <div class="table-wrap" style="border:none; border-radius:0; box-shadow:none; margin-top:10px;">
+      <table>
+        <thead><tr><th>Tenant</th><th>Mobile</th><th class="num">Total pending</th><th>Oldest due</th></tr></thead>
+        <tbody>
+          ${rep.top_defaulters.map(d=>`<tr>
+            <td><strong>${escapeHtml(d.user_name||'—')}</strong></td>
+            <td class="mono">${escapeHtml(d.mobile||'—')}</td>
+            <td class="num"><span style="color:var(--rust);font-weight:700;">${currency(d.total_pending)}</span></td>
+            <td>${dateFmt(d.oldest_due_date)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`}
+  </div>`;
+}
+
+/* ---------- Generic PDF export for any report tab ---------- */
+
+function exportReportPdf(){
+  const data = state._lastReportData;
+  if (!data) return;
+  const { tab, rep, start, end } = data;
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+  const marginX = 40;
+  let y = 44;
+
+  const titles = {
+    'business-overview': 'Business Overview Report',
+    'summary': 'Business Summary Report',
+    'rent-collection': 'Rent Collection Report',
+    'deposit': 'Deposit Report',
+    'occupancy': 'Occupancy Report',
+    'user-wise': 'User-wise Financial Report',
+  };
+
+  doc.setFontSize(16); doc.setFont(undefined, 'bold');
+  doc.text(titles[tab] || 'Report', marginX, y); y += 20;
+  doc.setFontSize(10); doc.setFont(undefined, 'normal'); doc.setTextColor(100);
+  doc.text(`Period: ${start ? dateFmt(start) : 'all time'} — ${end ? dateFmt(end) : 'today'}`, marginX, y); y += 14;
+  doc.text(`Generated: ${new Date().toLocaleString('en-IN')}`, marginX, y); y += 20;
+  doc.setTextColor(0);
+
+  const addKpiRow = (items) => {
+    doc.setFontSize(9);
+    items.forEach((it, i) => {
+      const x = marginX + i * 130;
+      doc.setFont(undefined, 'normal'); doc.setTextColor(110);
+      doc.text(it.label, x, y);
+      doc.setFont(undefined, 'bold'); doc.setTextColor(0);
+      doc.text(String(it.value), x, y + 14);
+    });
+    y += 34;
+  };
+
+  const addTable = (head, body) => {
+    doc.autoTable({ startY: y, head: [head], body, margin: { left: marginX, right: marginX }, styles: { fontSize: 8, cellPadding: 4 }, headStyles: { fillColor: [58, 54, 46] } });
+    y = doc.lastAutoTable.finalY + 18;
+  };
+
+  if (tab === 'business-overview'){
+    const ce = rep.collection_efficiency, aging = rep.aging;
+    addKpiRow([
+      { label: 'Collection efficiency', value: ce.collection_efficiency_percent + '%' },
+      { label: 'Total outstanding', value: currency(aging.total_outstanding) },
+      { label: '90+ days overdue', value: currency(aging.buckets['90_plus']) },
+    ]);
+    doc.setFont(undefined, 'bold'); doc.setFontSize(11); doc.text('6-month collection trend', marginX, y); y += 8;
+    addTable(['Month', 'Billed', 'Collected'], rep.monthly_trend.map(m => [m.month, currency(m.billed), currency(m.collected)]));
+
+    doc.setFont(undefined, 'bold'); doc.setFontSize(11); doc.text('Overdue aging', marginX, y); y += 8;
+    const bucketLabels = { current: 'Not due', '0_30': '0-30 days', '31_60': '31-60 days', '61_90': '61-90 days', '90_plus': '90+ days' };
+    addTable(['Age bucket', 'Amount', 'Bills'], Object.entries(aging.buckets).map(([k,v]) => [bucketLabels[k]||k, currency(v), String(aging.bucket_counts[k])]));
+
+    doc.setFont(undefined, 'bold'); doc.setFontSize(11); doc.text('Complex-wise performance', marginX, y); y += 8;
+    addTable(['Complex', 'Shops', 'Occupancy', 'Billed', 'Collected', 'Collection rate'],
+      rep.complex_performance.map(c => [c.complex_name||'Unassigned', c.total_shops, c.occupancy_rate_percent+'%', currency(c.billed), currency(c.collected), c.collection_rate_percent+'%']));
+
+    doc.setFont(undefined, 'bold'); doc.setFontSize(11); doc.text('Top defaulters', marginX, y); y += 8;
+    addTable(['Tenant', 'Mobile', 'Total pending', 'Oldest due'],
+      rep.top_defaulters.map(d => [d.user_name||'—', d.mobile||'—', currency(d.total_pending), dateFmt(d.oldest_due_date)]));
+
+  } else if (tab === 'summary'){
+    const occ = rep.occupancy, col = rep.collections, due = rep.outstanding_dues;
+    addKpiRow([
+      { label: 'Occupancy', value: occ.total_shops ? Math.round((occ.occupied/occ.total_shops)*100)+'%' : '0%' },
+      { label: 'Collected', value: currency(col.total_collected_in_range) },
+      { label: 'Outstanding', value: currency(due.total_outstanding) },
+    ]);
+    const users = state.cache.users || [], shops = state.cache.shops || [];
+    const userName = (id) => users.find(u=>u.id===id)?.name || `#${id}`;
+    const shopNum = (id) => shops.find(s=>s.id===id)?.shop_number || `#${id}`;
+    doc.setFont(undefined, 'bold'); doc.setFontSize(11); doc.text('Outstanding dues', marginX, y); y += 8;
+    addTable(['Bill', 'Tenant', 'Shop', 'Type', 'Pending', 'Due'],
+      due.bills.map(b => [`#${b.bill_id}`, userName(b.user_id), shopNum(b.shop_id), b.bill_type, currency(b.pending_amount), dateFmt(b.due_date)]));
+
+  } else if (tab === 'rent-collection'){
+    const s = rep.summary;
+    addKpiRow([
+      { label: 'Total billed', value: currency(s.total_billed) },
+      { label: 'Collected', value: currency(s.total_collected) },
+      { label: 'Pending', value: currency(s.total_pending) },
+    ]);
+    addTable(['Bill', 'Tenant', 'Shop', 'Type', 'Amount', 'Paid', 'Pending', 'Status', 'Due'],
+      rep.records.map(r => [`#${r.bill_id}`, r.user_name, r.shop_number, r.bill_type, currency(r.amount), currency(r.paid_amount), currency(r.pending_amount), r.status, dateFmt(r.due_date)]));
+
+  } else if (tab === 'deposit'){
+    const s = rep.summary;
+    addKpiRow([
+      { label: 'Required', value: currency(s.total_deposit_required) },
+      { label: 'Collected', value: currency(s.total_deposit_collected) },
+      { label: 'Remaining', value: currency(s.total_deposit_remaining) },
+    ]);
+    addTable(['Tenant', 'Shop', 'Required', 'Paid', 'Remaining', 'Status'],
+      rep.records.map(r => [r.user_name, r.shop_number, currency(r.deposit_required), currency(r.deposit_paid), currency(r.deposit_remaining), r.deposit_status]));
+
+  } else if (tab === 'occupancy'){
+    const s = rep.summary;
+    addKpiRow([
+      { label: 'Total shops', value: s.total_shops },
+      { label: 'Occupied', value: s.occupied },
+      { label: 'Occupancy rate', value: s.occupancy_rate_percent+'%' },
+    ]);
+    addTable(['Shop', 'Complex', 'Rent', 'Status', 'Tenant'],
+      rep.shop_details.map(sd => [sd.shop_number, sd.complex_name, currency(sd.shop_rent), sd.status, sd.tenant_name||'—']));
+
+  } else if (tab === 'user-wise'){
+    addTable(['Tenant', 'Billed', 'Collected', 'Pending', 'Deposit paid', 'Deposit rem.'],
+      rep.map(r => [r.user_name, currency(r.total_billed), currency(r.total_collected), currency(r.total_pending), currency(r.deposit_paid), currency(r.deposit_remaining)]));
+  }
+
+  doc.save(`${tab}-report-${start||'all'}-to-${end||'today'}.pdf`);
 }
 
 /* ================================================================
