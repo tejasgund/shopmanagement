@@ -340,6 +340,27 @@ class PaymentResponse(BaseModel):
         from_attributes = True
 
 
+class AutoAllocateRequest(BaseModel):
+    user_id:        int
+    shop_id:        Optional[int] = None   # None = across all shops for this user
+    amount:         float = Field(..., gt=0)
+    payment_method: str   = Field(..., min_length=1, max_length=60)
+    remarks:        Optional[str] = None
+
+
+class AutoAllocateResult(BaseModel):
+    bill_id:     int
+    allocated:   float
+    bill_status: str
+
+
+class AutoAllocateResponse(BaseModel):
+    payments:           List[PaymentResponse]
+    allocations:        List[AutoAllocateResult]
+    total_allocated:    float
+    unallocated_amount: float
+
+
 # ── Deposit Payment ───────────────────────────
 class DepositPaymentCreate(BaseModel):
     user_id:      int
@@ -1249,6 +1270,76 @@ def record_payment(
     db.commit()
     db.refresh(pay)
     return pay
+
+
+@app.post("/api/payment/auto-allocate", response_model=AutoAllocateResponse, status_code=201, tags=["Payment"])
+def auto_allocate_payment(
+    body:  AutoAllocateRequest,
+    db:    Session = Depends(get_db),
+    actor: User    = Depends(require_admin),
+):
+    """
+    Take one lump-sum amount received from a tenant and auto-distribute it across
+    their unpaid/partial bills, oldest due_date first (FIFO). Optionally restrict
+    to one shop, otherwise spans all shops owned by the tenant.
+    Creates normal Payment rows (identical to manual entry) and reconciles each
+    bill. Fully transactional: any failure rolls back everything. Bills are
+    row-locked (SELECT ... FOR UPDATE) so concurrent admins can't double-allocate
+    the same bill.
+    """
+    user = db.query(User).filter(User.id == body.user_id).first()
+    if not user:
+        raise HTTPException(400, detail="User not found")
+    if body.shop_id is not None and not db.query(Shop).filter(Shop.id == body.shop_id).first():
+        raise HTTPException(400, detail="Shop not found")
+
+    try:
+        q = db.query(Bill).filter(
+            Bill.user_id == body.user_id,
+            Bill.status.in_(["pending", "partial"]),
+        )
+        if body.shop_id is not None:
+            q = q.filter(Bill.shop_id == body.shop_id)
+        # Lock rows so two simultaneous allocations can't both spend the same balance.
+        bills = q.order_by(Bill.due_date.is_(None), Bill.due_date.asc(), Bill.bill_date.asc(), Bill.id.asc()) \
+                 .with_for_update().all()
+
+        remaining = Decimal(str(body.amount)).quantize(Decimal("0.01"))
+        payments, allocations = [], []
+
+        for bill in bills:
+            if remaining <= 0:
+                break
+            outstanding = Decimal(str(_decimal_to_float(bill.pending_amount))).quantize(Decimal("0.01"))
+            if outstanding <= 0:
+                continue
+            alloc = min(remaining, outstanding)
+
+            pay = Payment(bill_id=bill.id, amount=alloc, payment_method=body.payment_method, remarks=body.remarks)
+            db.add(pay)
+            db.flush()
+            db.refresh(bill)
+            _reconcile_bill(bill)
+
+            write_audit(db, actor.id, "CREATE", "payments", pay.id, new_data={
+                "bill_id": bill.id, "amount": float(alloc),
+                "payment_method": body.payment_method, "auto_allocated": True,
+            })
+            db.refresh(pay)
+            payments.append(pay)
+            allocations.append(AutoAllocateResult(bill_id=bill.id, allocated=float(alloc), bill_status=bill.status))
+            remaining -= alloc
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    total_allocated = float(Decimal(str(body.amount)) - remaining)
+    return AutoAllocateResponse(
+        payments=payments, allocations=allocations,
+        total_allocated=total_allocated, unallocated_amount=float(remaining),
+    )
 
 
 @app.get("/api/payment", response_model=List[PaymentResponse], tags=["Payment"])

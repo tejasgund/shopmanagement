@@ -3627,6 +3627,14 @@ async function renderPaymentForm(presel){
       Start with the complex, then find by shop number or tenant name.
     </div>
 
+    <div class="path-toggle" id="pModeToggle" style="margin-bottom:14px;">
+      <button class="path-btn active" id="modeAuto" type="button">Auto Allocate</button>
+      <button class="path-btn" id="modeManual" type="button">Manual</button>
+    </div>
+    <div style="font-size:12px; color:var(--muted); margin:-8px 0 14px;" id="pModeHint">
+      Enter one amount received — it will be applied to the tenant's oldest pending bills first, automatically.
+    </div>
+
     <div class="field">
       <label for="pComplex">Complex</label>
       <select id="pComplex">
@@ -3739,6 +3747,42 @@ async function renderPaymentForm(presel){
   let _selectedShopId = null;
   let _selectedBillId = null;
   let _currentPath = 'shop'; // 'shop' | 'user'
+  let _mode = 'auto'; // 'auto' | 'manual'
+  let _autoAllShops = false;
+
+  function enableAutoSection(userId, shopId){
+    _selectedUserId = userId;
+    _selectedShopId = shopId; // null => all shops for this tenant
+    _selectedBillId = -1; // sentinel: no single bill in auto mode
+    document.getElementById('pBillSection').style.display = 'none';
+    const amtSection = document.getElementById('pAmtSection');
+    const amtInput = document.getElementById('pAmount');
+    const amtHint = document.getElementById('pAmountHint');
+    amtSection.style.display = 'block';
+    amtInput.value = '';
+    amtHint.textContent = shopId
+      ? 'Applied to this shop\'s oldest pending bills first (FIFO).'
+      : 'Applied across all this tenant\'s shops, oldest bills first (FIFO).';
+    document.getElementById('pSummary').style.display = 'none';
+    amtInput.oninput = () => { document.getElementById('pSaveBtn').disabled = !(parseFloat(amtInput.value) > 0); };
+    document.getElementById('pSaveBtn').disabled = true;
+    amtInput.focus();
+  }
+
+  document.getElementById('modeAuto').addEventListener('click', () => {
+    _mode = 'auto';
+    document.getElementById('modeAuto').classList.add('active');
+    document.getElementById('modeManual').classList.remove('active');
+    document.getElementById('pModeHint').textContent = "Enter one amount received — it will be applied to the tenant's oldest pending bills first, automatically.";
+    resetFromPath();
+  });
+  document.getElementById('modeManual').addEventListener('click', () => {
+    _mode = 'manual';
+    document.getElementById('modeManual').classList.add('active');
+    document.getElementById('modeAuto').classList.remove('active');
+    document.getElementById('pModeHint').textContent = 'Pick a specific bill and enter a custom amount for it.';
+    resetFromPath();
+  });
 
   function resetBillSection(){
     _selectedBillId = null;
@@ -3944,7 +3988,8 @@ async function renderPaymentForm(presel){
     `;
     tenantInfo.style.display = 'block';
     // Render bills: only for this tenant + this shop (no cross-contamination)
-    renderBills(shop.assigned_to.id, shopId);
+    if (_mode === 'auto') enableAutoSection(shop.assigned_to.id, shopId);
+    else renderBills(shop.assigned_to.id, shopId);
   });
 
   // ---- By Tenant: user change → show shops, load bills ----
@@ -3973,6 +4018,22 @@ async function renderPaymentForm(presel){
       <div class="info-row"><span class="info-label">Shop</span><span class="info-val">${escapeHtml(s.shop_number)}</span></div>
     `).join('');
     shopInfo.style.display = 'block';
+
+    if (_mode === 'auto'){
+      if (userShops.length > 1){
+        shopCard.innerHTML += `
+          <label style="display:flex; align-items:center; gap:6px; margin-top:8px; font-size:13px; cursor:pointer;">
+            <input type="checkbox" id="pAllShops" checked> Apply across all shops above (FIFO)
+          </label>`;
+        document.getElementById('pAllShops').addEventListener('change', (e) => {
+          enableAutoSection(userId, e.target.checked ? null : userShops[0].id);
+        });
+        enableAutoSection(userId, null);
+      } else {
+        enableAutoSection(userId, userShops[0].id);
+      }
+      return;
+    }
 
     // If only one shop, auto-load bills for that shop+user combo
     if (userShops.length === 1){
@@ -4031,6 +4092,36 @@ async function renderPaymentForm(presel){
 
   // ---- Save payment ----
   document.getElementById('pSaveBtn').addEventListener('click', async () => {
+    if (_mode === 'auto'){
+      if (!_selectedUserId){ showToast('Select a tenant/shop first', 'error'); return; }
+      const amount = parseFloat(document.getElementById('pAmount').value);
+      if (isNaN(amount) || amount <= 0){
+        showFieldError('pAmountErr', 'Enter a valid amount');
+        document.getElementById('pAmount').classList.add('invalid');
+        return;
+      }
+      const payment_method = document.getElementById('pMethod').value;
+      const remarks = document.getElementById('pRemarks').value.trim();
+
+      await withSavingState('pSaveBtn', async () => {
+        const res = await api('/api/payment/auto-allocate', { method:'POST', body:{
+          user_id: _selectedUserId,
+          shop_id: _selectedShopId,
+          amount, payment_method, remarks
+        }});
+        state.loaded.bills = false;
+        state.loaded.payments = false;
+        closeModal();
+        const n = res.allocations.length;
+        const msg = res.unallocated_amount > 0.005
+          ? `${currency(res.total_allocated)} allocated across ${n} bill(s); ${currency(res.unallocated_amount)} left unallocated (no more dues).`
+          : `${currency(res.total_allocated)} allocated across ${n} bill(s).`;
+        showToast(msg, 'success');
+        await renderView(state.view === 'bills' ? 'bills' : 'payments');
+      });
+      return;
+    }
+
     if (!_selectedBillId){ showToast('Select a bill first', 'error'); return; }
 
     const bill = state.cache.bills.find(b => b.id === _selectedBillId);
@@ -4072,6 +4163,11 @@ async function renderPaymentForm(presel){
       await renderView(state.view === 'bills' ? 'bills' : 'payments');
     });
   });
+
+  // If opened via a specific bill's quick-pay button, default to Manual mode so that bill stays preselected
+  if (preBillId){
+    document.getElementById('modeManual').click();
+  }
 
   // Trigger preselected complex if coming from a bill's quick-pay button
   if (presel?.preselectedComplexId){
