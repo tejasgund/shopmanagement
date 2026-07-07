@@ -566,8 +566,6 @@ td .row-actions{ display:flex; gap:6px; justify-content:flex-end; }
 .year-btn.active{ background:var(--ink); color:#fff; border-color:var(--ink); }
 .year-btn:hover:not(.active){ border-color:var(--ink); color:var(--ink); }
 </style>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 </head>
 <body>
 
@@ -1471,7 +1469,7 @@ async function billsView(){
   ${bills.length === 0 ? emptyStateHtml('No bills yet', 'Pick a tenant and create bills for one or more of their shops.', emptyIcon()) : `
   <div class="table-wrap">
     <table id="billsTable">
-      <thead><tr><th>Bill</th><th>Tenant</th><th>Shop</th><th>Complex</th><th>Type</th><th>Description</th><th class="num">Amount</th><th class="num">Pending</th><th>Status</th><th>Bill Date</th><th>Created At</th><th>Due</th><th></th></tr></thead>
+      <thead><tr><th>Bill</th><th>Tenant</th><th>Shop</th><th>Complex</th><th>Type</th><th class="num">Amount</th><th class="num">Pending</th><th>Status</th><th>Bill Date</th><th>Created At</th><th>Due</th><th></th></tr></thead>
       <tbody id="billsTbody">
         ${bills.map(b => {
           const cid = shopComplexId(b.shop_id);
@@ -1482,13 +1480,12 @@ async function billsView(){
               data-date="${b.bill_date||b.created_at||''}"
               data-bill-date="${b.bill_date||''}"
               data-created-at="${b.created_at||''}"
-              data-search="${escapeHtml(userName(b.user_id)+' '+userMobile(b.user_id)+' '+shopNum(b.shop_id)+' '+complexName(cid)+' '+b.bill_type+' '+(b.description||'')+' #'+b.id)}">
+              data-search="${escapeHtml(userName(b.user_id)+' '+userMobile(b.user_id)+' '+shopNum(b.shop_id)+' '+complexName(cid)+' '+b.bill_type+' #'+b.id)}">
             <td class="mono">#${b.id}</td>
             <td>${escapeHtml(userName(b.user_id))}</td>
             <td class="mono">${escapeHtml(shopNum(b.shop_id))}</td>
             <td>${escapeHtml(complexName(cid))}</td>
             <td>${escapeHtml(b.bill_type)}</td>
-            <td>${escapeHtml(b.description || '—')}</td>
             <td class="num">${currency(b.amount)}</td>
             <td class="num">${currency(b.pending_amount)}</td>
             <td>${stampHtml(b.status)}</td>
@@ -1544,8 +1541,8 @@ function initBillFilters(){
         if (tr.dataset.status === 'paid') show = false;
       } else if (status && tr.dataset.status !== status) show = false;
       if (type && tr.dataset.type !== type) show = false;
-      if (month) { const due = tr.dataset.due; if (!due || String(new Date(due).getMonth()+1) !== month) show = false; }
-      if (year) { const due = tr.dataset.due || tr.dataset.date; if (!due || String(new Date(due).getFullYear()) !== year) show = false; }
+      if (month) { const billDate = tr.dataset.billDate || tr.dataset.date; if (!billDate || String(new Date(billDate).getMonth()+1) !== month) show = false;}
+      if (year) { const billDate = tr.dataset.billDate || tr.dataset.date; if (!billDate || String(new Date(billDate).getFullYear()) !== year) show = false;}
       tr.style.display = show ? '' : 'none';
     });
     // Sort visible rows
@@ -2252,9 +2249,7 @@ async function reportsView(){
 
   return `
   <div class="path-toggle" id="reportTabToggle" style="margin-bottom:18px;">
-    <button class="path-btn active" data-rtab="business-overview">Business Overview</button>
-    <button class="path-btn" data-rtab="tenant-statement">Tenant Statement</button>
-    <button class="path-btn" data-rtab="summary">Summary</button>
+    <button class="path-btn active" data-rtab="summary">Summary</button>
     <button class="path-btn" data-rtab="rent-collection">Rent Collection</button>
     <button class="path-btn" data-rtab="deposit">Deposits</button>
     <button class="path-btn" data-rtab="occupancy">Occupancy</button>
@@ -2294,7 +2289,7 @@ async function reportsView(){
 }
 
 function attachReportsHandlers(){
-  let _activeTab = 'business-overview';
+  let _activeTab = 'summary';
   document.querySelectorAll('[data-rtab]').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('[data-rtab]').forEach(b=>b.classList.remove('active'));
@@ -2320,43 +2315,15 @@ async function generateReport(tab){
   try {
     await Promise.all([ensureLoaded('users','/api/user'), ensureLoaded('shops','/api/shop')]);
 
-    if (tab === 'tenant-statement'){
-      if (!userId){
-        resultsEl.innerHTML = emptyStateHtml('Pick a tenant', 'Select a tenant from the "Tenant" filter above, then click Generate to see their full bill and payment history.', emptyIcon());
-        document.getElementById('exportReportBtn').style.display = 'none';
-      } else {
-        const params = new URLSearchParams();
-        params.set('user_id', userId);
-        if (start) params.set('start_date', new Date(start).toISOString());
-        if (end) params.set('end_date', new Date(new Date(end).setHours(23,59,59)).toISOString());
-        const rep = await api(`/api/reports/tenant-statement?${params}`);
-        state._lastReportData = { tab, rep, start, end, complexId };
-        resultsEl.innerHTML = renderTenantStatementHtml(rep, start, end);
-        document.getElementById('exportReportBtn').style.display = 'inline-flex';
-        document.getElementById('exportReportBtn').onclick = () => exportReportPdf();
-      }
-
-    } else if (tab === 'business-overview'){
-      const params = new URLSearchParams();
-      if (start) params.set('start_date', new Date(start).toISOString());
-      if (end) params.set('end_date', new Date(new Date(end).setHours(23,59,59)).toISOString());
-      if (complexId) params.set('complex_id', complexId);
-      const rep = await api(`/api/reports/business-overview?${params}`);
-      state._lastReportData = { tab, rep, start, end, complexId };
-      resultsEl.innerHTML = renderBusinessOverviewHtml(rep, start, end);
-      document.getElementById('exportReportBtn').style.display = 'inline-flex';
-      document.getElementById('exportReportBtn').onclick = () => exportReportPdf();
-
-    } else if (tab === 'summary'){
+    if (tab === 'summary'){
       const params = new URLSearchParams();
       if (start) params.set('start_date', new Date(start).toISOString());
       if (end) params.set('end_date', new Date(new Date(end).setHours(23,59,59)).toISOString());
       const rep = await api(`/api/reports/summary?${params}`);
       state._lastReport = rep;
-      state._lastReportData = { tab, rep, start, end, complexId };
       resultsEl.innerHTML = renderReportHtml(rep, start, end);
       document.getElementById('exportReportBtn').style.display = 'inline-flex';
-      document.getElementById('exportReportBtn').onclick = () => exportReportPdf();
+      document.getElementById('exportReportBtn').onclick = () => downloadReportText(rep, start, end);
 
     } else if (tab === 'rent-collection'){
       const params = new URLSearchParams();
@@ -2365,7 +2332,6 @@ async function generateReport(tab){
       if (complexId) params.set('complex_id', complexId);
       if (userId) params.set('user_id', userId);
       const rep = await api(`/api/reports/rent-collection?${params}`);
-      state._lastReportData = { tab, rep, start, end, complexId };
       const s = rep.summary;
       resultsEl.innerHTML = `
         <div class="stat-row" style="margin-bottom:18px;">
@@ -2375,7 +2341,7 @@ async function generateReport(tab){
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Bill</th><th>Tenant</th><th>Mobile</th><th>Complex</th><th>Shop</th><th>Type</th><th>Description</th><th class="num">Amount</th><th class="num">Paid</th><th class="num">Pending</th><th>Status</th><th>Bill Date</th><th>Due</th></tr></thead>
+            <thead><tr><th>Bill</th><th>Tenant</th><th>Mobile</th><th>Complex</th><th>Shop</th><th>Type</th><th class="num">Amount</th><th class="num">Paid</th><th class="num">Pending</th><th>Status</th><th>Due</th></tr></thead>
             <tbody>
               ${rep.records.map(r=>`<tr>
                 <td class="mono">#${r.bill_id}</td>
@@ -2384,27 +2350,23 @@ async function generateReport(tab){
                 <td>${escapeHtml(r.complex_name)}</td>
                 <td class="mono">${escapeHtml(r.shop_number)}</td>
                 <td>${escapeHtml(r.bill_type)}</td>
-                <td>${escapeHtml(r.description || '—')}</td>
                 <td class="num">${currency(r.amount)}</td>
                 <td class="num">${currency(r.paid_amount)}</td>
                 <td class="num">${r.pending_amount > 0 ? `<span style="color:var(--rust);font-weight:700;">${currency(r.pending_amount)}</span>` : currency(r.pending_amount)}</td>
                 <td>${stampHtml(r.status)}</td>
-                <td>${dateFmt(r.bill_date)}</td>
                 <td>${dateFmt(r.due_date)}</td>
               </tr>`).join('')}
             </tbody>
           </table>
         </div>
       `;
-      document.getElementById('exportReportBtn').style.display = 'inline-flex';
-      document.getElementById('exportReportBtn').onclick = () => exportReportPdf();
+      document.getElementById('exportReportBtn').style.display = 'none';
 
     } else if (tab === 'deposit'){
       const params = new URLSearchParams();
       if (complexId) params.set('complex_id', complexId);
       if (userId) params.set('user_id', userId);
       const rep = await api(`/api/reports/deposit?${params}`);
-      state._lastReportData = { tab, rep, start, end, complexId };
       const s = rep.summary;
       const statusColor = (st) => st==='full'?'var(--success)':st==='partial'?'var(--partial)':'var(--rust)';
       resultsEl.innerHTML = `
@@ -2432,14 +2394,12 @@ async function generateReport(tab){
           </table>
         </div>
       `;
-      document.getElementById('exportReportBtn').style.display = 'inline-flex';
-      document.getElementById('exportReportBtn').onclick = () => exportReportPdf();
+      document.getElementById('exportReportBtn').style.display = 'none';
 
     } else if (tab === 'occupancy'){
       const params = new URLSearchParams();
       if (complexId) params.set('complex_id', complexId);
       const rep = await api(`/api/reports/occupancy?${params}`);
-      state._lastReportData = { tab, rep, start, end, complexId };
       const s = rep.summary;
       resultsEl.innerHTML = `
         <div class="stat-row" style="margin-bottom:18px;">
@@ -2477,8 +2437,7 @@ async function generateReport(tab){
           </table>
         </div>
       `;
-      document.getElementById('exportReportBtn').style.display = 'inline-flex';
-      document.getElementById('exportReportBtn').onclick = () => exportReportPdf();
+      document.getElementById('exportReportBtn').style.display = 'none';
 
     } else if (tab === 'user-wise'){
       const params = new URLSearchParams();
@@ -2486,7 +2445,6 @@ async function generateReport(tab){
       if (end) params.set('end_date', new Date(new Date(end).setHours(23,59,59)).toISOString());
       if (complexId) params.set('complex_id', complexId);
       const recs = await api(`/api/reports/user-wise?${params}`);
-      state._lastReportData = { tab, rep: recs, start, end, complexId };
       resultsEl.innerHTML = `
         <div class="table-wrap">
           <table>
@@ -2507,8 +2465,7 @@ async function generateReport(tab){
           </table>
         </div>
       `;
-      document.getElementById('exportReportBtn').style.display = 'inline-flex';
-      document.getElementById('exportReportBtn').onclick = () => exportReportPdf();
+      document.getElementById('exportReportBtn').style.display = 'none';
     }
   } catch (err) {
     resultsEl.innerHTML = errorBannerHtml(err.message);
@@ -2560,17 +2517,15 @@ function renderReportHtml(rep, start, end){
     ${due.bills.length === 0 ? emptyStateHtml('No outstanding dues', 'All bills are fully paid.', emptyIcon()) : `
     <div class="table-wrap" style="border:none; border-radius:0; box-shadow:none; margin-top:10px;">
       <table>
-        <thead><tr><th>Bill</th><th>Tenant</th><th>Shop</th><th>Type</th><th>Description</th><th class="num">Pending</th><th>Status</th><th>Bill Date</th><th>Due</th></tr></thead>
+        <thead><tr><th>Bill</th><th>Tenant</th><th>Shop</th><th>Type</th><th class="num">Pending</th><th>Status</th><th>Due</th></tr></thead>
         <tbody>
           ${due.bills.map(b => `<tr>
             <td class="mono">#${b.bill_id}</td>
             <td>${escapeHtml(userName(b.user_id))}</td>
             <td class="mono">${escapeHtml(shopNum(b.shop_id))}</td>
             <td>${escapeHtml(b.bill_type)}</td>
-            <td>${escapeHtml(b.description || '—')}</td>
             <td class="num">${currency(b.pending_amount)}</td>
             <td>${stampHtml(b.status)}</td>
-            <td>${dateFmt(b.bill_date)}</td>
             <td>${dateFmt(b.due_date)}</td>
           </tr>`).join('')}
         </tbody>
@@ -2619,368 +2574,6 @@ function downloadReportText(rep, start, end){
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-}
-
-/* ---------- Business Overview tab: renderer + SVG charts ---------- */
-
-function svgBarChart({width=560, height=200, bars, valueFormatter=(v)=>v, barColorFn=null, defaultColor='var(--ink)'}){
-  const max = Math.max(1, ...bars.map(b=>b.value));
-  const padL = 46, padB = 28, padT = 10, padR = 10;
-  const plotW = width - padL - padR, plotH = height - padT - padB;
-  const bw = plotW / bars.length;
-  const gridLines = [0, 0.25, 0.5, 0.75, 1].map(f => {
-    const y = padT + plotH - f*plotH;
-    const val = Math.round(max*f);
-    return `<line x1="${padL}" y1="${y}" x2="${width-padR}" y2="${y}" stroke="var(--line)" stroke-width="1"/>
-            <text x="${padL-8}" y="${y+4}" font-size="10" fill="var(--muted)" text-anchor="end">${valueFormatter(val)}</text>`;
-  }).join('');
-  const barsHtml = bars.map((b,i)=>{
-    const bh = (b.value/max) * plotH;
-    const x = padL + i*bw + bw*0.2;
-    const y = padT + plotH - bh;
-    const w = bw*0.6;
-    const color = barColorFn ? barColorFn(b) : defaultColor;
-    return `<rect x="${x}" y="${y}" width="${w}" height="${Math.max(bh,1)}" fill="${color}" rx="2"/>
-            <text x="${x+w/2}" y="${padT+plotH+18}" font-size="10.5" fill="var(--muted)" text-anchor="middle">${escapeHtml(b.label)}</text>`;
-  }).join('');
-  return `<svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}" style="overflow:visible;">${gridLines}${barsHtml}</svg>`;
-}
-
-function svgGroupedTrendChart({width=640, height=220, months, valueFormatter=(v)=>v}){
-  const max = Math.max(1, ...months.flatMap(m=>[m.billed, m.collected]));
-  const padL = 52, padB = 28, padT = 12, padR = 10;
-  const plotW = width - padL - padR, plotH = height - padT - padB;
-  const groupW = plotW / months.length;
-  const gridLines = [0, 0.25, 0.5, 0.75, 1].map(f => {
-    const y = padT + plotH - f*plotH;
-    const val = Math.round(max*f);
-    return `<line x1="${padL}" y1="${y}" x2="${width-padR}" y2="${y}" stroke="var(--line)" stroke-width="1"/>
-            <text x="${padL-8}" y="${y+4}" font-size="10" fill="var(--muted)" text-anchor="end">${valueFormatter(val)}</text>`;
-  }).join('');
-  const bars = months.map((m,i)=>{
-    const gx = padL + i*groupW;
-    const bw = groupW*0.32;
-    const bhBilled = (m.billed/max)*plotH, bhCollected = (m.collected/max)*plotH;
-    const x1 = gx + groupW*0.14, x2 = gx + groupW*0.54;
-    return `
-      <rect x="${x1}" y="${padT+plotH-bhBilled}" width="${bw}" height="${Math.max(bhBilled,1)}" fill="var(--muted)" opacity="0.55" rx="2"/>
-      <rect x="${x2}" y="${padT+plotH-bhCollected}" width="${bw}" height="${Math.max(bhCollected,1)}" fill="var(--success, #3a7d5c)" rx="2"/>
-      <text x="${gx+groupW/2}" y="${padT+plotH+18}" font-size="10.5" fill="var(--muted)" text-anchor="middle">${escapeHtml(m.month)}</text>`;
-  }).join('');
-  return `
-    <svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}" style="overflow:visible;">${gridLines}${bars}</svg>
-    <div style="display:flex; gap:16px; margin-top:8px; font-size:12px; color:var(--muted);">
-      <span><span style="display:inline-block; width:10px; height:10px; background:var(--muted); opacity:0.55; border-radius:2px; margin-right:5px;"></span>Billed</span>
-      <span><span style="display:inline-block; width:10px; height:10px; background:var(--success, #3a7d5c); border-radius:2px; margin-right:5px;"></span>Collected</span>
-    </div>`;
-}
-
-function renderBusinessOverviewHtml(rep, start, end){
-  const ce = rep.collection_efficiency, aging = rep.aging, ts = rep.today_snapshot;
-  const bucketLabels = { current: 'Not due', '0_30': '0–30 days', '31_60': '31–60 days', '61_90': '61–90 days', '90_plus': '90+ days' };
-  const agingBars = Object.entries(aging.buckets).map(([k,v]) => ({ label: bucketLabels[k]||k, value: v }));
-  const waLink = (mobile, name, amount) => {
-    if (!mobile) return null;
-    const digits = mobile.replace(/\D/g,'');
-    const msg = encodeURIComponent(`Hi ${name}, this is a reminder that ${currency(amount)} is pending on your account. Please clear it at your earliest convenience. Thank you.`);
-    return `https://wa.me/${digits.length===10?'91'+digits:digits}?text=${msg}`;
-  };
-
-  return `
-  <div class="card card-pad" style="margin-bottom:18px; background:var(--paper-raised);">
-    <h3 style="font-size:13.5px; margin:0 0 12px; text-transform:uppercase; letter-spacing:0.03em; color:var(--muted);">Today's snapshot — daily ops</h3>
-    <div style="display:flex; gap:24px; flex-wrap:wrap;">
-      <div><div style="font-size:11px; color:var(--muted);">Collected today</div><div style="font-size:19px; font-weight:700;" class="mono">${currency(ts.collections_today)}</div><div style="font-size:11px; color:var(--muted);">${ts.payments_today_count} payment(s)</div></div>
-      <div><div style="font-size:11px; color:var(--muted);">Due today</div><div style="font-size:19px; font-weight:700;" class="mono">${currency(ts.due_today_amount)}</div><div style="font-size:11px; color:var(--muted);">${ts.due_today_count} bill(s)</div></div>
-      <div><div style="font-size:11px; color:var(--muted);">Due this week</div><div style="font-size:19px; font-weight:700;" class="mono">${currency(ts.due_this_week_amount)}</div><div style="font-size:11px; color:var(--muted);">${ts.due_this_week_count} bill(s)</div></div>
-      <div><div style="font-size:11px; color:var(--muted);">Overdue (all)</div><div style="font-size:19px; font-weight:700; color:var(--rust);" class="mono">${currency(ts.overdue_amount)}</div><div style="font-size:11px; color:var(--muted);">${ts.overdue_count} bill(s)</div></div>
-    </div>
-  </div>
-
-  <div class="card-pad" style="padding:0 0 14px;"><div class="crumb">Report period: ${start ? dateFmt(start) : 'all time'} — ${end ? dateFmt(end) : 'today'}</div></div>
-
-  <div class="stat-row" style="margin-bottom:18px;">
-    <div class="card stat-card accent-green"><div class="label">Collection efficiency</div><div class="value">${ce.collection_efficiency_percent}%</div><div class="sub">${currency(ce.total_collected_in_range)} of ${currency(ce.total_billed_in_range)} billed</div></div>
-    <div class="card stat-card accent-rust"><div class="label">Total outstanding</div><div class="value mono">${currency(aging.total_outstanding)}</div><div class="sub">across all unpaid bills</div></div>
-    <div class="card stat-card"><div class="label">90+ days overdue</div><div class="value mono">${currency(aging.buckets['90_plus'])}</div><div class="sub">${aging.bucket_counts['90_plus']} bill(s) — highest risk</div></div>
-    <div class="card stat-card"><div class="label">Top defaulter</div><div class="value" style="font-size:16px;">${rep.top_defaulters[0] ? escapeHtml(rep.top_defaulters[0].user_name) : '—'}</div><div class="sub">${rep.top_defaulters[0] ? currency(rep.top_defaulters[0].total_pending)+' pending' : 'no outstanding dues'}</div></div>
-  </div>
-
-  <div class="card" style="margin-bottom:18px;">
-    <div class="card-pad" style="padding-bottom:0;"><h3 style="font-size:15.5px;">6-month collection trend</h3></div>
-    <div class="card-pad" style="padding-top:14px;">${svgGroupedTrendChart({months: rep.monthly_trend, valueFormatter: v=>'₹'+(v>=1000? Math.round(v/1000)+'k' : v)})}</div>
-  </div>
-
-  <div class="card" style="margin-bottom:18px;">
-    <div class="card-pad" style="padding-bottom:0;"><h3 style="font-size:15.5px;">Overdue aging (outstanding dues by age)</h3></div>
-    <div class="card-pad" style="padding-top:14px;">${svgBarChart({bars: agingBars, valueFormatter: v=>'₹'+(v>=1000? Math.round(v/1000)+'k' : v), barColorFn: b => b.label==='90+ days' ? 'var(--rust)' : (b.label==='Not due' ? 'var(--success, #3a7d5c)' : 'var(--partial, #b8863b)')})}</div>
-  </div>
-
-  <div class="card" style="margin-bottom:18px;">
-    <div class="card-pad" style="padding-bottom:0;"><h3 style="font-size:15.5px;">Complex-wise performance</h3><p style="font-size:12.5px; color:var(--muted); margin:4px 0 0;">Sorted by collection rate, lowest first — needs attention.</p></div>
-    <div class="table-wrap" style="border:none; border-radius:0; box-shadow:none; margin-top:10px;">
-      <table>
-        <thead><tr><th>Complex</th><th class="num">Shops</th><th class="num">Occupancy</th><th class="num">Billed</th><th class="num">Collected</th><th class="num">Collection rate</th></tr></thead>
-        <tbody>
-          ${rep.complex_performance.map(c=>`<tr>
-            <td>${escapeHtml(c.complex_name||'Unassigned')}</td>
-            <td class="num">${c.total_shops}</td>
-            <td class="num">${c.occupancy_rate_percent}%</td>
-            <td class="num">${currency(c.billed)}</td>
-            <td class="num">${currency(c.collected)}</td>
-            <td class="num">${c.collection_rate_percent < 70 ? `<span style="color:var(--rust);font-weight:700;">${c.collection_rate_percent}%</span>` : c.collection_rate_percent+'%'}</td>
-          </tr>`).join('')}
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="card-pad" style="padding-bottom:0;"><h3 style="font-size:15.5px;">Top defaulters</h3><p style="font-size:12.5px; color:var(--muted); margin:4px 0 0;">Highest pending amounts, current unpaid bills.</p></div>
-    ${rep.top_defaulters.length === 0 ? emptyStateHtml('No defaulters', 'Every bill is fully paid — great job.', emptyIcon()) : `
-    <div class="table-wrap" style="border:none; border-radius:0; box-shadow:none; margin-top:10px;">
-      <table>
-        <thead><tr><th>Tenant</th><th>Mobile</th><th class="num">Total pending</th><th>Oldest due</th><th></th></tr></thead>
-        <tbody>
-          ${rep.top_defaulters.map(d=>`<tr>
-            <td><strong>${escapeHtml(d.user_name||'—')}</strong></td>
-            <td class="mono">${escapeHtml(d.mobile||'—')}</td>
-            <td class="num"><span style="color:var(--rust);font-weight:700;">${currency(d.total_pending)}</span></td>
-            <td>${dateFmt(d.oldest_due_date)}</td>
-            <td>${waLink(d.mobile, d.user_name, d.total_pending) ? `<a href="${waLink(d.mobile, d.user_name, d.total_pending)}" target="_blank" rel="noopener" style="font-size:12px; color:var(--success,#3a7d5c); font-weight:600; text-decoration:none; white-space:nowrap;">Remind ↗</a>` : ''}</td>
-          </tr>`).join('')}
-        </tbody>
-      </table>
-    </div>`}
-  </div>`;
-}
-
-/* ---------- Tenant Statement tab: full bill+payment ledger for one tenant ---------- */
-
-function renderTenantStatementHtml(rep, start, end){
-  const s = rep.summary, u = rep.user;
-  const allPayments = rep.ledger.flatMap(b => b.payments.map(p => ({...p, bill_type: b.bill_type, bill_id: b.bill_id})));
-
-  return `
-  <div class="card card-pad" style="margin-bottom:18px; display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:10px;">
-    <div>
-      <h3 style="font-size:16.5px; margin:0 0 4px;">${escapeHtml(u.name)}</h3>
-      <div style="font-size:12.5px; color:var(--muted);">${escapeHtml(u.mobile||'—')} ${u.email ? '· '+escapeHtml(u.email) : ''}</div>
-    </div>
-    <div class="crumb">Period: ${start ? dateFmt(start) : 'all time'} — ${end ? dateFmt(end) : 'today'}</div>
-  </div>
-
-  <div class="stat-row" style="margin-bottom:18px;">
-    <div class="card stat-card"><div class="label">Total billed</div><div class="value mono">${currency(s.total_billed)}</div><div class="sub">${s.bills_count} bills</div></div>
-    <div class="card stat-card accent-green"><div class="label">Total paid</div><div class="value mono">${currency(s.total_paid)}</div><div class="sub">${s.paid_count} fully paid</div></div>
-    <div class="card stat-card accent-rust"><div class="label">Pending</div><div class="value mono">${currency(s.total_pending)}</div><div class="sub">${s.pending_count} unpaid/partial</div></div>
-  </div>
-
-  <div class="card" style="margin-bottom:18px;">
-    <div class="card-pad" style="padding-bottom:0;"><h3 style="font-size:15.5px;">Bill history</h3><p style="font-size:12.5px; color:var(--muted); margin:4px 0 0;">Sorted oldest to newest by bill date — scan month by month.</p></div>
-    ${rep.ledger.length === 0 ? emptyStateHtml('No bills yet', 'This tenant has no bills in the selected period.', emptyIcon()) : `
-    <div class="table-wrap" style="border:none; border-radius:0; box-shadow:none; margin-top:10px;">
-      <table>
-        <thead><tr><th>Month</th><th>Bill</th><th>Type</th><th>Description</th><th>Shop</th><th>Bill Date</th><th>Due</th><th class="num">Amount</th><th class="num">Paid</th><th class="num">Pending</th><th>Status</th></tr></thead>
-        <tbody>
-          ${rep.ledger.map(b => `<tr>
-            <td>${escapeHtml(b.bill_month||'—')}</td>
-            <td class="mono">#${b.bill_id}</td>
-            <td>${escapeHtml(b.bill_type)}</td>
-            <td>${escapeHtml(b.description || '—')}</td>
-            <td class="mono">${escapeHtml(b.shop_number||'—')}</td>
-            <td>${dateFmt(b.bill_date)}</td>
-            <td>${dateFmt(b.due_date)}</td>
-            <td class="num">${currency(b.amount)}</td>
-            <td class="num">${currency(b.paid_amount)}</td>
-            <td class="num">${b.pending_amount > 0 ? `<span style="color:var(--rust);font-weight:700;">${currency(b.pending_amount)}</span>` : '—'}</td>
-            <td>${stampHtml(b.status)}</td>
-          </tr>`).join('')}
-        </tbody>
-      </table>
-    </div>`}
-  </div>
-
-  <div class="card">
-    <div class="card-pad" style="padding-bottom:0;"><h3 style="font-size:15.5px;">Payment history</h3></div>
-    ${allPayments.length === 0 ? emptyStateHtml('No payments yet', 'No payments have been recorded for this tenant.', emptyIcon()) : `
-    <div class="table-wrap" style="border:none; border-radius:0; box-shadow:none; margin-top:10px;">
-      <table>
-        <thead><tr><th>Date</th><th>Bill</th><th>Type</th><th class="num">Amount</th><th>Method</th></tr></thead>
-        <tbody>
-          ${allPayments.sort((a,b)=>new Date(a.payment_date)-new Date(b.payment_date)).map(p => `<tr>
-            <td>${dateFmt(p.payment_date)}</td>
-            <td class="mono">#${p.bill_id}</td>
-            <td>${escapeHtml(p.bill_type)}</td>
-            <td class="num">${currency(p.amount)}</td>
-            <td>${escapeHtml(p.payment_method)}</td>
-          </tr>`).join('')}
-        </tbody>
-      </table>
-    </div>`}
-  </div>`;
-}
-
-/* ---------- Generic PDF export for any report tab ---------- */
-
-function exportReportPdf(){
-  const data = state._lastReportData;
-  if (!data) return;
-  const { tab, rep, start, end } = data;
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-  const marginX = 40;
-  let y = 44;
-
-  const titles = {
-    'business-overview': 'Business Overview Report',
-    'tenant-statement': 'Tenant Bill Statement',
-    'summary': 'Business Summary Report',
-    'rent-collection': 'Rent Collection Report',
-    'deposit': 'Deposit Report',
-    'occupancy': 'Occupancy Report',
-    'user-wise': 'User-wise Financial Report',
-  };
-
-  doc.setFillColor(58, 54, 46);
-  doc.rect(0, 0, doc.internal.pageSize.getWidth(), 6, 'F');
-
-  doc.setFontSize(11); doc.setFont(undefined, 'bold'); doc.setTextColor(58, 54, 46);
-  doc.text('LEDGER', marginX, y);
-  doc.setFontSize(8.5); doc.setFont(undefined, 'normal'); doc.setTextColor(130);
-  doc.text('Shop & Tenant Management', marginX + 52, y);
-  y += 22;
-
-  doc.setDrawColor(220); doc.setLineWidth(0.6);
-  doc.line(marginX, y, doc.internal.pageSize.getWidth() - marginX, y);
-  y += 20;
-
-  doc.setFontSize(16); doc.setFont(undefined, 'bold'); doc.setTextColor(0);
-  doc.text(titles[tab] || 'Report', marginX, y); y += 20;
-  doc.setFontSize(10); doc.setFont(undefined, 'normal'); doc.setTextColor(100);
-  doc.text(`Period: ${start ? dateFmt(start) : 'all time'} — ${end ? dateFmt(end) : 'today'}`, marginX, y); y += 14;
-  doc.text(`Generated: ${new Date().toLocaleString('en-IN')}`, marginX, y); y += 20;
-  doc.setTextColor(0);
-
-  const addKpiRow = (items) => {
-    doc.setFontSize(9);
-    items.forEach((it, i) => {
-      const x = marginX + i * 130;
-      doc.setFont(undefined, 'normal'); doc.setTextColor(110);
-      doc.text(it.label, x, y);
-      doc.setFont(undefined, 'bold'); doc.setTextColor(0);
-      doc.text(String(it.value), x, y + 14);
-    });
-    y += 34;
-  };
-
-  const addTable = (head, body) => {
-    doc.autoTable({ startY: y, head: [head], body, margin: { left: marginX, right: marginX }, styles: { fontSize: 8, cellPadding: 4 }, headStyles: { fillColor: [58, 54, 46] } });
-    y = doc.lastAutoTable.finalY + 18;
-  };
-
-  if (tab === 'tenant-statement'){
-    const s = rep.summary, u = rep.user;
-    doc.setFontSize(10); doc.setFont(undefined, 'bold'); doc.setTextColor(0);
-    doc.text(`${u.name}  ·  ${u.mobile||''}`, marginX, y); y += 16;
-    addKpiRow([
-      { label: 'Total billed', value: currency(s.total_billed) },
-      { label: 'Total paid', value: currency(s.total_paid) },
-      { label: 'Pending', value: currency(s.total_pending) },
-    ]);
-    doc.setFont(undefined, 'bold'); doc.setFontSize(11); doc.text('Bill history', marginX, y); y += 8;
-    addTable(['Month', 'Bill', 'Type', 'Description', 'Bill Date', 'Due', 'Amount', 'Paid', 'Pending', 'Status'],
-      rep.ledger.map(b => [b.bill_month||'—', `#${b.bill_id}`, b.bill_type, b.description||'—', dateFmt(b.bill_date), dateFmt(b.due_date), currency(b.amount), currency(b.paid_amount), currency(b.pending_amount), b.status]));
-
-    const allPayments = rep.ledger.flatMap(b => b.payments.map(p => ({...p, bill_type: b.bill_type, bill_id: b.bill_id})))
-      .sort((a,bx)=>new Date(a.payment_date)-new Date(bx.payment_date));
-    doc.setFont(undefined, 'bold'); doc.setFontSize(11); doc.text('Payment history', marginX, y); y += 8;
-    addTable(['Date', 'Bill', 'Type', 'Amount', 'Method'],
-      allPayments.map(p => [dateFmt(p.payment_date), `#${p.bill_id}`, p.bill_type, currency(p.amount), p.payment_method]));
-
-  } else if (tab === 'business-overview'){
-    const ce = rep.collection_efficiency, aging = rep.aging;
-    addKpiRow([
-      { label: 'Collection efficiency', value: ce.collection_efficiency_percent + '%' },
-      { label: 'Total outstanding', value: currency(aging.total_outstanding) },
-      { label: '90+ days overdue', value: currency(aging.buckets['90_plus']) },
-    ]);
-    doc.setFont(undefined, 'bold'); doc.setFontSize(11); doc.text('6-month collection trend', marginX, y); y += 8;
-    addTable(['Month', 'Billed', 'Collected'], rep.monthly_trend.map(m => [m.month, currency(m.billed), currency(m.collected)]));
-
-    doc.setFont(undefined, 'bold'); doc.setFontSize(11); doc.text('Overdue aging', marginX, y); y += 8;
-    const bucketLabels = { current: 'Not due', '0_30': '0-30 days', '31_60': '31-60 days', '61_90': '61-90 days', '90_plus': '90+ days' };
-    addTable(['Age bucket', 'Amount', 'Bills'], Object.entries(aging.buckets).map(([k,v]) => [bucketLabels[k]||k, currency(v), String(aging.bucket_counts[k])]));
-
-    doc.setFont(undefined, 'bold'); doc.setFontSize(11); doc.text('Complex-wise performance', marginX, y); y += 8;
-    addTable(['Complex', 'Shops', 'Occupancy', 'Billed', 'Collected', 'Collection rate'],
-      rep.complex_performance.map(c => [c.complex_name||'Unassigned', c.total_shops, c.occupancy_rate_percent+'%', currency(c.billed), currency(c.collected), c.collection_rate_percent+'%']));
-
-    doc.setFont(undefined, 'bold'); doc.setFontSize(11); doc.text('Top defaulters', marginX, y); y += 8;
-    addTable(['Tenant', 'Mobile', 'Total pending', 'Oldest due'],
-      rep.top_defaulters.map(d => [d.user_name||'—', d.mobile||'—', currency(d.total_pending), dateFmt(d.oldest_due_date)]));
-
-  } else if (tab === 'summary'){
-    const occ = rep.occupancy, col = rep.collections, due = rep.outstanding_dues;
-    addKpiRow([
-      { label: 'Occupancy', value: occ.total_shops ? Math.round((occ.occupied/occ.total_shops)*100)+'%' : '0%' },
-      { label: 'Collected', value: currency(col.total_collected_in_range) },
-      { label: 'Outstanding', value: currency(due.total_outstanding) },
-    ]);
-    const users = state.cache.users || [], shops = state.cache.shops || [];
-    const userName = (id) => users.find(u=>u.id===id)?.name || `#${id}`;
-    const shopNum = (id) => shops.find(s=>s.id===id)?.shop_number || `#${id}`;
-    doc.setFont(undefined, 'bold'); doc.setFontSize(11); doc.text('Outstanding dues', marginX, y); y += 8;
-    addTable(['Bill', 'Tenant', 'Shop', 'Type', 'Description', 'Pending', 'Bill Date', 'Due'],
-      due.bills.map(b => [`#${b.bill_id}`, userName(b.user_id), shopNum(b.shop_id), b.bill_type, b.description||'—', currency(b.pending_amount), dateFmt(b.bill_date), dateFmt(b.due_date)]));
-
-  } else if (tab === 'rent-collection'){
-    const s = rep.summary;
-    addKpiRow([
-      { label: 'Total billed', value: currency(s.total_billed) },
-      { label: 'Collected', value: currency(s.total_collected) },
-      { label: 'Pending', value: currency(s.total_pending) },
-    ]);
-    addTable(['Bill', 'Tenant', 'Shop', 'Type', 'Description', 'Amount', 'Paid', 'Pending', 'Status', 'Bill Date', 'Due'],
-      rep.records.map(r => [`#${r.bill_id}`, r.user_name, r.shop_number, r.bill_type, r.description||'—', currency(r.amount), currency(r.paid_amount), currency(r.pending_amount), r.status, dateFmt(r.bill_date), dateFmt(r.due_date)]));
-
-  } else if (tab === 'deposit'){
-    const s = rep.summary;
-    addKpiRow([
-      { label: 'Required', value: currency(s.total_deposit_required) },
-      { label: 'Collected', value: currency(s.total_deposit_collected) },
-      { label: 'Remaining', value: currency(s.total_deposit_remaining) },
-    ]);
-    addTable(['Tenant', 'Shop', 'Required', 'Paid', 'Remaining', 'Status'],
-      rep.records.map(r => [r.user_name, r.shop_number, currency(r.deposit_required), currency(r.deposit_paid), currency(r.deposit_remaining), r.deposit_status]));
-
-  } else if (tab === 'occupancy'){
-    const s = rep.summary;
-    addKpiRow([
-      { label: 'Total shops', value: s.total_shops },
-      { label: 'Occupied', value: s.occupied },
-      { label: 'Occupancy rate', value: s.occupancy_rate_percent+'%' },
-    ]);
-    addTable(['Shop', 'Complex', 'Rent', 'Status', 'Tenant'],
-      rep.shop_details.map(sd => [sd.shop_number, sd.complex_name, currency(sd.shop_rent), sd.status, sd.tenant_name||'—']));
-
-  } else if (tab === 'user-wise'){
-    addTable(['Tenant', 'Billed', 'Collected', 'Pending', 'Deposit paid', 'Deposit rem.'],
-      rep.map(r => [r.user_name, currency(r.total_billed), currency(r.total_collected), currency(r.total_pending), currency(r.deposit_paid), currency(r.deposit_remaining)]));
-  }
-
-  const pageCount = doc.internal.getNumberOfPages();
-  for (let i = 1; i <= pageCount; i++){
-    doc.setPage(i);
-    const w = doc.internal.pageSize.getWidth(), h = doc.internal.pageSize.getHeight();
-    doc.setDrawColor(230); doc.setLineWidth(0.5);
-    doc.line(marginX, h - 34, w - marginX, h - 34);
-    doc.setFontSize(8); doc.setFont(undefined, 'normal'); doc.setTextColor(140);
-    doc.text('Ledger — Shop & Tenant Management', marginX, h - 20);
-    doc.text(`Page ${i} of ${pageCount}`, w - marginX, h - 20, { align: 'right' });
-  }
-
-  doc.save(`${tab}-report-${start||'all'}-to-${end||'today'}.pdf`);
 }
 
 /* ================================================================
@@ -3627,14 +3220,6 @@ async function renderPaymentForm(presel){
       Start with the complex, then find by shop number or tenant name.
     </div>
 
-    <div class="path-toggle" id="pModeToggle" style="margin-bottom:14px;">
-      <button class="path-btn active" id="modeAuto" type="button">Auto Allocate</button>
-      <button class="path-btn" id="modeManual" type="button">Manual</button>
-    </div>
-    <div style="font-size:12px; color:var(--muted); margin:-8px 0 14px;" id="pModeHint">
-      Enter one amount received — it will be applied to the tenant's oldest pending bills first, automatically.
-    </div>
-
     <div class="field">
       <label for="pComplex">Complex</label>
       <select id="pComplex">
@@ -3706,7 +3291,7 @@ async function renderPaymentForm(presel){
     <!-- AMOUNT + METHOD — shown after bill selected -->
     <div id="pAmtSection" style="display:none;">
       <div class="form-grid">
-        <div class="field" id="pAmountField">
+        <div class="field">
           <label for="pAmount">Amount paying (₹)</label>
           <input id="pAmount" type="number" step="0.01" min="0.01" placeholder="0.00">
           ${fieldErrorHtml('pAmountErr')}
@@ -3735,23 +3320,9 @@ async function renderPaymentForm(presel){
         <div class="ps-row ps-total"><span class="ps-key">Paying now</span><span class="ps-val" id="psNow">—</span></div>
       </div>
     </div>
-
-    <!-- AUTO-ALLOCATE PREVIEW — admin reviews/edits before anything is created -->
-    <div id="pPreviewSection" style="display:none;">
-      <div style="font-size:12px; color:var(--muted); background:var(--paper); border-radius:var(--radius-sm); padding:8px 11px; margin:14px 0 10px; display:flex; align-items:center; gap:7px;">
-        Review the allocation below — edit any amount, then confirm to actually record the payments.
-      </div>
-      <div id="pPreviewRows"></div>
-      <div class="pay-summary" style="margin-top:10px;">
-        <div class="ps-row"><span class="ps-key">Amount received</span><span class="ps-val" id="pvReceived">—</span></div>
-        <div class="ps-row"><span class="ps-key">Allocated to bills</span><span class="ps-val" id="pvAllocated">—</span></div>
-        <div class="ps-row ps-total"><span class="ps-key">Unallocated (left over)</span><span class="ps-val" id="pvUnallocated">—</span></div>
-      </div>
-    </div>
   `, `
     <button class="btn btn-ghost" id="cancelBtn">Cancel</button>
-    <button class="btn btn-ghost" id="pBackBtn" style="display:none;">Back / edit</button>
-    <button class="btn btn-primary" id="pSaveBtn" disabled>Preview allocation</button>
+    <button class="btn btn-primary" id="pSaveBtn" disabled>Record payment</button>
   `);
 
   document.getElementById('cancelBtn').addEventListener('click', closeModal);
@@ -3761,115 +3332,12 @@ async function renderPaymentForm(presel){
   let _selectedShopId = null;
   let _selectedBillId = null;
   let _currentPath = 'shop'; // 'shop' | 'user'
-  let _mode = 'auto'; // 'auto' | 'manual'
-  let _autoStep = 'input'; // 'input' | 'preview'
-  let _previewRows = []; // last preview rows from server, editable by admin
-  let _amountReceived = 0;
-
-  function resetAutoPreview(){
-    _autoStep = 'input';
-    _previewRows = [];
-    document.getElementById('pPreviewSection').style.display = 'none';
-    document.getElementById('pPreviewRows').innerHTML = '';
-    document.getElementById('pBackBtn').style.display = 'none';
-    document.getElementById('pAmtSection').style.display = _selectedUserId ? 'block' : 'none';
-    document.getElementById('pAmountField').style.display = 'block';
-    document.getElementById('pSaveBtn').textContent = 'Preview allocation';
-    document.getElementById('pSaveBtn').disabled = !(parseFloat(document.getElementById('pAmount')?.value) > 0);
-  }
-
-  function renderPreviewRows(){
-    const wrap = document.getElementById('pPreviewRows');
-    if (_previewRows.length === 0){
-      wrap.innerHTML = `<div style="font-size:13px; color:var(--muted); padding:8px 0;">No pending bills found for this selection — nothing to allocate.</div>`;
-      return;
-    }
-    wrap.innerHTML = _previewRows.map((r, i) => `
-      <label class="bill-row" style="align-items:center;">
-        <div class="bill-row-info">
-          <div class="btype">${escapeHtml(r.bill_type)}${r.shop_number ? ` <span style="font-size:11.5px; color:var(--muted); font-weight:400;">· Shop ${escapeHtml(r.shop_number)}</span>` : ''}</div>
-          <div class="bmeta">Bill #${r.bill_id} · due ${dateFmt(r.due_date)} · outstanding ${currency(r.outstanding)} → will be <strong>${r.resulting_status}</strong></div>
-        </div>
-        <div class="bill-row-amt">
-          <input type="number" step="0.01" min="0" max="${r.outstanding}" value="${r.allocated.toFixed(2)}"
-                 data-preview-idx="${i}" style="width:110px; text-align:right;" class="preview-amt-input">
-        </div>
-      </label>
-    `).join('');
-
-    wrap.querySelectorAll('.preview-amt-input').forEach(inp => {
-      inp.addEventListener('input', () => {
-        const idx = Number(inp.dataset.previewIdx);
-        let val = parseFloat(inp.value);
-        const max = _previewRows[idx].outstanding;
-        if (isNaN(val) || val < 0) val = 0;
-        if (val > max) val = max; // never exceed the bill's outstanding balance
-        _previewRows[idx].allocated = val;
-        inp.value = val.toFixed(2);
-        updatePreviewTotals();
-      });
-    });
-    updatePreviewTotals();
-  }
-
-  function updatePreviewTotals(){
-    const allocated = _previewRows.reduce((s, r) => s + r.allocated, 0);
-    document.getElementById('pvReceived').textContent = currency(_amountReceived);
-    document.getElementById('pvAllocated').textContent = currency(allocated);
-    document.getElementById('pvUnallocated').textContent = currency(Math.max(0, _amountReceived - allocated));
-  }
-
-  function enableAutoSection(userId, shopId){
-    _selectedUserId = userId;
-    _selectedShopId = shopId; // null => all shops for this tenant
-    _selectedBillId = -1; // sentinel: no single bill in auto mode
-    document.getElementById('pBillSection').style.display = 'none';
-    const amtSection = document.getElementById('pAmtSection');
-    const amtInput = document.getElementById('pAmount');
-    const amtHint = document.getElementById('pAmountHint');
-    amtSection.style.display = 'block';
-    amtInput.value = '';
-    amtHint.textContent = shopId
-      ? 'Applied to this shop\'s oldest pending bills first (FIFO).'
-      : 'Applied across all this tenant\'s shops, oldest bills first (FIFO).';
-    document.getElementById('pSummary').style.display = 'none';
-    amtInput.oninput = () => { document.getElementById('pSaveBtn').disabled = !(parseFloat(amtInput.value) > 0); };
-    resetAutoPreview();
-    amtInput.focus();
-  }
-
-  document.getElementById('pBackBtn').addEventListener('click', resetAutoPreview);
-
-  document.getElementById('modeAuto').addEventListener('click', () => {
-    _mode = 'auto';
-    document.getElementById('modeAuto').classList.add('active');
-    document.getElementById('modeManual').classList.remove('active');
-    document.getElementById('pModeHint').textContent = "Enter one amount received — it will be applied to the tenant's oldest pending bills first, automatically.";
-    resetFromPath();
-  });
-  document.getElementById('modeManual').addEventListener('click', () => {
-    _mode = 'manual';
-    document.getElementById('modeManual').classList.add('active');
-    document.getElementById('modeAuto').classList.remove('active');
-    document.getElementById('pModeHint').textContent = 'Pick a specific bill and enter a custom amount for it.';
-    document.getElementById('pPreviewSection').style.display = 'none';
-    document.getElementById('pBackBtn').style.display = 'none';
-    document.getElementById('pSaveBtn').textContent = 'Record payment';
-    resetFromPath();
-  });
-
 
   function resetBillSection(){
     _selectedBillId = null;
-    _autoStep = 'input';
-    _previewRows = [];
     document.getElementById('pBillSection').style.display = 'none';
     document.getElementById('pAmtSection').style.display = 'none';
-    document.getElementById('pAmountField').style.display = 'block';
     document.getElementById('pSummary').style.display = 'none';
-    document.getElementById('pPreviewSection').style.display = 'none';
-    document.getElementById('pBackBtn').style.display = 'none';
-    document.getElementById('pSaveBtn').textContent = _mode === 'auto' ? 'Preview allocation' : 'Record payment';
     document.getElementById('pSaveBtn').disabled = true;
   }
 
@@ -4069,8 +3537,7 @@ async function renderPaymentForm(presel){
     `;
     tenantInfo.style.display = 'block';
     // Render bills: only for this tenant + this shop (no cross-contamination)
-    if (_mode === 'auto') enableAutoSection(shop.assigned_to.id, shopId);
-    else renderBills(shop.assigned_to.id, shopId);
+    renderBills(shop.assigned_to.id, shopId);
   });
 
   // ---- By Tenant: user change → show shops, load bills ----
@@ -4099,22 +3566,6 @@ async function renderPaymentForm(presel){
       <div class="info-row"><span class="info-label">Shop</span><span class="info-val">${escapeHtml(s.shop_number)}</span></div>
     `).join('');
     shopInfo.style.display = 'block';
-
-    if (_mode === 'auto'){
-      if (userShops.length > 1){
-        shopCard.innerHTML += `
-          <label style="display:flex; align-items:center; gap:6px; margin-top:8px; font-size:13px; cursor:pointer;">
-            <input type="checkbox" id="pAllShops" checked> Apply across all shops above (FIFO)
-          </label>`;
-        document.getElementById('pAllShops').addEventListener('change', (e) => {
-          enableAutoSection(userId, e.target.checked ? null : userShops[0].id);
-        });
-        enableAutoSection(userId, null);
-      } else {
-        enableAutoSection(userId, userShops[0].id);
-      }
-      return;
-    }
 
     // If only one shop, auto-load bills for that shop+user combo
     if (userShops.length === 1){
@@ -4173,59 +3624,6 @@ async function renderPaymentForm(presel){
 
   // ---- Save payment ----
   document.getElementById('pSaveBtn').addEventListener('click', async () => {
-    if (_mode === 'auto'){
-      if (!_selectedUserId){ showToast('Select a tenant/shop first', 'error'); return; }
-      const payment_method = document.getElementById('pMethod').value;
-      const remarks = document.getElementById('pRemarks').value.trim();
-
-      // STEP 1: build & show the preview — nothing is saved yet
-      if (_autoStep === 'input'){
-        const amount = parseFloat(document.getElementById('pAmount').value);
-        if (isNaN(amount) || amount <= 0){
-          showFieldError('pAmountErr', 'Enter a valid amount');
-          document.getElementById('pAmount').classList.add('invalid');
-          return;
-        }
-        await withSavingState('pSaveBtn', async () => {
-          const res = await api('/api/payment/auto-allocate/preview', { method:'POST', body:{
-            user_id: _selectedUserId, shop_id: _selectedShopId, amount
-          }});
-          _amountReceived = amount;
-          _previewRows = res.rows.map(r => ({...r})); // editable copy
-          _autoStep = 'preview';
-          document.getElementById('pPreviewSection').style.display = 'block';
-          document.getElementById('pAmountField').style.display = 'none';
-          document.getElementById('pBackBtn').style.display = 'inline-flex';
-          document.getElementById('pSaveBtn').textContent = 'Confirm & record payment(s)';
-          document.getElementById('pSaveBtn').disabled = _previewRows.length === 0;
-          renderPreviewRows();
-        });
-        return;
-      }
-
-      // STEP 2: admin has reviewed/edited the preview — actually create the payments
-      const allocations = _previewRows.filter(r => r.allocated > 0).map(r => ({ bill_id: r.bill_id, amount: r.allocated }));
-      if (allocations.length === 0){ showToast('Nothing to allocate — all amounts are 0', 'error'); return; }
-
-      await withSavingState('pSaveBtn', async () => {
-        const res = await api('/api/payment/auto-allocate/confirm', { method:'POST', body:{
-          user_id: _selectedUserId, amount_received: _amountReceived,
-          payment_method, remarks, allocations
-        }});
-        state.loaded.bills = false;
-        state.loaded.payments = false;
-        closeModal();
-        const n = res.allocations.length;
-        const capped = res.allocations.filter(a => a.note).length;
-        let msg = `${currency(res.total_allocated)} allocated across ${n} bill(s).`;
-        if (res.unallocated_amount > 0.005) msg += ` ${currency(res.unallocated_amount)} left unallocated.`;
-        if (capped > 0) msg += ` ${capped} amount(s) were capped — balances had changed since preview.`;
-        showToast(msg, 'success');
-        await renderView(state.view === 'bills' ? 'bills' : 'payments');
-      });
-      return;
-    }
-
     if (!_selectedBillId){ showToast('Select a bill first', 'error'); return; }
 
     const bill = state.cache.bills.find(b => b.id === _selectedBillId);
@@ -4267,11 +3665,6 @@ async function renderPaymentForm(presel){
       await renderView(state.view === 'bills' ? 'bills' : 'payments');
     });
   });
-
-  // If opened via a specific bill's quick-pay button, default to Manual mode so that bill stays preselected
-  if (preBillId){
-    document.getElementById('modeManual').click();
-  }
 
   // Trigger preselected complex if coming from a bill's quick-pay button
   if (presel?.preselectedComplexId){
@@ -4486,7 +3879,7 @@ async function loadTenantPortal(){
             bills.map(b=>`
             <div class="tenant-card tp-bill-row" data-status="${b.status}" data-shop-id="${b.shop_id}" data-due="${b.due_date||''}">
               <div class="row1"><span class="title">${escapeHtml(b.bill_type)}</span>${stampHtml(b.status)}</div>
-              <div class="meta">Bill #${b.id} · ${escapeHtml(shops.find(s=>s.id===b.shop_id)?.shop_number||'Shop #'+b.shop_id)} · billed ${dateFmt(b.bill_date)} · due ${dateFmt(b.due_date)} · created ${dateFmt(b.created_at)}</div>
+              <div class="meta">Bill #${b.id} · ${escapeHtml(shops.find(s=>s.id===b.shop_id)?.shop_number||'Shop #'+b.shop_id)} · due ${dateFmt(b.due_date)}</div>
               ${b.description ? `<div class="meta" style="margin-top:2px;">${escapeHtml(b.description)}</div>` : ''}
               <div class="amt-row"><span>Total ${currency(b.amount)} · Paid ${currency(b.paid_amount||0)}</span><span class="big" style="color:${b.pending_amount>0?'var(--rust)':'var(--success)'};">${currency(b.pending_amount)} due</span></div>
             </div>`).join('')}
@@ -4506,7 +3899,7 @@ async function loadTenantPortal(){
       payments.map(p=>`
       <div class="tenant-card">
         <div class="row1"><span class="title mono">${currency(p.amount)}</span><span class="meta">${escapeHtml(p.payment_method)}</span></div>
-        <div class="meta">Paid ${dateFmt(p.payment_date)} · Receipt #${p.id} · created ${dateFmt(p.created_at)}${p.remarks?' · '+escapeHtml(p.remarks):''}</div>
+        <div class="meta">${dateFmt(p.payment_date)} · Receipt #${p.id}${p.remarks?' · '+escapeHtml(p.remarks):''}</div>
       </div>`).join('')}
   </div>
 </div>
@@ -4624,13 +4017,12 @@ function renderMonthSummary(bills, payments){
           <div><div style="font-size:11px; color:var(--muted); font-weight:600; text-transform:uppercase;">Pending</div><div class="mono" style="color:${pending>0?'var(--rust)':'var(--success)'}; font-weight:700;">${currency(pending)}</div></div>
         </div>
         ${mBills.length ? `<div style="font-size:12px; font-weight:600; color:var(--muted); margin-bottom:6px; text-transform:uppercase; letter-spacing:.04em;">Bills</div>
-          ${mBills.map(b=>`<div style="font-size:13px; padding:6px 0; border-bottom:1px dashed var(--line);">
-            <div style="display:flex; justify-content:space-between;"><span>${escapeHtml(b.bill_type)} · #${b.id}</span><span style="display:flex; gap:8px; align-items:center;">${stampHtml(b.status)} ${currency(b.pending_amount)} due</span></div>
-            <div style="font-size:11.5px; color:var(--muted); margin-top:2px;">Bill date: ${dateFmt(b.bill_date)} · Due date: ${dateFmt(b.due_date)}${b.description ? ' · Description: '+escapeHtml(b.description) : ''}</div>
+          ${mBills.map(b=>`<div style="display:flex; justify-content:space-between; font-size:13px; padding:5px 0; border-bottom:1px dashed var(--line);">
+            <span>${escapeHtml(b.bill_type)} · #${b.id}</span><span style="display:flex; gap:8px; align-items:center;">${stampHtml(b.status)} ${currency(b.pending_amount)} due</span>
           </div>`).join('')}` : ''}
         ${mPays.length ? `<div style="font-size:12px; font-weight:600; color:var(--muted); margin:10px 0 6px; text-transform:uppercase; letter-spacing:.04em;">Payments</div>
           ${mPays.map(p=>`<div style="display:flex; justify-content:space-between; font-size:13px; padding:5px 0; border-bottom:1px dashed var(--line);">
-            <span>Paid on: ${dateFmt(p.payment_date)} · ${escapeHtml(p.payment_method)}${p.remarks ? ' · Remarks: '+escapeHtml(p.remarks) : ''}</span><span class="mono" style="color:var(--success); font-weight:700;">${currency(p.amount)}</span>
+            <span>${dateFmt(p.payment_date)} · ${escapeHtml(p.payment_method)}</span><span class="mono" style="color:var(--success); font-weight:700;">${currency(p.amount)}</span>
           </div>`).join('')}` : ''}
       </div>
     </div>`;
@@ -4639,5 +4031,4 @@ function renderMonthSummary(bills, payments){
 </script>
 </body>
 </html>
-
 
