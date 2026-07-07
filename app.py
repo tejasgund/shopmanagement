@@ -30,6 +30,8 @@ from sqlalchemy import text
 from db_config import get_db
 from log import get_logger, log_request_middleware
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import extract
+
 
 
 # Import ORM models from create_tables so we have a single schema source-of-truth
@@ -3353,7 +3355,130 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 #=======================================================
-#Bulk Payment:
+
+@app.get("/api/ledger/monthly", tags=["Ledger"])
+def monthly_ledger(
+    user_id: int,
+    year: int = Query(..., description="Year to filter bills by bill_date"),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """Monthly ledger for a tenant – year-wise bill aggregates, plus shops, bills, payments, deposits."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(404, detail="User not found")
+
+    # Bills for the given year
+    bills = db.query(Bill).filter(
+        Bill.user_id == user_id,
+        extract('year', Bill.bill_date) == year
+    ).all()
+
+    # Monthly aggregates
+    monthly_data = {m: {"bills": [], "billed": 0.0, "paid": 0.0, "remaining": 0.0} for m in range(1,13)}
+    for bill in bills:
+        month = bill.bill_date.month
+        monthly_data[month]["bills"].append(bill)
+        monthly_data[month]["billed"] += _decimal_to_float(bill.amount)
+        monthly_data[month]["paid"] += _decimal_to_float(bill.paid_amount)
+        monthly_data[month]["remaining"] += _decimal_to_float(bill.pending_amount)
+
+    monthly_rows = []
+    total_billed = total_paid = total_remaining = 0.0
+    total_bills_count = 0
+    for m in range(1,13):
+        data = monthly_data[m]
+        count = len(data["bills"])
+        billed = round(data["billed"], 2)
+        paid = round(data["paid"], 2)
+        remaining = round(data["remaining"], 2)
+        total_billed += billed
+        total_paid += paid
+        total_remaining += remaining
+        total_bills_count += count
+
+        if count == 0:
+            status = "No bills"
+        elif remaining == 0:
+            status = "Paid"
+        elif paid > 0 and remaining > 0:
+            status = "Partial"
+        else:
+            status = "Pending"
+
+        monthly_rows.append({
+            "month": m,
+            "bills_count": count,
+            "billed": billed,
+            "paid": paid,
+            "remaining": remaining,
+            "status": status
+        })
+
+    # Shops currently assigned
+    shops = db.query(Shop).join(UserShop, UserShop.shop_id == Shop.id).filter(UserShop.user_id == user_id).all()
+    shop_list = [{
+        "id": s.id,
+        "shop_number": s.shop_number,
+        "area_sqft": _decimal_to_float(s.area_sqft),
+        "shop_rent": _decimal_to_float(s.shop_rent),
+        "shop_deposit": _decimal_to_float(s.shop_deposit),
+    } for s in shops]
+
+    # Payments for that year (via bills)
+    payments = db.query(Payment).join(Bill, Bill.id == Payment.bill_id).filter(
+        Bill.user_id == user_id,
+        extract('year', Payment.payment_date) == year
+    ).all()
+    payment_list = [{
+        "id": p.id,
+        "amount": _decimal_to_float(p.amount),
+        "payment_method": p.payment_method,
+        "payment_date": p.payment_date,
+    } for p in payments]
+
+    # Deposit payments (for the tenant) – we show all-time deposit paid as a summary card,
+    # but for the deposit list we can show only those in the year (or all – your choice)
+    deposits = db.query(DepositPayment).filter(
+        DepositPayment.user_id == user_id,
+        extract('year', DepositPayment.payment_date) == year
+    ).all()
+    deposit_list = [{
+        "id": dp.id,
+        "amount": _decimal_to_float(dp.amount),
+        "payment_date": dp.payment_date,
+        "remarks": dp.remarks,
+    } for dp in deposits]
+
+    # All-time deposit paid (for the "Deposit on file" card)
+    total_deposit_paid = sum(
+        _decimal_to_float(dp.amount)
+        for dp in db.query(DepositPayment).filter(DepositPayment.user_id == user_id).all()
+    )
+
+    return {
+        "tenant": {"id": user.id, "name": user.name, "mobile": user.mobile, "email": user.email},
+        "summary": {
+            "outstanding_dues": round(total_remaining, 2),
+            "total_billed": round(total_billed, 2),
+            "total_paid": round(total_paid, 2),
+            "deposit_on_file": round(total_deposit_paid, 2),
+        },
+        "monthly": monthly_rows,
+        "shops": shop_list,
+        "bills": [{
+            "id": b.id,
+            "bill_type": b.bill_type,
+            "amount": _decimal_to_float(b.amount),
+            "paid_amount": _decimal_to_float(b.paid_amount),
+            "pending_amount": _decimal_to_float(b.pending_amount),
+            "status": b.status,
+            "bill_date": b.bill_date,
+            "due_date": b.due_date,
+        } for b in bills],
+        "payments": payment_list,
+        "deposits": deposit_list,
+    }
 
 
 
