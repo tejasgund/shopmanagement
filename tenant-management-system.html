@@ -5002,6 +5002,8 @@ document.getElementById('tenantRefreshBtn').addEventListener('click', async (e) 
 // Tenant portal filter state
 const tpFilters = { complex:'', shop:'', month:'', year:'', status:'', dateFrom:'', dateTo:'' };
 
+
+
 async function loadTenantPortal(){
   const content = document.getElementById('tenantContent');
   content.innerHTML = skeletonHtml();
@@ -5022,7 +5024,6 @@ async function loadTenantPortal(){
     const paidTotal = payments.reduce((s,p)=>s+Number(p.amount||0),0);
     const nextDue = pendingBills.filter(b=>b.due_date).sort((a,b)=>new Date(a.due_date)-new Date(b.due_date))[0];
 
-    // Get unique complexes and shops from assigned shops
     const complexIds = [...new Set(shops.map(s=>s.complex_id).filter(Boolean))];
     const complexNames = {};
     try {
@@ -5030,8 +5031,6 @@ async function loadTenantPortal(){
       cx.forEach(c => complexNames[c.id] = c.name);
     } catch(e){}
 
-    // Deposit paid: try the dedicated endpoint first; if it's unavailable, fall back
-    // to computing it from data we already have so the dashboard never silently shows ₹0.
     let depositPaid = 0;
     let depositRemaining = totalDeposit;
     let depositSourceFailed = false;
@@ -5040,9 +5039,6 @@ async function loadTenantPortal(){
       depositPaid = (depPays||[]).reduce((s,p)=>s+Number(p.amount||0),0);
     } catch(e){
       depositSourceFailed = true;
-      // Fallback: some backends record deposit collection as a bill_type of "Deposit"
-      // rather than via a separate deposit-payments table. Recover paid amount from
-      // the tenant's own bills/payments if such records exist.
       const depositBillIds = new Set(bills.filter(b => /deposit/i.test(b.bill_type||'')).map(b=>b.id));
       if (depositBillIds.size > 0) {
         depositPaid = payments.filter(p => depositBillIds.has(p.bill_id)).reduce((s,p)=>s+Number(p.amount||0),0);
@@ -5050,6 +5046,7 @@ async function loadTenantPortal(){
     }
     depositRemaining = Math.max(0, totalDeposit - depositPaid);
 
+    // ── Build the HTML ──
     content.innerHTML = `
     <!-- Summary Cards -->
     <div class="tp-stat-grid">
@@ -5104,36 +5101,36 @@ async function loadTenantPortal(){
       </div>
     </div>
 
- <!-- Deposit Summary -->
-<div class="collapsible-section">
-  <div class="collapsible-header" onclick="toggleCollapse(this)">
-    <h3>Deposit Summary</h3>
-    <svg class="collapsible-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-  </div>
-  <div class="collapsible-body">
-    <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:14px;">
-      <div class="card stat-card"><div class="label">Required</div><div class="value mono" style="font-size:18px;">${currency(totalDeposit)}</div></div>
-      <div class="card stat-card accent-green"><div class="label">Paid</div><div class="value mono" style="font-size:18px;">${currency(depositPaid)}</div></div>
-      <div class="card stat-card accent-rust"><div class="label">Remaining</div><div class="value mono" style="font-size:18px;">${currency(depositRemaining)}</div></div>
-    </div>
-    ${totalDeposit > 0 ? `
-    <div class="deposit-progress">
-      <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--muted); margin-bottom:4px;">
-        <span>Progress</span><span>${Math.round(depositPaid/totalDeposit*100)}%</span>
+    <!-- Deposit Summary -->
+    <div class="collapsible-section">
+      <div class="collapsible-header" onclick="toggleCollapse(this)">
+        <h3>Deposit Summary</h3>
+        <svg class="collapsible-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
       </div>
-      <div class="deposit-bar-wrap"><div class="deposit-bar" style="width:${Math.min(100,Math.round(depositPaid/totalDeposit*100))}%;"></div></div>
-    </div>` : ''}
-    ${shops.length ? `
-    <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:8px; margin-top:14px;">
-      ${shops.map(s=>`<div class="info-card"><div class="info-row"><span class="info-label">${escapeHtml(s.shop_number)}</span><span class="info-val">${currency(s.shop_deposit||0)}</span></div></div>`).join('')}
-    </div>` : ''}
-    ${depositSourceFailed && depositPaid === 0 ? `
-    <div class="warn-box" style="margin-top:12px;">
-      ${warnIcon()}
-      <span>We couldn't load your deposit payment history right now. The "Required" amount above is accurate, but "Paid" may not reflect deposit payments your admin has already recorded — contact your admin if this looks wrong.</span>
-    </div>` : ''}
-  </div>
-</div>
+      <div class="collapsible-body">
+        <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:14px;">
+          <div class="card stat-card"><div class="label">Required</div><div class="value mono" style="font-size:18px;">${currency(totalDeposit)}</div></div>
+          <div class="card stat-card accent-green"><div class="label">Paid</div><div class="value mono" style="font-size:18px;">${currency(depositPaid)}</div></div>
+          <div class="card stat-card accent-rust"><div class="label">Remaining</div><div class="value mono" style="font-size:18px;">${currency(depositRemaining)}</div></div>
+        </div>
+        ${totalDeposit > 0 ? `
+        <div class="deposit-progress">
+          <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--muted); margin-bottom:4px;">
+            <span>Progress</span><span>${Math.round(depositPaid/totalDeposit*100)}%</span>
+          </div>
+          <div class="deposit-bar-wrap"><div class="deposit-bar" style="width:${Math.min(100,Math.round(depositPaid/totalDeposit*100))}%;"></div></div>
+        </div>` : ''}
+        ${shops.length ? `
+        <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:8px; margin-top:14px;">
+          ${shops.map(s=>`<div class="info-card"><div class="info-row"><span class="info-label">${escapeHtml(s.shop_number)}</span><span class="info-val">${currency(s.shop_deposit||0)}</span></div></div>`).join('')}
+        </div>` : ''}
+        ${depositSourceFailed && depositPaid === 0 ? `
+        <div class="warn-box" style="margin-top:12px;">
+          ${warnIcon()}
+          <span>We couldn't load your deposit payment history right now. The "Required" amount above is accurate, but "Paid" may not reflect deposit payments your admin has already recorded — contact your admin if this looks wrong.</span>
+        </div>` : ''}
+      </div>
+    </div>
 
     <!-- Bills Section -->
     <div class="collapsible-section">
@@ -5165,7 +5162,7 @@ async function loadTenantPortal(){
             bills.map(b=>`
             <div class="tenant-card tp-bill-row" data-status="${b.status}" data-shop-id="${b.shop_id}" data-due="${b.due_date||''}">
               <div class="row1"><span class="title">${escapeHtml(b.bill_type)}</span>${stampHtml(b.status)}</div>
-              <div class="meta">Bill #${b.id} · ${escapeHtml(shops.find(s=>s.id===b.shop_id)?.shop_number||'Shop #'+b.shop_id)} · billed ${dateFmt(b.bill_date)} · due ${dateFmt(b.due_date)} · created ${dateFmt(b.created_at)}</div>
+              <div class="meta">Bill #${b.id} · ${escapeHtml(shops.find(s=>s.id===b.shop_id)?.shop_number||'Shop #'+b.shop_id)} · due ${dateFmt(b.due_date)}</div>
               ${b.description ? `<div class="meta" style="margin-top:2px;">${escapeHtml(b.description)}</div>` : ''}
               <div class="amt-row"><span>Total ${currency(b.amount)} · Paid ${currency(b.paid_amount||0)}</span><span class="big" style="color:${b.pending_amount>0?'var(--rust)':'var(--success)'};">${currency(b.pending_amount)} due</span></div>
             </div>`).join('')}
@@ -5174,42 +5171,81 @@ async function loadTenantPortal(){
       </div>
     </div>
 
-<!-- Payments Section -->
-<div class="collapsible-section">
-  <div class="collapsible-header" onclick="toggleCollapse(this)">
-    <h3>Payment History <span class="record-count-tag" style="margin-left:8px;">${payments.length}</span></h3>
-    <svg class="collapsible-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-  </div>
-  <div class="collapsible-body">
-    ${payments.length === 0 ? '<div class="empty-compact">No payments recorded yet.</div>' :
-      payments.map(p=>`
-      <div class="tenant-card">
-        <div class="row1"><span class="title mono">${currency(p.amount)}</span><span class="meta">${escapeHtml(p.payment_method)}</span></div>
-        <div class="meta">Paid ${dateFmt(p.payment_date)} · Receipt #${p.id} · created ${dateFmt(p.created_at)}${p.remarks?' · '+escapeHtml(p.remarks):''}</div>
-      </div>`).join('')}
-  </div>
-</div>
-
-    <!-- Monthly Summary -->
+    <!-- Payments Section -->
     <div class="collapsible-section">
       <div class="collapsible-header" onclick="toggleCollapse(this)">
-        <h3>Monthly Summary</h3>
+        <h3>Payment History <span class="record-count-tag" style="margin-left:8px;">${payments.length}</span></h3>
         <svg class="collapsible-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
       </div>
       <div class="collapsible-body">
-        ${renderMonthSummary(bills, payments)}
+        ${payments.length === 0 ? '<div class="empty-compact">No payments recorded yet.</div>' :
+          payments.map(p=>`
+          <div class="tenant-card">
+            <div class="row1"><span class="title mono">${currency(p.amount)}</span><span class="meta">${escapeHtml(p.payment_method)}</span></div>
+            <div class="meta">Paid ${dateFmt(p.payment_date)} · Receipt #${p.id}${p.remarks?' · '+escapeHtml(p.remarks):''}</div>
+          </div>`).join('')}
       </div>
     </div>
-    `;
 
-    // Bill filters
+    <!-- Monthly Ledger (NEW) -->
+    <div class="collapsible-section">
+      <div class="collapsible-header" onclick="toggleCollapse(this)">
+        <h3>Monthly Ledger</h3>
+        <svg class="collapsible-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="collapsible-body">
+        <div style="display:flex; gap:10px; margin-bottom:12px; align-items:center; flex-wrap:wrap;">
+          <label style="font-weight:600; font-size:13px;">Year:</label>
+          <select id="tpLedgerYear" class="sort-select" style="padding:6px 10px;">
+            ${Array.from({length:6},(_,i) => {
+              const y = new Date().getFullYear() - i;
+              return `<option value="${y}" ${i===0?'selected':''}>${y}</option>`;
+            }).join('')}
+          </select>
+          <span class="record-count-tag" id="tpLedgerCount">Loading…</span>
+        </div>
+        <div id="tpLedgerContainer">
+          <div style="text-align:center; padding:20px; color:var(--muted);">Select a year to load ledger.</div>
+        </div>
+      </div>
+    </div>
+    `; // ── end content.innerHTML ──
+
+    // ── Bill filters (existing) ──
     ['tpBillStatus','tpBillShop','tpBillMonth','tpBillYear'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.addEventListener(el.tagName==='INPUT'?'input':'change', applyTpBillFilters);
     });
     applyTpBillFilters();
 
-    // Toggle collapsibles
+    // ── Monthly Ledger (NEW) ──
+    const ledgerYear = document.getElementById('tpLedgerYear');
+    const ledgerContainer = document.getElementById('tpLedgerContainer');
+    const ledgerCount = document.getElementById('tpLedgerCount');
+
+    async function loadLedger(year){
+      try {
+        ledgerCount.textContent = 'Loading…';
+        const data = await api(`/api/tenant/ledger/monthly?year=${year}`);
+        ledgerContainer.innerHTML = renderTenantLedger(data);
+        const totalBills = data.monthly.reduce((s,m) => s + m.bills_count, 0);
+        ledgerCount.textContent = `${totalBills} bills`;
+      } catch (err) {
+        ledgerContainer.innerHTML = errorBannerHtml(err.message);
+        ledgerContainer.querySelector('#retryBtn')?.addEventListener('click', () => loadLedger(year));
+        ledgerCount.textContent = 'Error';
+      }
+    }
+
+    if (ledgerYear) {
+      ledgerYear.addEventListener('change', function() {
+        loadLedger(this.value);
+      });
+      // Load initial year
+      loadLedger(ledgerYear.value);
+    }
+
+    // ── Collapsible toggles (existing) ──
     document.querySelectorAll('.month-row-head').forEach(h => {
       h.addEventListener('click', () => {
         const body = h.nextElementSibling;
@@ -5222,6 +5258,8 @@ async function loadTenantPortal(){
     document.getElementById('retryBtn')?.addEventListener('click', loadTenantPortal);
   }
 }
+
+
 
 function toggleCollapse(header){
   header.classList.toggle('open');
@@ -5255,6 +5293,78 @@ function clearTpBillFilters(){
   ['tpBillStatus','tpBillShop','tpBillMonth','tpBillYear'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
   applyTpBillFilters();
 }
+
+
+function renderTenantLedger(data){
+  const monthly = data.monthly || [];
+  const summary = data.summary || {};
+  const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  let summaryHtml = `
+    <div class="stat-row" style="margin:10px 0 16px; grid-template-columns:repeat(4,1fr);">
+      <div class="card stat-card"><div class="label">Outstanding Dues</div><div class="value mono" style="font-size:18px;">${currency(summary.outstanding_dues)}</div></div>
+      <div class="card stat-card accent-green"><div class="label">Total Billed</div><div class="value mono" style="font-size:18px;">${currency(summary.total_billed)}</div></div>
+      <div class="card stat-card accent-green"><div class="label">Total Paid</div><div class="value mono" style="font-size:18px;">${currency(summary.total_paid)}</div></div>
+      <div class="card stat-card"><div class="label">Deposit on File</div><div class="value mono" style="font-size:18px;">${currency(summary.deposit_on_file)}</div></div>
+    </div>
+  `;
+
+  const rows = monthly.map(m => {
+    const statusColor = m.status === 'Paid' ? 'var(--success)' :
+                        m.status === 'Partial' ? 'var(--partial)' :
+                        m.status === 'Pending' ? 'var(--rust)' : 'var(--muted)';
+    return `
+      <tr>
+        <td><strong>${monthNames[m.month-1]}</strong></td>
+        <td class="num">${m.bills_count}</td>
+        <td class="num">${m.bills_count ? currency(m.billed) : '–'}</td>
+        <td class="num">${m.bills_count ? currency(m.paid) : '–'}</td>
+        <td class="num">${m.bills_count ? currency(m.remaining) : '–'}</td>
+        <td><span style="color:${statusColor}; font-weight:600;">${m.status}</span></td>
+      </tr>
+    `;
+  }).join('');
+
+  const totalBilled = monthly.reduce((s,m) => s + m.billed, 0);
+  const totalPaid = monthly.reduce((s,m) => s + m.paid, 0);
+  const totalRemaining = monthly.reduce((s,m) => s + m.remaining, 0);
+  const totalBillsCount = monthly.reduce((s,m) => s + m.bills_count, 0);
+  const overallStatus = totalRemaining === 0 ? 'Paid' : (totalPaid > 0 ? 'Partial' : 'Pending');
+
+  const tableHtml = `
+    <div class="table-wrap" style="border:1px solid var(--line); border-radius:var(--radius);">
+      <table>
+        <thead>
+          <tr>
+            <th>Month</th>
+            <th class="num">Bills</th>
+            <th class="num">Billed</th>
+            <th class="num">Paid</th>
+            <th class="num">Remaining</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows}
+          <tr style="font-weight:700; background:var(--paper); border-top:2px solid var(--line);">
+            <td><strong>Total</strong></td>
+            <td class="num">${totalBillsCount}</td>
+            <td class="num">${currency(totalBilled)}</td>
+            <td class="num">${currency(totalPaid)}</td>
+            <td class="num">${currency(totalRemaining)}</td>
+            <td><span style="color:${overallStatus === 'Paid' ? 'var(--success)' : 'var(--rust)'}; font-weight:700;">${overallStatus}</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  return summaryHtml + tableHtml;
+}
+
+
+
+
 
 function renderMonthSummary(bills, payments){
   // Group by year-month

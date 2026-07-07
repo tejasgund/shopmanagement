@@ -3363,18 +3363,20 @@ def monthly_ledger(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ):
-    """Monthly ledger for a tenant – year-wise bill aggregates, plus shops, bills, payments, deposits."""
+    return _get_monthly_ledger_data(user_id, year, db)
+
+
+
+def _get_monthly_ledger_data(user_id: int, year: int, db: Session) -> dict:
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(404, detail="User not found")
 
-    # Bills for the given year
     bills = db.query(Bill).filter(
         Bill.user_id == user_id,
         extract('year', Bill.bill_date) == year
     ).all()
 
-    # Monthly aggregates
     monthly_data = {m: {"bills": [], "billed": 0.0, "paid": 0.0, "remaining": 0.0} for m in range(1,13)}
     for bill in bills:
         month = bill.bill_date.month
@@ -3415,7 +3417,6 @@ def monthly_ledger(
             "status": status
         })
 
-    # Shops currently assigned
     shops = db.query(Shop).join(UserShop, UserShop.shop_id == Shop.id).filter(UserShop.user_id == user_id).all()
     shop_list = [{
         "id": s.id,
@@ -3425,7 +3426,6 @@ def monthly_ledger(
         "shop_deposit": _decimal_to_float(s.shop_deposit),
     } for s in shops]
 
-    # Payments for that year (via bills)
     payments = db.query(Payment).join(Bill, Bill.id == Payment.bill_id).filter(
         Bill.user_id == user_id,
         extract('year', Payment.payment_date) == year
@@ -3437,8 +3437,6 @@ def monthly_ledger(
         "payment_date": p.payment_date,
     } for p in payments]
 
-    # Deposit payments (for the tenant) – we show all-time deposit paid as a summary card,
-    # but for the deposit list we can show only those in the year (or all – your choice)
     deposits = db.query(DepositPayment).filter(
         DepositPayment.user_id == user_id,
         extract('year', DepositPayment.payment_date) == year
@@ -3450,7 +3448,6 @@ def monthly_ledger(
         "remarks": dp.remarks,
     } for dp in deposits]
 
-    # All-time deposit paid (for the "Deposit on file" card)
     total_deposit_paid = sum(
         _decimal_to_float(dp.amount)
         for dp in db.query(DepositPayment).filter(DepositPayment.user_id == user_id).all()
@@ -3481,7 +3478,13 @@ def monthly_ledger(
     }
 
 
-
+@app.get("/api/tenant/ledger/monthly", tags=["Tenant"])
+def tenant_monthly_ledger(
+    year: int = Query(..., description="Year to filter bills by bill_date"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_tenant),
+):
+    return _get_monthly_ledger_data(current_user.id, year, db)
 # ══════════════════════════════════════════════════════════════════════════════
 # Entrypoint (for direct `python app.py` execution)
 # ══════════════════════════════════════════════════════════════════════════════
