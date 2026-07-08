@@ -736,10 +736,10 @@ td .row-actions{ display:flex; gap:6px; justify-content:flex-end; }
   <div class="tenant-shell">
     <div class="tenant-topbar">
       <div style="display:flex; align-items:center; gap:10px;">
-        <div class="stamp-mark" style="background:var(--green);">L</div>
+      <div class="stamp-mark" style="background:var(--green);">Welcome</div>
         <div>
           <div style="font-weight:600; font-size:14.5px;" id="tenantName">—</div>
-          <div style="font-size:11.5px; color:#9FAA9A;">Tenant portal</div>
+        <div style="font-size:11.5px; color:#9FAA9A;" id="tenantGreeting">Loading…</div>
         </div>
       </div>
       <div style="display:flex; gap:8px;">
@@ -880,6 +880,31 @@ const dateFmt = (iso) => {
   return d.toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' });
 };
 const initials = (name) => (name || '?').trim().split(/\s+/).map(w=>w[0]).slice(0,2).join('').toUpperCase();
+
+
+
+
+/* ================================================================
+   TENANT GREETING HELPER
+   ================================================================ */
+function getTimeGreeting(name){
+  const hour = new Date().getHours();
+  let timePhrase = '';
+  if (hour < 12) timePhrase = 'Good morning';
+  else if (hour < 17) timePhrase = 'Good afternoon';
+  else timePhrase = 'Good evening';
+
+  const creativeMessages = [
+    `${timePhrase}, ${name}! ✨`,
+    `${timePhrase}, ${name} – your shops are ready!`,
+    `${timePhrase}, ${name}! Let's get things done!`,
+    `${timePhrase}, ${name} – we're all set for you.`,
+    `${timePhrase}, ${name}! How can I help you today?`,
+  ];
+  return creativeMessages[Math.floor(Math.random() * creativeMessages.length)];
+}
+
+
 
 /* ================================================================
    AUTH
@@ -2529,23 +2554,6 @@ function renderAdminTenantDashboard(data, user, complexFilter){
         <div id="tpBillEmpty" class="empty-compact" style="display:none;">No bills match your filters.</div>
       </div>
     </div>
-
-    <!-- Payments Section -->
-    <div class="collapsible-section">
-      <div class="collapsible-header">
-        <h3>Payment History <span class="record-count-tag" style="margin-left:8px;">${filteredPayments.length}</span></h3>
-        <svg class="collapsible-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-      </div>
-      <div class="collapsible-body">
-        ${filteredPayments.length === 0 ? '<div class="empty-compact">No payments recorded yet.</div>' :
-          filteredPayments.map(p => `
-          <div class="tenant-card">
-            <div class="row1"><span class="title mono">${currency(p.amount)}</span><span class="meta">${escapeHtml(p.payment_method)}</span></div>
-            <div class="meta">Paid ${dateFmt(p.payment_date)} · Receipt #${p.id}${p.remarks ? ' · '+escapeHtml(p.remarks) : ''}</div>
-          </div>`).join('')}
-      </div>
-    </div>
-
     <!-- Monthly Summary -->
     <div class="collapsible-section">
       <div class="collapsible-header">
@@ -5004,6 +5012,9 @@ const tpFilters = { complex:'', shop:'', month:'', year:'', status:'', dateFrom:
 
 
 
+
+
+
 async function loadTenantPortal(){
   const content = document.getElementById('tenantContent');
   content.innerHTML = skeletonHtml();
@@ -5015,6 +5026,8 @@ async function loadTenantPortal(){
       api('/api/tenant/payments'),
     ]);
     document.getElementById('tenantName').textContent = profile.name;
+    const greeting = getTimeGreeting(profile.name);
+document.getElementById('tenantGreeting').textContent = greeting;
 
     // Compute summary
     const totalRent = shops.reduce((s,sh)=>s+Number(sh.shop_rent||0),0);
@@ -5160,7 +5173,7 @@ async function loadTenantPortal(){
         <div id="tpBillList">
           ${bills.length === 0 ? '<div class="empty-compact">No bills found.</div>' :
             bills.map(b=>`
-            <div class="tenant-card tp-bill-row" data-status="${b.status}" data-shop-id="${b.shop_id}" data-due="${b.due_date||''}">
+            <div class="tenant-card tp-bill-row" data-status="${b.status}" data-shop-id="${b.shop_id}" data-due="${b.due_date||''}" data-bill-date="${b.bill_date||''}">
               <div class="row1"><span class="title">${escapeHtml(b.bill_type)}</span>${stampHtml(b.status)}</div>
               <div class="meta">Bill #${b.id} · ${escapeHtml(shops.find(s=>s.id===b.shop_id)?.shop_number||'Shop #'+b.shop_id)} · due ${dateFmt(b.due_date)}</div>
               ${b.description ? `<div class="meta" style="margin-top:2px;">${escapeHtml(b.description)}</div>` : ''}
@@ -5172,20 +5185,32 @@ async function loadTenantPortal(){
     </div>
 
     <!-- Payments Section -->
-    <div class="collapsible-section">
-      <div class="collapsible-header" onclick="toggleCollapse(this)">
-        <h3>Payment History <span class="record-count-tag" style="margin-left:8px;">${payments.length}</span></h3>
-        <svg class="collapsible-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-      </div>
-      <div class="collapsible-body">
-        ${payments.length === 0 ? '<div class="empty-compact">No payments recorded yet.</div>' :
-          payments.map(p=>`
-          <div class="tenant-card">
-            <div class="row1"><span class="title mono">${currency(p.amount)}</span><span class="meta">${escapeHtml(p.payment_method)}</span></div>
-            <div class="meta">Paid ${dateFmt(p.payment_date)} · Receipt #${p.id}${p.remarks?' · '+escapeHtml(p.remarks):''}</div>
-          </div>`).join('')}
-      </div>
+<div class="collapsible-section">
+  <div class="collapsible-header" onclick="toggleCollapse(this)">
+    <h3>Payment History <span class="record-count-tag" style="margin-left:8px;">${payments.length}</span></h3>
+    <svg class="collapsible-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+  </div>
+  <div class="collapsible-body">
+    <!-- Payment Filters -->
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; align-items:center;">
+      <select id="tpPayMonth" class="sort-select" style="font-size:12.5px; padding:7px 10px;">
+        <option value="">Any month</option>
+        ${Array.from({length:12},(_,i)=>`<option value="${i+1}">${new Date(2000,i).toLocaleString('en-IN',{month:'short'})}</option>`).join('')}
+      </select>
+      <input id="tpPayYear" type="number" placeholder="Year" min="2020" max="2099" style="width:80px; padding:7px 10px; border:1.5px solid var(--line); border-radius:var(--radius-sm); font-size:12.5px;">
+      <button class="btn btn-ghost btn-sm" onclick="clearTpPayFilters()">Clear</button>
     </div>
+    <div id="tpPayList">
+      ${payments.length === 0 ? '<div class="empty-compact">No payments recorded yet.</div>' :
+        payments.map(p=>`
+        <div class="tenant-card tp-pay-row" data-payment-date="${p.payment_date||''}">
+          <div class="row1"><span class="title mono">${currency(p.amount)}</span><span class="meta">${escapeHtml(p.payment_method)}</span></div>
+          <div class="meta">Paid ${dateFmt(p.payment_date)} · Receipt #${p.id}${p.remarks?' · '+escapeHtml(p.remarks):''}</div>
+        </div>`).join('')}
+    </div>
+    <div id="tpPayEmpty" class="empty-compact" style="display:none;">No payments match your filters.</div>
+  </div>
+</div>
 
     <!-- Monthly Ledger (NEW) -->
     <div class="collapsible-section">
@@ -5217,6 +5242,11 @@ async function loadTenantPortal(){
       if (el) el.addEventListener(el.tagName==='INPUT'?'input':'change', applyTpBillFilters);
     });
     applyTpBillFilters();
+
+    // ── Payment filters ──
+  document.getElementById('tpPayMonth')?.addEventListener('change', applyTpPayFilters);
+  document.getElementById('tpPayYear')?.addEventListener('input', applyTpPayFilters);
+  applyTpPayFilters(); // initial apply
 
     // ── Monthly Ledger (NEW) ──
     const ledgerYear = document.getElementById('tpLedgerYear');
@@ -5278,8 +5308,8 @@ function applyTpBillFilters(){
     let show = true;
     if (status && r.dataset.status !== status) show = false;
     if (shopId && String(r.dataset.shopId) !== shopId) show = false;
-    if (month) { const d=r.dataset.due; if(!d||String(new Date(d).getMonth()+1)!==month) show=false; }
-    if (year) { const d=r.dataset.due; if(!d||String(new Date(d).getFullYear())!==year) show=false; }
+    if (month) { const d=r.dataset.billDate; if(!d||String(new Date(d).getMonth()+1)!==month) show=false; }
+    if (year) { const d=r.dataset.billDate; if(!d||String(new Date(d).getFullYear())!==year) show=false; }
     r.style.display = show ? '' : 'none';
     if (show) count++;
   });
@@ -5289,10 +5319,51 @@ function applyTpBillFilters(){
   if (lst) lst.style.display = count===0 ? 'none' : '';
 }
 
+
+function applyTpPayFilters(){
+  const month = document.getElementById('tpPayMonth')?.value || '';
+  const year = document.getElementById('tpPayYear')?.value || '';
+  const rows = document.querySelectorAll('.tp-pay-row');
+  let count = 0;
+  rows.forEach(r => {
+    let show = true;
+    const dateStr = r.dataset.paymentDate;
+    if (month) {
+      if (!dateStr) show = false;
+      else {
+        const d = new Date(dateStr);
+        if (String(d.getMonth() + 1) !== month) show = false;
+      }
+    }
+    if (year && show) {
+      if (!dateStr) show = false;
+      else {
+        const d = new Date(dateStr);
+        if (String(d.getFullYear()) !== year) show = false;
+      }
+    }
+    r.style.display = show ? '' : 'none';
+    if (show) count++;
+  });
+  const emp = document.getElementById('tpPayEmpty');
+  const lst = document.getElementById('tpPayList');
+  if (emp) emp.style.display = count === 0 ? 'block' : 'none';
+  if (lst) lst.style.display = count === 0 ? 'none' : '';
+}
+
+function clearTpPayFilters(){
+  document.getElementById('tpPayMonth').value = '';
+  document.getElementById('tpPayYear').value = '';
+  applyTpPayFilters();
+}
+
+
+
 function clearTpBillFilters(){
   ['tpBillStatus','tpBillShop','tpBillMonth','tpBillYear'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
   applyTpBillFilters();
 }
+
 
 
 function renderTenantLedger(data){
