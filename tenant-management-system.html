@@ -544,6 +544,21 @@ td .row-actions{ display:flex; gap:6px; justify-content:flex-end; }
 .month-row-body{ display:none; border-top:1px solid var(--line); padding:12px 14px; background:#FAFAF8; }
 .month-row-body.open{ display:block; }
 
+/* Bills/Payments year→month drill-down */
+.drill-crumb{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; font-size:12.5px; color:var(--muted); margin-bottom:12px; }
+.drill-crumb span{ cursor:pointer; }
+.drill-crumb span.active{ color:var(--ink); font-weight:700; cursor:default; }
+.drill-crumb .sep{ color:var(--line); cursor:default; }
+.drill-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px; }
+.drill-card{ background:var(--paper-raised); border:1px solid var(--line); border-radius:var(--radius); padding:14px 16px; cursor:pointer; transition:border-color .12s, box-shadow .12s; }
+.drill-card:hover{ border-color:var(--green); box-shadow:var(--shadow-sm); }
+.drill-card .dc-title{ font-weight:700; font-size:15px; margin-bottom:6px; }
+.drill-card .dc-count{ font-size:11.5px; color:var(--muted); margin-bottom:8px; }
+.drill-card .dc-amt{ font-family:var(--font-mono); font-weight:700; font-size:15px; }
+.drill-card .dc-pending{ font-size:11.5px; color:var(--rust); font-weight:600; margin-top:3px; }
+.drill-card .dc-pending.clear{ color:var(--success); }
+@media (max-width:480px){ .drill-grid{ grid-template-columns:repeat(2,1fr); gap:8px; } .drill-card{ padding:11px 12px; } }
+
 /* Finance page user card */
 .user-finance-card{ background:var(--paper-raised); border:1.5px solid var(--green); border-radius:var(--radius); padding:16px 18px; margin-bottom:16px; }
 .user-finance-card .ufc-name{ font-weight:700; font-size:16px; margin-bottom:2px; }
@@ -775,7 +790,7 @@ td .row-actions{ display:flex; gap:6px; justify-content:flex-end; }
 /* ================================================================
    CONFIG — set your backend URL here
    ================================================================ */
-const API_BASE_URL = "http://13.205.70.46:8000";
+const API_BASE_URL = "http://13.205.70.46:8001";
 
 /* ================================================================
    STATE
@@ -790,6 +805,8 @@ const state = {
 };
 // Set by dashboard "at a glance" cards to auto-apply a filter when the Bills view loads next.
 let pendingBillsViewFilter = null;
+let tpBillsData = [], tpShopsData = [], tpBillDrill = { year:null, month:null };
+let tpPaysData = [], tpPayDrill = { year:null, month:null };
 
 const apiDisplay = document.getElementById('apiBaseDisplay');
 if (apiDisplay) {
@@ -5152,35 +5169,8 @@ document.getElementById('tenantGreeting').textContent = greeting;
         <svg class="collapsible-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
       </div>
       <div class="collapsible-body">
-        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
-          <select id="tpBillStatus" class="sort-select" style="font-size:12.5px; padding:7px 10px;">
-            <option value="">All statuses</option>
-            <option value="pending">Pending</option>
-            <option value="partial">Partial</option>
-            <option value="paid">Paid</option>
-          </select>
-          <select id="tpBillShop" class="sort-select" style="font-size:12.5px; padding:7px 10px;">
-            <option value="">All shops</option>
-            ${shops.map(s=>`<option value="${s.id}">${escapeHtml(s.shop_number)}</option>`).join('')}
-          </select>
-          <select id="tpBillMonth" class="sort-select" style="font-size:12.5px; padding:7px 10px;">
-            <option value="">Any month</option>
-            ${Array.from({length:12},(_,i)=>`<option value="${i+1}">${new Date(2000,i).toLocaleString('en-IN',{month:'short'})}</option>`).join('')}
-          </select>
-          <input id="tpBillYear" type="number" placeholder="Year" min="2020" max="2099" style="width:80px; padding:7px 10px; border:1.5px solid var(--line); border-radius:var(--radius-sm); font-size:12.5px;">
-          <button class="btn btn-ghost btn-sm" onclick="clearTpBillFilters()">Clear</button>
-        </div>
-        <div id="tpBillList">
-          ${bills.length === 0 ? '<div class="empty-compact">No bills found.</div>' :
-            bills.map(b=>`
-            <div class="tenant-card tp-bill-row" data-status="${b.status}" data-shop-id="${b.shop_id}" data-due="${b.due_date||''}" data-bill-date="${b.bill_date||''}">
-              <div class="row1"><span class="title">${escapeHtml(b.bill_type)}</span>${stampHtml(b.status)}</div>
-              <div class="meta">Bill #${b.id} · ${escapeHtml(shops.find(s=>s.id===b.shop_id)?.shop_number||'Shop #'+b.shop_id)} · due ${dateFmt(b.due_date)}</div>
-              ${b.description ? `<div class="meta" style="margin-top:2px;">${escapeHtml(b.description)}</div>` : ''}
-              <div class="amt-row"><span>Total ${currency(b.amount)} · Paid ${currency(b.paid_amount||0)}</span><span class="big" style="color:${b.pending_amount>0?'var(--rust)':'var(--success)'};">${currency(b.pending_amount)} due</span></div>
-            </div>`).join('')}
-        </div>
-        <div id="tpBillEmpty" class="empty-compact" style="display:none;">No bills match your filters.</div>
+        <div id="tpBillCrumb" class="drill-crumb"></div>
+        <div id="tpBillDrillArea"></div>
       </div>
     </div>
 
@@ -5191,24 +5181,8 @@ document.getElementById('tenantGreeting').textContent = greeting;
     <svg class="collapsible-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
   </div>
   <div class="collapsible-body">
-    <!-- Payment Filters -->
-    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; align-items:center;">
-      <select id="tpPayMonth" class="sort-select" style="font-size:12.5px; padding:7px 10px;">
-        <option value="">Any month</option>
-        ${Array.from({length:12},(_,i)=>`<option value="${i+1}">${new Date(2000,i).toLocaleString('en-IN',{month:'short'})}</option>`).join('')}
-      </select>
-      <input id="tpPayYear" type="number" placeholder="Year" min="2020" max="2099" style="width:80px; padding:7px 10px; border:1.5px solid var(--line); border-radius:var(--radius-sm); font-size:12.5px;">
-      <button class="btn btn-ghost btn-sm" onclick="clearTpPayFilters()">Clear</button>
-    </div>
-    <div id="tpPayList">
-      ${payments.length === 0 ? '<div class="empty-compact">No payments recorded yet.</div>' :
-        payments.map(p=>`
-        <div class="tenant-card tp-pay-row" data-payment-date="${p.payment_date||''}">
-          <div class="row1"><span class="title mono">${currency(p.amount)}</span><span class="meta">${escapeHtml(p.payment_method)}</span></div>
-          <div class="meta">Paid ${dateFmt(p.payment_date)} · Receipt #${p.id}${p.remarks?' · '+escapeHtml(p.remarks):''}</div>
-        </div>`).join('')}
-    </div>
-    <div id="tpPayEmpty" class="empty-compact" style="display:none;">No payments match your filters.</div>
+    <div id="tpPayCrumb" class="drill-crumb"></div>
+    <div id="tpPayDrillArea"></div>
   </div>
 </div>
 
@@ -5236,17 +5210,16 @@ document.getElementById('tenantGreeting').textContent = greeting;
     </div>
     `; // ── end content.innerHTML ──
 
-    // ── Bill filters (existing) ──
-    ['tpBillStatus','tpBillShop','tpBillMonth','tpBillYear'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.addEventListener(el.tagName==='INPUT'?'input':'change', applyTpBillFilters);
-    });
-    applyTpBillFilters();
+    // ── Bills & Payments year→month drill-down ──
+    tpBillsData = bills; tpShopsData = shops;
+    tpBillDrill = { year:null, month:null };
+    renderTpBillDrill();
 
-    // ── Payment filters ──
-  document.getElementById('tpPayMonth')?.addEventListener('change', applyTpPayFilters);
-  document.getElementById('tpPayYear')?.addEventListener('input', applyTpPayFilters);
-  applyTpPayFilters(); // initial apply
+    tpPaysData = payments;
+    tpPayDrill = { year:null, month:null };
+    renderTpPayDrill();
+
+
 
     // ── Monthly Ledger (NEW) ──
     const ledgerYear = document.getElementById('tpLedgerYear');
@@ -5297,19 +5270,106 @@ function toggleCollapse(header){
   body.classList.toggle('open');
 }
 
+const monthNamesShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function groupByYearMonth(items, dateField, amountFn, pendingFn){
+  const years = {};
+  items.forEach(it => {
+    const d = it[dateField];
+    if (!d) return;
+    const dt = new Date(d);
+    const y = dt.getFullYear(), m = dt.getMonth()+1;
+    const amt = amountFn(it);
+    const pend = pendingFn ? pendingFn(it) : 0;
+    if (!years[y]) years[y] = { count:0, total:0, pending:0, months:{} };
+    if (!years[y].months[m]) years[y].months[m] = { count:0, total:0, pending:0, items:[] };
+    years[y].count++; years[y].total += amt; years[y].pending += pend;
+    years[y].months[m].count++; years[y].months[m].total += amt; years[y].months[m].pending += pend;
+    years[y].months[m].items.push(it);
+  });
+  return years;
+}
+
+// ── Bills drill-down ──
+function renderTpBillDrill(){
+  const grouped = groupByYearMonth(tpBillsData, 'bill_date', b=>Number(b.amount||0), b=>Number(b.pending_amount||0));
+  const crumb = document.getElementById('tpBillCrumb');
+  const area = document.getElementById('tpBillDrillArea');
+  if (!area) return;
+
+  if (!tpBillDrill.year) {
+    crumb.innerHTML = `<span class="active">All Years</span>`;
+    const years = Object.keys(grouped).sort((a,b)=>b-a);
+    area.innerHTML = years.length ? `<div class="drill-grid">${years.map(y=>`
+      <div class="drill-card" onclick="tpBillGoYear(${y})">
+        <div class="dc-title">${y}</div>
+        <div class="dc-count">${grouped[y].count} bill${grouped[y].count===1?'':'s'}</div>
+        <div class="dc-amt">${currency(grouped[y].total)}</div>
+        <div class="dc-pending ${grouped[y].pending>0?'':'clear'}">${grouped[y].pending>0?currency(grouped[y].pending)+' pending':'All settled'}</div>
+      </div>`).join('')}</div>` : '<div class="empty-compact">No bills found.</div>';
+    return;
+  }
+
+  const yearData = grouped[tpBillDrill.year];
+  if (!tpBillDrill.month) {
+    crumb.innerHTML = `<span onclick="tpBillGoRoot()">All Years</span><span class="sep">\u203a</span><span class="active">${tpBillDrill.year}</span>`;
+    const months = yearData ? Object.keys(yearData.months).sort((a,b)=>a-b) : [];
+    area.innerHTML = months.length ? `<div class="drill-grid">${months.map(m=>`
+      <div class="drill-card" onclick="tpBillGoMonth(${m})">
+        <div class="dc-title">${monthNamesShort[m-1]}</div>
+        <div class="dc-count">${yearData.months[m].count} bill${yearData.months[m].count===1?'':'s'}</div>
+        <div class="dc-amt">${currency(yearData.months[m].total)}</div>
+        <div class="dc-pending ${yearData.months[m].pending>0?'':'clear'}">${yearData.months[m].pending>0?currency(yearData.months[m].pending)+' pending':'All settled'}</div>
+      </div>`).join('')}</div>` : '<div class="empty-compact">No bills found.</div>';
+    return;
+  }
+
+  crumb.innerHTML = `<span onclick="tpBillGoRoot()">All Years</span><span class="sep">\u203a</span><span onclick="tpBillGoYear(${tpBillDrill.year})">${tpBillDrill.year}</span><span class="sep">\u203a</span><span class="active">${monthNamesShort[tpBillDrill.month-1]}</span>`;
+  const monthBills = yearData.months[tpBillDrill.month].items;
+  area.innerHTML = `
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
+      <select id="tpBillStatus" class="sort-select" style="font-size:12.5px; padding:7px 10px;">
+        <option value="">All statuses</option>
+        <option value="pending">Pending</option>
+        <option value="partial">Partial</option>
+        <option value="paid">Paid</option>
+      </select>
+      <select id="tpBillShop" class="sort-select" style="font-size:12.5px; padding:7px 10px;">
+        <option value="">All shops</option>
+        ${tpShopsData.map(s=>`<option value="${s.id}">${escapeHtml(s.shop_number)}</option>`).join('')}
+      </select>
+      <button class="btn btn-ghost btn-sm" onclick="clearTpBillFilters()">Clear</button>
+    </div>
+    <div id="tpBillList">
+      ${monthBills.map(b=>`
+      <div class="tenant-card tp-bill-row" data-status="${b.status}" data-shop-id="${b.shop_id}">
+        <div class="row1"><span class="title">${escapeHtml(b.bill_type)}</span>${stampHtml(b.status)}</div>
+        <div class="meta">Bill #${b.id} · ${escapeHtml(tpShopsData.find(s=>s.id===b.shop_id)?.shop_number||'Shop #'+b.shop_id)} · due ${dateFmt(b.due_date)}</div>
+        ${b.description ? `<div class="meta" style="margin-top:2px;">${escapeHtml(b.description)}</div>` : ''}
+        <div class="amt-row"><span>Total ${currency(b.amount)} · Paid ${currency(b.paid_amount||0)}</span><span class="big" style="color:${b.pending_amount>0?'var(--rust)':'var(--success)'};">${currency(b.pending_amount)} due</span></div>
+      </div>`).join('')}
+    </div>
+    <div id="tpBillEmpty" class="empty-compact" style="display:none;">No bills match your filters.</div>
+  `;
+  ['tpBillStatus','tpBillShop'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', applyTpBillFilters);
+  });
+  applyTpBillFilters();
+}
+function tpBillGoRoot(){ tpBillDrill = { year:null, month:null }; renderTpBillDrill(); }
+function tpBillGoYear(y){ tpBillDrill = { year:y, month:null }; renderTpBillDrill(); }
+function tpBillGoMonth(m){ tpBillDrill.month = m; renderTpBillDrill(); }
+
 function applyTpBillFilters(){
   const status = document.getElementById('tpBillStatus')?.value||'';
   const shopId = document.getElementById('tpBillShop')?.value||'';
-  const month = document.getElementById('tpBillMonth')?.value||'';
-  const year = document.getElementById('tpBillYear')?.value||'';
   const rows = document.querySelectorAll('.tp-bill-row');
   let count = 0;
   rows.forEach(r => {
     let show = true;
     if (status && r.dataset.status !== status) show = false;
     if (shopId && String(r.dataset.shopId) !== shopId) show = false;
-    if (month) { const d=r.dataset.billDate; if(!d||String(new Date(d).getMonth()+1)!==month) show=false; }
-    if (year) { const d=r.dataset.billDate; if(!d||String(new Date(d).getFullYear())!==year) show=false; }
     r.style.display = show ? '' : 'none';
     if (show) count++;
   });
@@ -5318,52 +5378,58 @@ function applyTpBillFilters(){
   if (emp) emp.style.display = count===0 ? 'block' : 'none';
   if (lst) lst.style.display = count===0 ? 'none' : '';
 }
-
-
-function applyTpPayFilters(){
-  const month = document.getElementById('tpPayMonth')?.value || '';
-  const year = document.getElementById('tpPayYear')?.value || '';
-  const rows = document.querySelectorAll('.tp-pay-row');
-  let count = 0;
-  rows.forEach(r => {
-    let show = true;
-    const dateStr = r.dataset.paymentDate;
-    if (month) {
-      if (!dateStr) show = false;
-      else {
-        const d = new Date(dateStr);
-        if (String(d.getMonth() + 1) !== month) show = false;
-      }
-    }
-    if (year && show) {
-      if (!dateStr) show = false;
-      else {
-        const d = new Date(dateStr);
-        if (String(d.getFullYear()) !== year) show = false;
-      }
-    }
-    r.style.display = show ? '' : 'none';
-    if (show) count++;
-  });
-  const emp = document.getElementById('tpPayEmpty');
-  const lst = document.getElementById('tpPayList');
-  if (emp) emp.style.display = count === 0 ? 'block' : 'none';
-  if (lst) lst.style.display = count === 0 ? 'none' : '';
-}
-
-function clearTpPayFilters(){
-  document.getElementById('tpPayMonth').value = '';
-  document.getElementById('tpPayYear').value = '';
-  applyTpPayFilters();
-}
-
-
-
 function clearTpBillFilters(){
-  ['tpBillStatus','tpBillShop','tpBillMonth','tpBillYear'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+  ['tpBillStatus','tpBillShop'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
   applyTpBillFilters();
 }
 
+// ── Payments drill-down ──
+function renderTpPayDrill(){
+  const grouped = groupByYearMonth(tpPaysData, 'payment_date', p=>Number(p.amount||0), null);
+  const crumb = document.getElementById('tpPayCrumb');
+  const area = document.getElementById('tpPayDrillArea');
+  if (!area) return;
+
+  if (!tpPayDrill.year) {
+    crumb.innerHTML = `<span class="active">All Years</span>`;
+    const years = Object.keys(grouped).sort((a,b)=>b-a);
+    area.innerHTML = years.length ? `<div class="drill-grid">${years.map(y=>`
+      <div class="drill-card" onclick="tpPayGoYear(${y})">
+        <div class="dc-title">${y}</div>
+        <div class="dc-count">${grouped[y].count} payment${grouped[y].count===1?'':'s'}</div>
+        <div class="dc-amt">${currency(grouped[y].total)}</div>
+      </div>`).join('')}</div>` : '<div class="empty-compact">No payments found.</div>';
+    return;
+  }
+
+  const yearData = grouped[tpPayDrill.year];
+  if (!tpPayDrill.month) {
+    crumb.innerHTML = `<span onclick="tpPayGoRoot()">All Years</span><span class="sep">\u203a</span><span class="active">${tpPayDrill.year}</span>`;
+    const months = yearData ? Object.keys(yearData.months).sort((a,b)=>a-b) : [];
+    area.innerHTML = months.length ? `<div class="drill-grid">${months.map(m=>`
+      <div class="drill-card" onclick="tpPayGoMonth(${m})">
+        <div class="dc-title">${monthNamesShort[m-1]}</div>
+        <div class="dc-count">${yearData.months[m].count} payment${yearData.months[m].count===1?'':'s'}</div>
+        <div class="dc-amt">${currency(yearData.months[m].total)}</div>
+      </div>`).join('')}</div>` : '<div class="empty-compact">No payments found.</div>';
+    return;
+  }
+
+  crumb.innerHTML = `<span onclick="tpPayGoRoot()">All Years</span><span class="sep">\u203a</span><span onclick="tpPayGoYear(${tpPayDrill.year})">${tpPayDrill.year}</span><span class="sep">\u203a</span><span class="active">${monthNamesShort[tpPayDrill.month-1]}</span>`;
+  const monthPays = yearData.months[tpPayDrill.month].items;
+  area.innerHTML = `
+    <div id="tpPayList">
+      ${monthPays.map(p=>`
+      <div class="tenant-card tp-pay-row">
+        <div class="row1"><span class="title mono">${currency(p.amount)}</span><span class="meta">${escapeHtml(p.payment_method)}</span></div>
+        <div class="meta">Paid ${dateFmt(p.payment_date)} · Receipt #${p.id}${p.remarks?' · '+escapeHtml(p.remarks):''}</div>
+      </div>`).join('')}
+    </div>
+  `;
+}
+function tpPayGoRoot(){ tpPayDrill = { year:null, month:null }; renderTpPayDrill(); }
+function tpPayGoYear(y){ tpPayDrill = { year:y, month:null }; renderTpPayDrill(); }
+function tpPayGoMonth(m){ tpPayDrill.month = m; renderTpPayDrill(); }
 
 
 function renderTenantLedger(data){
