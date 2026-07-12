@@ -3422,9 +3422,12 @@ def _get_monthly_ledger_data(user_id: int, year: int, db: Session) -> dict:
         })
 
     shops = db.query(Shop).join(UserShop, UserShop.shop_id == Shop.id).filter(UserShop.user_id == user_id).all()
+    complexes = {c.id: c for c in db.query(Complex).all()}
     shop_list = [{
         "id": s.id,
         "shop_number": s.shop_number,
+        "complex_id": s.complex_id,
+        "complex_name": complexes.get(s.complex_id).name if s.complex_id and complexes.get(s.complex_id) else None,
         "area_sqft": _decimal_to_float(s.area_sqft),
         "shop_rent": _decimal_to_float(s.shop_rent),
         "shop_deposit": _decimal_to_float(s.shop_deposit),
