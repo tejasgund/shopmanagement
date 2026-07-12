@@ -327,6 +327,7 @@ class PaymentCreate(BaseModel):
     amount:         float  = Field(..., gt=0)
     payment_method: str    = Field(..., min_length=1, max_length=60)
     remarks:        Optional[str] = None
+    payment_date: Optional[datetime] = None
 
 
 class PaymentResponse(BaseModel):
@@ -381,6 +382,7 @@ class AutoAllocateConfirmRequest(BaseModel):
     payment_method:  str   = Field(..., min_length=1, max_length=60)
     remarks:         Optional[str] = None
     allocations:     List[ConfirmAllocationItem] = Field(..., min_length=1)
+    payment_date: Optional[datetime] = None
 
 
 class AutoAllocateResult(BaseModel):
@@ -1290,10 +1292,11 @@ def record_payment(
         raise HTTPException(400, detail="Bill is already fully paid")
 
     pay = Payment(
-        bill_id        = body.bill_id,
-        amount         = Decimal(str(body.amount)),
-        payment_method = body.payment_method,
-        remarks        = body.remarks,
+        bill_id=body.bill_id,
+        amount=Decimal(str(body.amount)),
+        payment_method=body.payment_method,
+        remarks=body.remarks,
+        payment_date=body.payment_date or datetime.now(timezone.utc),
     )
     db.add(pay)
     db.flush()
@@ -1401,7 +1404,8 @@ def auto_allocate_confirm(
                 alloc = outstanding
                 note = f"Capped to current outstanding balance of {float(outstanding)} (balance changed since preview)"
 
-            pay = Payment(bill_id=bill.id, amount=alloc, payment_method=body.payment_method, remarks=body.remarks)
+            pay = Payment(bill_id=bill.id, amount=alloc, payment_method=body.payment_method, remarks=body.remarks,
+                          payment_date=body.payment_date or datetime.now(timezone.utc))
             db.add(pay)
             db.flush()
             db.refresh(bill)

@@ -4422,6 +4422,10 @@ async function renderPaymentForm(presel){
             <option>Cash</option><option>UPI</option><option>Bank Transfer</option><option>Cheque</option><option>Card</option>
           </select>
         </div>
+        <div class="field">
+          <label for="pPayDate">Payment date</label>
+          <input id="pPayDate" type="date">
+        </div>
         <div class="field full">
           <label for="pRemarks">Remarks</label>
           <input id="pRemarks" placeholder="Optional note, transaction ID, etc.">
@@ -4477,7 +4481,7 @@ async function renderPaymentForm(presel){
     document.getElementById('pPreviewRows').innerHTML = '';
     document.getElementById('pBackBtn').style.display = 'none';
     document.getElementById('pAmtSection').style.display = _selectedUserId ? 'block' : 'none';
-    document.getElementById('pAmountField').style.display = 'block';
+    if (!document.getElementById('pPayDate').value) document.getElementById('pPayDate').value = new Date().toISOString().slice(0,10);
     document.getElementById('pSaveBtn').textContent = 'Preview allocation';
     document.getElementById('pSaveBtn').disabled = !(parseFloat(document.getElementById('pAmount')?.value) > 0);
   }
@@ -4570,6 +4574,7 @@ async function renderPaymentForm(presel){
     document.getElementById('pBillSection').style.display = 'none';
     document.getElementById('pAmtSection').style.display = 'none';
     document.getElementById('pAmountField').style.display = 'block';
+    if (!document.getElementById('pPayDate').value) document.getElementById('pPayDate').value = new Date().toISOString().slice(0,10);
     document.getElementById('pSummary').style.display = 'none';
     document.getElementById('pPreviewSection').style.display = 'none';
     document.getElementById('pBackBtn').style.display = 'none';
@@ -4881,6 +4886,8 @@ async function renderPaymentForm(presel){
       if (!_selectedUserId){ showToast('Select a tenant/shop first', 'error'); return; }
       const payment_method = document.getElementById('pMethod').value;
       const remarks = document.getElementById('pRemarks').value.trim();
+      const payment_date = document.getElementById('pPayDate').value ? new Date(document.getElementById('pPayDate').value).toISOString() : null;
+      const payment_date = document.getElementById('pPayDate').value ? new Date(document.getElementById('pPayDate').value).toISOString() : null;
 
       // STEP 1: build & show the preview — nothing is saved yet
       if (_autoStep === 'input'){
@@ -4914,7 +4921,7 @@ async function renderPaymentForm(presel){
       await withSavingState('pSaveBtn', async () => {
         const res = await api('/api/payment/auto-allocate/confirm', { method:'POST', body:{
           user_id: _selectedUserId, amount_received: _amountReceived,
-          payment_method, remarks, allocations
+          payment_method, remarks, allocations, payment_date
         }});
         state.loaded.bills = false;
         state.loaded.payments = false;
@@ -4938,6 +4945,7 @@ async function renderPaymentForm(presel){
     const amount = parseFloat(document.getElementById('pAmount').value);
     const payment_method = document.getElementById('pMethod').value;
     const remarks = document.getElementById('pRemarks').value.trim();
+    const payment_date = document.getElementById('pPayDate').value ? new Date(document.getElementById('pPayDate').value).toISOString() : null;
 
     // Conflict guards
     if (isNaN(amount) || amount <= 0){
@@ -4962,7 +4970,8 @@ async function renderPaymentForm(presel){
         bill_id: _selectedBillId,
         amount,
         payment_method,
-        remarks
+        remarks,
+        payment_date
       }});
       state.loaded.bills = false;
       state.loaded.payments = false;
