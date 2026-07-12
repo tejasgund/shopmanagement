@@ -63,7 +63,7 @@ ENV DB_HOST=172.31.52.221 \
     JWT_EXPIRE_MINUTES=1440 \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    TZ=Asia/Kolkata \
+    TZ=Asia/Kolkata
 
 # ──────────────────────────────────────────────
 # Expose FastAPI port
