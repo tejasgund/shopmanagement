@@ -134,6 +134,8 @@ class UserShop(Base):
     user_id     = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     shop_id     = Column(Integer, ForeignKey("shops.id", ondelete="CASCADE"), nullable=False, index=True)
     assigned_at = Column(DateTime, nullable=False, default=now_utc)
+    agreement_start_date = Column(DateTime, nullable=True)
+    agreement_end_date = Column(DateTime, nullable=True)
 
     # Relationships
     user = relationship("User", back_populates="user_shops")

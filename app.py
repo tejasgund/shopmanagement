@@ -280,6 +280,13 @@ class UserResponse(BaseModel):
 class AssignShopsRequest(BaseModel):
     shop_ids: List[int] = Field(..., min_length=1)
     force: bool = Field(False, description="If true, reassign shops already owned by another active tenant.")
+    agreement_start_date: Optional[datetime] = None
+    agreement_end_date:   Optional[datetime] = None
+
+
+class UpdateAgreementRequest(BaseModel):
+    agreement_start_date: Optional[datetime] = None
+    agreement_end_date:   Optional[datetime] = None
 
 
 class DetachShopsRequest(BaseModel):
@@ -523,11 +530,14 @@ def _build_user_financial_summary(db: Session, user: User) -> dict:
             "id": shop.id,
             "shop_number": shop.shop_number,
             "complex_id": shop.complex_id,
-            "complex_name": complexes.get(shop.complex_id).name if shop.complex_id and complexes.get(shop.complex_id) else None,
+            "complex_name": complexes.get(shop.complex_id).name if shop.complex_id and complexes.get(
+                shop.complex_id) else None,
             "area_sqft": _decimal_to_float(shop.area_sqft),
             "shop_rent": rent,
             "shop_deposit": deposit_required,
             "status": shop.status,
+            "agreement_start_date": us.agreement_start_date,
+            "agreement_end_date": us.agreement_end_date,
         })
 
     total_pending_rent = _pending_rent_for_user(db, user.id)
@@ -1140,7 +1150,12 @@ def assign_shops_to_user(
         ).first()
         if not exists:
             # No rent stored – the assignment is now purely a relationship
-            db.add(UserShop(user_id=user_id, shop_id=shop_id))
+            db.add(UserShop(
+                user_id=user_id,
+                shop_id=shop_id,
+                agreement_start_date=body.agreement_start_date,
+                agreement_end_date=body.agreement_end_date,
+            ))
             assigned.append(shop_id)
 
         shop.status = "occupied"
@@ -1154,6 +1169,36 @@ def assign_shops_to_user(
         "message": f"Assigned shops {assigned} to user {user_id}",
         "reassigned_from": reassigned_from,
     }
+
+
+@app.put("/api/user/{user_id}/shop/{shop_id}/agreement", tags=["User"])
+def update_agreement_dates(
+        user_id: int,
+        shop_id: int,
+        body: UpdateAgreementRequest,
+        db: Session = Depends(get_db),
+        actor: User = Depends(require_admin),
+):
+    """Update (or set) the agreement start/end dates for an existing tenant-shop assignment. Admin only."""
+    row = db.query(UserShop).filter(
+        UserShop.user_id == user_id, UserShop.shop_id == shop_id
+    ).first()
+    if not row:
+        raise HTTPException(404, detail="This shop is not assigned to this user")
+
+    old_data = {
+        "agreement_start_date": row.agreement_start_date.isoformat() if row.agreement_start_date else None,
+        "agreement_end_date": row.agreement_end_date.isoformat() if row.agreement_end_date else None,
+    }
+    row.agreement_start_date = body.agreement_start_date
+    row.agreement_end_date = body.agreement_end_date
+
+    write_audit(db, actor.id, "UPDATE_AGREEMENT", "user_shops", user_id,
+                old_data=old_data,
+                new_data={"agreement_start_date": str(body.agreement_start_date),
+                          "agreement_end_date": str(body.agreement_end_date)})
+    db.commit()
+    return {"success": True, "message": "Agreement dates updated"}
 
 
 @app.post("/api/user/{user_id}/detach-shops", tags=["User"])
@@ -2386,13 +2431,15 @@ def tenant_shops(
     )
     return [
         {
-            "id":           s.id,
-            "shop_number":  s.shop_number,
-            "area_sqft":    _decimal_to_float(s.area_sqft),
-            "status":       s.status,
-            "complex_id":   s.complex_id,
-            "shop_rent":    _decimal_to_float(s.shop_rent),  # <-- DIRECT
+            "id": s.id,
+            "shop_number": s.shop_number,
+            "area_sqft": _decimal_to_float(s.area_sqft),
+            "status": s.status,
+            "complex_id": s.complex_id,
+            "shop_rent": _decimal_to_float(s.shop_rent),  # <-- DIRECT
             "shop_deposit": _decimal_to_float(s.shop_deposit),
+            "agreement_start_date": us.agreement_start_date,
+            "agreement_end_date": us.agreement_end_date,
         }
         for s, us in rows
     ]
