@@ -1881,8 +1881,8 @@ async function openFinancialSummaryModal(userId, name){
       ${d.shops_summary?.shops?.length > 0 ? `
       <h4 style="font-size:13.5px; margin:0 0 8px;">Shops (${d.shops_summary.total_shops})</h4>
       <div class="table-wrap" style="margin-bottom:16px;">
-        <table><thead><tr><th>Shop</th><th>Complex</th><th class="num">Rent</th><th class="num">Deposit</th><th>Agreement Ends</th><th>Days Left</th></tr></thead>
-        <tbody>${d.shops_summary.shops.map(s=>`<tr><td class="mono">${escapeHtml(s.shop_number)}</td><td>${escapeHtml(s.complex_name)}</td><td class="num">${currency(s.shop_rent)}</td><td class="num">${currency(s.shop_deposit)}</td><td>${dateFmt(s.agreement_end_date)}</td><td>${daysLeftHtml(s.agreement_end_date)}</td></tr>`).join('')}</tbody>
+        <table><thead><tr><th>Shop</th><th>Complex</th><th class="num">Rent</th><th class="num">Deposit</th><th>Agreement Ends</th><th>Days Left</th><th></th></tr></thead>
+        <tbody>${d.shops_summary.shops.map(s=>`<tr><td class="mono">${escapeHtml(s.shop_number)}</td><td>${escapeHtml(s.complex_name)}</td><td class="num">${currency(s.shop_rent)}</td><td class="num">${currency(s.shop_deposit)}</td><td>${dateFmt(s.agreement_end_date)}</td><td>${daysLeftHtml(s.agreement_end_date)}</td><td><button class="btn-icon" data-edit-agreement="${s.id}" data-shop-number="${escapeHtml(s.shop_number)}" data-start="${s.agreement_start_date||''}" data-end="${s.agreement_end_date||''}" title="Edit agreement dates">✎</button></td></tr>`).join('')}</tbody>
         </table>
       </div>` : ''}
 
@@ -1911,10 +1911,52 @@ async function openFinancialSummaryModal(userId, name){
       </div>` : ''}
     `;
     document.getElementById('modalFoot').innerHTML = `<button class="btn btn-ghost" onclick="closeModal()">Close</button>`;
+    document.querySelectorAll('[data-edit-agreement]').forEach(btn => {
+      btn.addEventListener('click', () => openEditAgreementModal(
+        userId, name,
+        Number(btn.dataset.editAgreement),
+        btn.dataset.shopNumber,
+        btn.dataset.start,
+        btn.dataset.end
+      ));
+    });
   } catch(err) {
     document.getElementById('modalBody').innerHTML = `<div class="error-banner"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg><span>${escapeHtml(err.message)}</span></div>`;
     document.getElementById('modalFoot').innerHTML = `<button class="btn btn-ghost" onclick="closeModal()">Close</button>`;
   }
+}
+
+function openEditAgreementModal(userId, userName, shopId, shopNumber, startIso, endIso){
+  const startVal = startIso ? startIso.slice(0,10) : '';
+  const endVal   = endIso ? endIso.slice(0,10) : '';
+  openModal(`Edit agreement — ${shopNumber}`, `
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+      <div class="form-field">
+        <label for="editAgreementStart">Start date</label>
+        <input type="date" id="editAgreementStart" value="${startVal}">
+      </div>
+      <div class="form-field">
+        <label for="editAgreementEnd">End date</label>
+        <input type="date" id="editAgreementEnd" value="${endVal}">
+      </div>
+    </div>
+  `, `
+    <button class="btn btn-ghost" id="cancelBtn">Cancel</button>
+    <button class="btn btn-primary" id="saveAgreementBtn">Save</button>
+  `);
+  document.getElementById('cancelBtn').addEventListener('click', () => openFinancialSummaryModal(userId, userName));
+  document.getElementById('saveAgreementBtn').addEventListener('click', async () => {
+    await withSavingState('saveAgreementBtn', async () => {
+      const agreement_start_date = document.getElementById('editAgreementStart').value || null;
+      const agreement_end_date   = document.getElementById('editAgreementEnd').value || null;
+      await api(`/api/user/${userId}/shop/${shopId}/agreement`, {
+        method: 'PUT',
+        body: { agreement_start_date, agreement_end_date },
+      });
+      showToast('Agreement dates updated', 'success');
+      await openFinancialSummaryModal(userId, userName);
+    }, 'Saving…');
+  });
 }
 
 /* ================================================================
