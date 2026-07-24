@@ -77,7 +77,7 @@ scheduler = BackgroundScheduler(timezone="UTC")
 
 @app.on_event("startup")
 def start_scheduler():
-    scheduler.add_job(generate_due_rent_bills, "interval", minute=5)
+    scheduler.add_job(generate_due_rent_bills, "interval", minutes=5)
     scheduler.start()
     logger.info("Rent-billing scheduler started.")
 
