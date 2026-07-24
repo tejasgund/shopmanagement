@@ -1315,23 +1315,22 @@ def generate_due_rent_bills():
 
 @app.post("/api/bill", response_model=BillResponse, status_code=201, tags=["Bill"])
 def create_bill(
-            body: BillCreate,
-            db: Session = Depends(get_db),
-            actor: User = Depends(require_admin),
-    ):
+    body: BillCreate,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_admin),
+):
+    """
+    Create a bill for a tenant.
 
-        """
-        Create a bill for a tenant.
+    bill_type == "Rent": the bill amount is auto-filled from the current shop rent.
+    Any `amount` supplied in the request body is ignored for Rent bills — the server
+    is the source of truth so rent always matches what is set on the shop.
 
-        bill_type == "Rent": the bill amount is auto-filled from the current shop rent.
-        Any `amount` supplied in the request body is ignored for Rent bills — the server
-        is the source of truth so rent always matches what is set on the shop.
-
-        Any other bill_type (e.g. "Electricity", "Maintenance", "Other"):
-        `amount` is required and used as-is. `description` is optional and is
-        commonly used to clarify what the charge is for.
-        Admin only.
-        """
+    Any other bill_type (e.g. "Electricity", "Maintenance", "Other"):
+    `amount` is required and used as-is. `description` is optional and is
+    commonly used to clarify what the charge is for.
+    Admin only.
+    """
     user = db.query(User).filter(User.id == body.user_id).first()
     if not user:
         raise HTTPException(400, detail="User not found")
