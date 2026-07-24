@@ -1409,7 +1409,12 @@ async function usersView(){
     const owned = shops.filter(s => s.assigned_to?.id === uid);
     const totalRent = owned.reduce((sum,s)=>sum+Number(s.shop_rent||0),0);
     const totalDeposit = owned.reduce((sum,s)=>sum+Number(s.shop_deposit||0),0);
-    return { count: owned.length, totalRent, totalDeposit };
+    // Nearest-expiring agreement across all of this tenant's shops (most urgent first)
+    const endDates = owned.map(s => s.assigned_to?.agreement_end_date).filter(Boolean);
+    const nearestEnd = endDates.length
+      ? endDates.reduce((a,b) => new Date(a) < new Date(b) ? a : b)
+      : null;
+    return { count: owned.length, totalRent, totalDeposit, nearestEnd };
   };
 
   return `
@@ -1417,7 +1422,7 @@ async function usersView(){
   ${users.length === 0 ? emptyStateHtml('No users yet', 'Add tenants or admins to get started.', emptyIcon()) : `
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Name</th><th>Mobile</th><th>Role</th><th>Status</th><th class="num">Shops</th><th class="num">Monthly Rent</th><th class="num">Total Deposit</th><th></th></tr></thead>
+<thead><tr><th>Name</th><th>Mobile</th><th>Role</th><th>Status</th><th class="num">Shops</th><th class="num">Monthly Rent</th><th class="num">Total Deposit</th><th>Agreement</th><th></th></tr></thead>
       <tbody>
         ${users.map(u => {
           const summary = u.role === 'tenant' ? userShopSummary(u.id) : null;
@@ -1430,6 +1435,7 @@ async function usersView(){
             <td class="num">${summary ? summary.count : '—'}</td>
             <td class="num">${summary ? currency(summary.totalRent) : '—'}</td>
             <td class="num">${summary ? currency(summary.totalDeposit) : '—'}</td>
+            <td>${summary ? daysLeftHtml(summary.nearestEnd) : '—'}</td>
             <td><div class="row-actions">
               ${u.role === 'tenant' ? `<button class="btn-icon" data-financial-summary="${u.id}" data-name="${escapeHtml(u.name)}" aria-label="Financial summary" title="Financial summary"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg></button>` : ''}
               ${u.role === 'tenant' ? `<button class="btn-icon" data-assign-shops="${u.id}" data-name="${escapeHtml(u.name)}" aria-label="Assign shops">${shopAssignIcon()}</button>` : ''}

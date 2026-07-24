@@ -223,6 +223,8 @@ class ShopOwnerInfo(BaseModel):
     id:     int
     name:   str
     mobile: str
+    agreement_start_date: Optional[datetime] = None
+    agreement_end_date:   Optional[datetime] = None
 
 
 class ShopResponse(BaseModel):
@@ -452,7 +454,11 @@ def _shop_owner_map(db: Session, shop_ids: Optional[List[int]] = None) -> dict:
     owner_map = {}
     for user_shop, user in rows:
         if user_shop.shop_id not in owner_map:  # first row per shop = most recent
-            owner_map[user_shop.shop_id] = ShopOwnerInfo(id=user.id, name=user.name, mobile=user.mobile)
+            owner_map[user_shop.shop_id] = ShopOwnerInfo(
+                id=user.id, name=user.name, mobile=user.mobile,
+                agreement_start_date=user_shop.agreement_start_date,
+                agreement_end_date=user_shop.agreement_end_date,
+            )
     return owner_map
 
 
@@ -2435,7 +2441,7 @@ def tenant_shops(
             "id":           s.id,
             "shop_number":  s.shop_number,
             "area_sqft":    _decimal_to_float(s.area_sqft),
-            "status":       s.status,
+            "st atus":       s.status,
             "complex_id":   s.complex_id,
             "complex_name": complexes.get(s.complex_id),
             "shop_rent":    _decimal_to_float(s.shop_rent),  # <-- DIRECT
