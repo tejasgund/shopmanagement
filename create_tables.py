@@ -136,6 +136,7 @@ class UserShop(Base):
     assigned_at = Column(DateTime, nullable=False, default=now_utc)
     agreement_start_date = Column(DateTime, nullable=True)
     agreement_end_date = Column(DateTime, nullable=True)
+    rent_day = Column(Integer, nullable=True)  # 1–28 only; day of month rent is due
 
     # Relationships
     user = relationship("User", back_populates="user_shops")

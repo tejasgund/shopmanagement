@@ -790,7 +790,7 @@ td .row-actions{ display:flex; gap:6px; justify-content:flex-end; }
 /* ================================================================
    CONFIG — set your backend URL here
    ================================================================ */
-const API_BASE_URL = "http://13.205.70.46:8001";
+const API_BASE_URL = "http://13.205.70.46:8000";
 
 /* ================================================================
    STATE
@@ -1888,7 +1888,7 @@ async function openFinancialSummaryModal(userId, name){
       <h4 style="font-size:13.5px; margin:0 0 8px;">Shops (${d.shops_summary.total_shops})</h4>
       <div class="table-wrap" style="margin-bottom:16px;">
         <table><thead><tr><th>Shop</th><th>Complex</th><th class="num">Rent</th><th class="num">Deposit</th><th>Agreement Ends</th><th>Days Left</th><th></th></tr></thead>
-        <tbody>${d.shops_summary.shops.map(s=>`<tr><td class="mono">${escapeHtml(s.shop_number)}</td><td>${escapeHtml(s.complex_name)}</td><td class="num">${currency(s.shop_rent)}</td><td class="num">${currency(s.shop_deposit)}</td><td>${dateFmt(s.agreement_end_date)}</td><td>${daysLeftHtml(s.agreement_end_date)}</td><td><button class="btn-icon" data-edit-agreement="${s.id}" data-shop-number="${escapeHtml(s.shop_number)}" data-start="${s.agreement_start_date||''}" data-end="${s.agreement_end_date||''}" title="Edit agreement dates">✎</button></td></tr>`).join('')}</tbody>
+        <tbody>${d.shops_summary.shops.map(s=>`<tr><td class="mono">${escapeHtml(s.shop_number)}</td><td>${escapeHtml(s.complex_name)}</td><td class="num">${currency(s.shop_rent)}</td><td class="num">${currency(s.shop_deposit)}</td><td>${dateFmt(s.agreement_end_date)}</td><td>${daysLeftHtml(s.agreement_end_date)}</td><td><button class="btn-icon" data-edit-agreement="${s.id}" data-shop-number="${escapeHtml(s.shop_number)}" data-start="${s.agreement_start_date||''}" data-end="${s.agreement_end_date||''}" data-rent-day="${s.rent_day||''}" title="Edit agreement dates">✎</button></td></tr>`).join('')}</tbody>
         </table>
       </div>` : ''}
 
@@ -1923,7 +1923,8 @@ async function openFinancialSummaryModal(userId, name){
         Number(btn.dataset.editAgreement),
         btn.dataset.shopNumber,
         btn.dataset.start,
-        btn.dataset.end
+        btn.dataset.end,
+        btn.dataset.rentDay
       ));
     });
   } catch(err) {
@@ -1932,7 +1933,7 @@ async function openFinancialSummaryModal(userId, name){
   }
 }
 
-function openEditAgreementModal(userId, userName, shopId, shopNumber, startIso, endIso){
+function openEditAgreementModal(userId, userName, shopId, shopNumber, startIso, endIso, rentDayVal){
   const startVal = startIso ? startIso.slice(0,10) : '';
   const endVal   = endIso ? endIso.slice(0,10) : '';
   openModal(`Edit agreement — ${shopNumber}`, `
@@ -1945,6 +1946,13 @@ function openEditAgreementModal(userId, userName, shopId, shopNumber, startIso, 
         <label for="editAgreementEnd">End date</label>
         <input type="date" id="editAgreementEnd" value="${endVal}">
       </div>
+      <div class="form-field">
+        <label for="editRentDay">Rent due day</label>
+        <select id="editRentDay">
+          <option value="">— none —</option>
+          ${Array.from({length:28},(_,i)=>i+1).map(d=>`<option value="${d}" ${Number(rentDayVal)===d?'selected':''}>${d}</option>`).join('')}
+        </select>
+      </div>
     </div>
   `, `
     <button class="btn btn-ghost" id="cancelBtn">Cancel</button>
@@ -1953,12 +1961,8 @@ function openEditAgreementModal(userId, userName, shopId, shopNumber, startIso, 
   document.getElementById('cancelBtn').addEventListener('click', () => openFinancialSummaryModal(userId, userName));
   document.getElementById('saveAgreementBtn').addEventListener('click', async () => {
     await withSavingState('saveAgreementBtn', async () => {
-      const agreement_start_date = document.getElementById('editAgreementStart').value || null;
-      const agreement_end_date   = document.getElementById('editAgreementEnd').value || null;
-      await api(`/api/user/${userId}/shop/${shopId}/agreement`, {
-        method: 'PUT',
-        body: { agreement_start_date, agreement_end_date },
-      });
+
+
       showToast('Agreement dates updated', 'success');
       await openFinancialSummaryModal(userId, userName);
     }, 'Saving…');
@@ -4211,6 +4215,13 @@ async function openAssignShopsModal(userId, userName){
         <label for="agreementEnd">Agreement end date</label>
         <input type="date" id="agreementEnd">
       </div>
+      <div class="form-field">
+        <label for="rentDay">Rent due day (every month)</label>
+        <select id="rentDay">
+          <option value="">— none —</option>
+          ${Array.from({length:28},(_,i)=>i+1).map(d=>`<option value="${d}">${d}</option>`).join('')}
+        </select>
+      </div>
     </div>
     <div class="checkbox-list" id="shopCheckList">
       ${shops.length === 0 ? '<div style="font-size:13px; color:var(--muted); padding:8px;">No shops available. Add a shop first.</div>' :
@@ -4241,10 +4252,12 @@ async function submitAssignShops(userId, userName, force){
   if (ids.length === 0){ showToast('Select at least one shop', 'error'); return; }
   const agreement_start_date = document.getElementById('agreementStart')?.value || null;
   const agreement_end_date   = document.getElementById('agreementEnd')?.value || null;
+  const rentDayVal = document.getElementById('rentDay')?.value || null;
+  const rent_day = rentDayVal ? Number(rentDayVal) : null;
 
   await withSavingState('assignBtn', async () => {
     try {
-      const res = await api(`/api/user/${userId}/assign-shops`, { method:'POST', body:{ shop_ids: ids, force, agreement_start_date, agreement_end_date } });
+      const res = await api(`/api/user/${userId}/assign-shops`, { method:'POST', body:{ shop_ids: ids, force, agreement_start_date, agreement_end_date, rent_day } });
       state.loaded.shops = false;
       closeModal();
       const reassignedCount = res.reassigned_from?.length || 0;

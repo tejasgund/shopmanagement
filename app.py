@@ -70,6 +70,19 @@ app.add_middleware(
 app.middleware("http")(log_request_middleware)
 
 # ──────────────────────────────────────────────
+# Rent Billing Scheduler
+# ──────────────────────────────────────────────
+from apscheduler.schedulers.background import BackgroundScheduler
+
+scheduler = BackgroundScheduler(timezone="UTC")
+
+@app.on_event("startup")
+def start_scheduler():
+    scheduler.add_job(generate_due_rent_bills, "cron", hour=1, minute=0)
+    scheduler.start()
+    logger.info("Rent-billing scheduler started.")
+
+# ──────────────────────────────────────────────
 # JWT Settings
 # ──────────────────────────────────────────────
 JWT_SECRET    = os.getenv("JWT_SECRET",    "CHANGE_ME_IN_PRODUCTION_SECRET_KEY")
@@ -225,6 +238,7 @@ class ShopOwnerInfo(BaseModel):
     mobile: str
     agreement_start_date: Optional[datetime] = None
     agreement_end_date:   Optional[datetime] = None
+    rent_day: Optional[int] = None
 
 
 class ShopResponse(BaseModel):
@@ -283,12 +297,14 @@ class AssignShopsRequest(BaseModel):
     shop_ids: List[int] = Field(..., min_length=1)
     force: bool = Field(False, description="If true, reassign shops already owned by another active tenant.")
     agreement_start_date: Optional[datetime] = None
-    agreement_end_date:   Optional[datetime] = None
+    agreement_end_date: Optional[datetime] = None
+    rent_day: Optional[int] = Field(None, ge=1, le=28)
 
 
 class UpdateAgreementRequest(BaseModel):
     agreement_start_date: Optional[datetime] = None
-    agreement_end_date:   Optional[datetime] = None
+    agreement_end_date: Optional[datetime] = None
+    rent_day: Optional[int] = Field(None, ge=1, le=28)
 
 
 class DetachShopsRequest(BaseModel):
@@ -458,6 +474,7 @@ def _shop_owner_map(db: Session, shop_ids: Optional[List[int]] = None) -> dict:
                 id=user.id, name=user.name, mobile=user.mobile,
                 agreement_start_date=user_shop.agreement_start_date,
                 agreement_end_date=user_shop.agreement_end_date,
+                rent_day=user_shop.rent_day,
             )
     return owner_map
 
@@ -544,6 +561,7 @@ def _build_user_financial_summary(db: Session, user: User) -> dict:
             "status": shop.status,
             "agreement_start_date": us.agreement_start_date,
             "agreement_end_date": us.agreement_end_date,
+            "rent_day": us.rent_day,
         })
 
     total_pending_rent = _pending_rent_for_user(db, user.id)
@@ -1161,6 +1179,7 @@ def assign_shops_to_user(
                 shop_id=shop_id,
                 agreement_start_date=body.agreement_start_date,
                 agreement_end_date=body.agreement_end_date,
+                rent_day=body.rent_day,
             ))
             assigned.append(shop_id)
         else:
@@ -1170,6 +1189,8 @@ def assign_shops_to_user(
                 existing_row.agreement_start_date = body.agreement_start_date
             if body.agreement_end_date is not None:
                 existing_row.agreement_end_date = body.agreement_end_date
+            if body.rent_day is not None:
+                existing_row.rent_day = body.rent_day
 
         shop.status = "occupied"
 
@@ -1205,6 +1226,8 @@ def update_agreement_dates(
     }
     row.agreement_start_date = body.agreement_start_date
     row.agreement_end_date = body.agreement_end_date
+    if body.rent_day is not None:
+        row.rent_day = body.rent_day
 
     write_audit(db, actor.id, "UPDATE_AGREEMENT", "user_shops", user_id,
                 old_data=old_data,
@@ -1248,8 +1271,51 @@ def detach_shops_from_user(
 # ── ROUTES: Bill Management
 # ══════════════════════════════════════════════════════════════════════════════
 
-@app.post("/api/bill", response_model=BillResponse, status_code=201, tags=["Bill"])
-def create_bill(
+    def generate_due_rent_bills():
+        """Runs once daily. Creates a Rent bill for every active shop
+        assignment whose rent_day matches today's date — skips if a
+        Rent bill for that user+shop already exists this month."""
+        from db_config import SessionLocal
+        db = SessionLocal()
+        try:
+            today = datetime.now(timezone.utc)
+            assignments = db.query(UserShop).filter(UserShop.rent_day == today.day).all()
+            created = 0
+            for us in assignments:
+                shop = db.query(Shop).filter(Shop.id == us.shop_id).first()
+                if not shop or shop.shop_rent <= 0:
+                    continue
+                already = db.query(Bill).filter(
+                    Bill.user_id == us.user_id,
+                    Bill.shop_id == us.shop_id,
+                    Bill.bill_type == "Rent",
+                    extract("month", Bill.bill_date) == today.month,
+                    extract("year", Bill.bill_date) == today.year,
+                ).first()
+                if already:
+                    continue
+                amount = shop.shop_rent
+                bill = Bill(
+                    user_id=us.user_id, shop_id=us.shop_id, bill_type="Rent",
+                    description="Auto-generated monthly rent",
+                    amount=amount, paid_amount=Decimal("0"), pending_amount=amount,
+                    bill_date=today, status="pending",
+                )
+                db.add(bill)
+                db.flush()
+                write_audit(db, None, "AUTO_RENT_BILL", "bills", bill.id,
+                            new_data={"user_id": us.user_id, "shop_id": us.shop_id, "amount": float(amount)})
+                created += 1
+            db.commit()
+            logger.info("Auto rent job: created %d bill(s) for day %d", created, today.day)
+        except Exception as exc:
+            db.rollback()
+            logger.error("Auto rent job failed: %s", exc)
+        finally:
+            db.close()
+
+    @app.post("/api/bill", response_model=BillResponse, status_code=201, tags=["Bill"])
+    def create_bill(
     body:  BillCreate,
     db:    Session = Depends(get_db),
     actor: User    = Depends(require_admin),
@@ -2455,6 +2521,7 @@ def tenant_shops(
             "shop_deposit": _decimal_to_float(s.shop_deposit),
             "agreement_start_date": us.agreement_start_date,
             "agreement_end_date": us.agreement_end_date,
+            "rent_day": us.rent_day,
         }
         for s, us in rows
     ]
