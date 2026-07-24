@@ -32,8 +32,6 @@ from log import get_logger, log_request_middleware
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import extract
 
-
-
 # Import ORM models from create_tables so we have a single schema source-of-truth
 from create_tables import (
     AuditLog, Bill, Complex, DepositPayment, Payment, Shop, User, UserShop,
@@ -76,16 +74,18 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 scheduler = BackgroundScheduler(timezone="UTC")
 
+
 @app.on_event("startup")
 def start_scheduler():
     scheduler.add_job(generate_due_rent_bills, "cron", hour=1, minute=0)
     scheduler.start()
     logger.info("Rent-billing scheduler started.")
 
+
 # ──────────────────────────────────────────────
 # JWT Settings
 # ──────────────────────────────────────────────
-JWT_SECRET    = os.getenv("JWT_SECRET",    "CHANGE_ME_IN_PRODUCTION_SECRET_KEY")
+JWT_SECRET = os.getenv("JWT_SECRET", "CHANGE_ME_IN_PRODUCTION_SECRET_KEY")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "1440"))  # 24 hours
 
@@ -119,8 +119,8 @@ def decode_token(token: str) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db),
+        credentials: HTTPAuthorizationCredentials = Depends(security),
+        db: Session = Depends(get_db),
 ) -> User:
     """Dependency – returns the authenticated User ORM object."""
     payload = decode_token(credentials.credentials)
@@ -151,22 +151,22 @@ def require_tenant(current_user: User = Depends(get_current_user)) -> User:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def write_audit(
-    db: Session,
-    actor_id: int,
-    action: str,
-    table_name: str,
-    record_id: Optional[int] = None,
-    old_data: Optional[dict] = None,
-    new_data: Optional[dict] = None,
+        db: Session,
+        actor_id: int,
+        action: str,
+        table_name: str,
+        record_id: Optional[int] = None,
+        old_data: Optional[dict] = None,
+        new_data: Optional[dict] = None,
 ):
     """Persist one audit log entry."""
     entry = AuditLog(
-        user_id    = actor_id,
-        action     = action,
-        table_name = table_name,
-        record_id  = record_id,
-        old_data   = json.dumps(old_data,  default=str) if old_data  else None,
-        new_data   = json.dumps(new_data,  default=str) if new_data  else None,
+        user_id=actor_id,
+        action=action,
+        table_name=table_name,
+        record_id=record_id,
+        old_data=json.dumps(old_data, default=str) if old_data else None,
+        new_data=json.dumps(new_data, default=str) if new_data else None,
     )
     db.add(entry)
     # caller commits
@@ -178,36 +178,36 @@ def write_audit(
 
 # ── Auth ──────────────────────────────────────
 class LoginRequest(BaseModel):
-    mobile:   str = Field(..., example="9999999999")
+    mobile: str = Field(..., example="9999999999")
     password: str = Field(..., example="admin@123")
 
 
 class LoginResponse(BaseModel):
     success: bool
-    token:   str
-    role:    str
+    token: str
+    role: str
 
 
 # ── Complex ───────────────────────────────────
 class ComplexCreate(BaseModel):
-    name:        str  = Field(..., min_length=1, max_length=150)
-    address:     Optional[str] = None
+    name: str = Field(..., min_length=1, max_length=150)
+    address: Optional[str] = None
     description: Optional[str] = None
 
 
 class ComplexUpdate(BaseModel):
-    name:        Optional[str] = Field(None, min_length=1, max_length=150)
-    address:     Optional[str] = None
+    name: Optional[str] = Field(None, min_length=1, max_length=150)
+    address: Optional[str] = None
     description: Optional[str] = None
 
 
 class ComplexResponse(BaseModel):
-    id:          int
-    name:        str
-    address:     Optional[str]
+    id: int
+    name: str
+    address: Optional[str]
     description: Optional[str]
-    created_at:  datetime
-    updated_at:  datetime
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True
@@ -215,43 +215,43 @@ class ComplexResponse(BaseModel):
 
 # ── Shop ──────────────────────────────────────
 class ShopCreate(BaseModel):
-    shop_number:  str             = Field(..., min_length=1, max_length=50)
-    area_sqft:    Optional[float] = None
-    status:       Optional[str]   = Field("available", pattern="^(available|occupied|maintenance)$")
-    complex_id:   Optional[int]   = None
-    shop_rent:    Optional[float] = Field(0, ge=0)
+    shop_number: str = Field(..., min_length=1, max_length=50)
+    area_sqft: Optional[float] = None
+    status: Optional[str] = Field("available", pattern="^(available|occupied|maintenance)$")
+    complex_id: Optional[int] = None
+    shop_rent: Optional[float] = Field(0, ge=0)
     shop_deposit: Optional[float] = Field(0, ge=0)
 
 
 class ShopUpdate(BaseModel):
-    shop_number:  Optional[str]   = Field(None, min_length=1, max_length=50)
-    area_sqft:    Optional[float] = None
-    status:       Optional[str]   = Field(None, pattern="^(available|occupied|maintenance)$")
-    complex_id:   Optional[int]   = None
-    shop_rent:    Optional[float] = Field(None, ge=0)
+    shop_number: Optional[str] = Field(None, min_length=1, max_length=50)
+    area_sqft: Optional[float] = None
+    status: Optional[str] = Field(None, pattern="^(available|occupied|maintenance)$")
+    complex_id: Optional[int] = None
+    shop_rent: Optional[float] = Field(None, ge=0)
     shop_deposit: Optional[float] = Field(None, ge=0)
 
 
 class ShopOwnerInfo(BaseModel):
-    id:     int
-    name:   str
+    id: int
+    name: str
     mobile: str
     agreement_start_date: Optional[datetime] = None
-    agreement_end_date:   Optional[datetime] = None
+    agreement_end_date: Optional[datetime] = None
     rent_day: Optional[int] = None
 
 
 class ShopResponse(BaseModel):
-    id:           int
-    shop_number:  str
-    area_sqft:    Optional[float]
-    status:       str
-    complex_id:   Optional[int]
-    shop_rent:    float
+    id: int
+    shop_number: str
+    area_sqft: Optional[float]
+    status: str
+    complex_id: Optional[int]
+    shop_rent: float
     shop_deposit: float
-    created_at:   datetime
-    updated_at:   datetime
-    assigned_to:  Optional[ShopOwnerInfo] = None
+    created_at: datetime
+    updated_at: datetime
+    assigned_to: Optional[ShopOwnerInfo] = None
 
     class Config:
         from_attributes = True
@@ -263,31 +263,31 @@ class AssignComplexRequest(BaseModel):
 
 # ── User ──────────────────────────────────────
 class UserCreate(BaseModel):
-    name:     str            = Field(..., min_length=1, max_length=120)
-    mobile:   str            = Field(..., min_length=10, max_length=15)
-    email:    Optional[str]  = None
-    password: str            = Field(..., min_length=6)
-    role:     Optional[str]  = Field("tenant", pattern="^(admin|tenant)$")
+    name: str = Field(..., min_length=1, max_length=120)
+    mobile: str = Field(..., min_length=10, max_length=15)
+    email: Optional[str] = None
+    password: str = Field(..., min_length=6)
+    role: Optional[str] = Field("tenant", pattern="^(admin|tenant)$")
 
 
 class UserUpdate(BaseModel):
-    name:     Optional[str] = Field(None, min_length=1, max_length=120)
-    mobile:   Optional[str] = Field(None, min_length=10, max_length=15)
-    email:    Optional[str] = None
+    name: Optional[str] = Field(None, min_length=1, max_length=120)
+    mobile: Optional[str] = Field(None, min_length=10, max_length=15)
+    email: Optional[str] = None
     password: Optional[str] = Field(None, min_length=6)
-    role:     Optional[str] = Field(None, pattern="^(admin|tenant)$")
-    is_active:Optional[bool]= None
+    role: Optional[str] = Field(None, pattern="^(admin|tenant)$")
+    is_active: Optional[bool] = None
 
 
 class UserResponse(BaseModel):
-    id:        int
-    name:      str
-    mobile:    str
-    email:     Optional[str]
-    role:      str
+    id: int
+    name: str
+    mobile: str
+    email: Optional[str]
+    role: str
     is_active: bool
-    created_at:datetime
-    updated_at:datetime
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True
@@ -317,30 +317,30 @@ class ResetPasswordRequest(BaseModel):
 
 # ── Bill ──────────────────────────────────────
 class BillCreate(BaseModel):
-    user_id:     int
-    shop_id:     int
-    bill_type:   str               = Field(..., min_length=1, max_length=80,
-                                            description='Use "Rent" to auto-fill amount from the agreed rent for this tenant/shop, or any other value (e.g. "Electricity", "Maintenance", "Other") for manual entry.')
-    amount:      Optional[float]   = Field(None, gt=0,
-                                            description="Required when bill_type is not Rent. Ignored (recomputed) when bill_type is Rent.")
-    description: Optional[str]     = None
-    due_date:    Optional[datetime] = None
+    user_id: int
+    shop_id: int
+    bill_type: str = Field(..., min_length=1, max_length=80,
+                           description='Use "Rent" to auto-fill amount from the agreed rent for this tenant/shop, or any other value (e.g. "Electricity", "Maintenance", "Other") for manual entry.')
+    amount: Optional[float] = Field(None, gt=0,
+                                    description="Required when bill_type is not Rent. Ignored (recomputed) when bill_type is Rent.")
+    description: Optional[str] = None
+    due_date: Optional[datetime] = None
     bill_date: Optional[datetime] = None
 
 
 class BillResponse(BaseModel):
-    id:             int
-    user_id:        int
-    shop_id:        int
-    bill_type:      str
-    description:    Optional[str]
-    amount:         float
-    paid_amount:    float
+    id: int
+    user_id: int
+    shop_id: int
+    bill_type: str
+    description: Optional[str]
+    amount: float
+    paid_amount: float
     pending_amount: float
-    bill_date:      datetime
-    due_date:       Optional[datetime]
-    status:         str
-    created_at:     datetime
+    bill_date: datetime
+    due_date: Optional[datetime]
+    status: str
+    created_at: datetime
 
     class Config:
         from_attributes = True
@@ -348,21 +348,21 @@ class BillResponse(BaseModel):
 
 # ── Payment ───────────────────────────────────
 class PaymentCreate(BaseModel):
-    bill_id:        int
-    amount:         float  = Field(..., gt=0)
-    payment_method: str    = Field(..., min_length=1, max_length=60)
-    remarks:        Optional[str] = None
+    bill_id: int
+    amount: float = Field(..., gt=0)
+    payment_method: str = Field(..., min_length=1, max_length=60)
+    remarks: Optional[str] = None
     payment_date: Optional[datetime] = None
 
 
 class PaymentResponse(BaseModel):
-    id:             int
-    bill_id:        int
-    amount:         float
+    id: int
+    bill_id: int
+    amount: float
     payment_method: str
-    payment_date:   datetime
-    remarks:        Optional[str]
-    created_at:     datetime
+    payment_date: datetime
+    remarks: Optional[str]
+    created_at: datetime
 
     class Config:
         from_attributes = True
@@ -370,78 +370,78 @@ class PaymentResponse(BaseModel):
 
 class AutoAllocatePreviewRequest(BaseModel):
     user_id: int
-    shop_id: Optional[int] = None   # None = across all shops for this user
-    amount:  float = Field(..., gt=0)
+    shop_id: Optional[int] = None  # None = across all shops for this user
+    amount: float = Field(..., gt=0)
 
 
 class AllocationRow(BaseModel):
-    bill_id:        int
-    bill_type:      str
-    description:    Optional[str]
-    shop_number:    Optional[str]
-    due_date:       Optional[datetime]
-    bill_amount:    float
-    outstanding:    float   # pending balance before this allocation
-    allocated:      float   # FIFO-suggested amount (admin can edit before confirming)
-    resulting_status: str   # what the bill's status would become
+    bill_id: int
+    bill_type: str
+    description: Optional[str]
+    shop_number: Optional[str]
+    due_date: Optional[datetime]
+    bill_amount: float
+    outstanding: float  # pending balance before this allocation
+    allocated: float  # FIFO-suggested amount (admin can edit before confirming)
+    resulting_status: str  # what the bill's status would become
 
 
 class AutoAllocatePreviewResponse(BaseModel):
-    user_id:            int
-    user_name:           str
-    shop_id:            Optional[int]
-    rows:                List[AllocationRow]
-    amount_received:     float
-    total_allocated:     float
-    unallocated_amount:  float
+    user_id: int
+    user_name: str
+    shop_id: Optional[int]
+    rows: List[AllocationRow]
+    amount_received: float
+    total_allocated: float
+    unallocated_amount: float
 
 
 class ConfirmAllocationItem(BaseModel):
     bill_id: int
-    amount:  float = Field(..., gt=0)
+    amount: float = Field(..., gt=0)
 
 
 class AutoAllocateConfirmRequest(BaseModel):
-    user_id:         int
+    user_id: int
     amount_received: float = Field(..., gt=0)
-    payment_method:  str   = Field(..., min_length=1, max_length=60)
-    remarks:         Optional[str] = None
-    allocations:     List[ConfirmAllocationItem] = Field(..., min_length=1)
+    payment_method: str = Field(..., min_length=1, max_length=60)
+    remarks: Optional[str] = None
+    allocations: List[ConfirmAllocationItem] = Field(..., min_length=1)
     payment_date: Optional[datetime] = None
 
 
 class AutoAllocateResult(BaseModel):
-    bill_id:     int
-    allocated:   float
+    bill_id: int
+    allocated: float
     bill_status: str
-    note:        Optional[str] = None   # e.g. "capped to outstanding balance"
+    note: Optional[str] = None  # e.g. "capped to outstanding balance"
 
 
 class AutoAllocateResponse(BaseModel):
-    payments:           List[PaymentResponse]
-    allocations:        List[AutoAllocateResult]
-    total_allocated:    float
+    payments: List[PaymentResponse]
+    allocations: List[AutoAllocateResult]
+    total_allocated: float
     unallocated_amount: float
 
 
 # ── Deposit Payment ───────────────────────────
 class DepositPaymentCreate(BaseModel):
-    user_id:      int
-    shop_id:      int
-    amount:       float           = Field(..., gt=0)
+    user_id: int
+    shop_id: int
+    amount: float = Field(..., gt=0)
     payment_date: Optional[datetime] = None
-    remarks:      Optional[str]   = None
+    remarks: Optional[str] = None
 
 
 class DepositPaymentResponse(BaseModel):
-    id:           int
-    user_id:      int
-    shop_id:      int
-    shop_number:  str
-    amount:       float
+    id: int
+    user_id: int
+    shop_id: int
+    shop_number: str
+    amount: float
     payment_date: datetime
-    remarks:      Optional[str]
-    created_at:   datetime
+    remarks: Optional[str]
+    created_at: datetime
 
     class Config:
         from_attributes = True
@@ -487,9 +487,9 @@ def _shop_to_response(shop: Shop, owner_map: dict) -> ShopResponse:
 
 def _reconcile_bill(bill: Bill):
     """Recompute paid_amount, pending_amount, and status from linked payments."""
-    total_paid     = sum(_decimal_to_float(p.amount) for p in bill.payments)
-    bill_amount    = _decimal_to_float(bill.amount)
-    bill.paid_amount    = Decimal(str(total_paid))
+    total_paid = sum(_decimal_to_float(p.amount) for p in bill.payments)
+    bill_amount = _decimal_to_float(bill.amount)
+    bill.paid_amount = Decimal(str(total_paid))
     bill.pending_amount = Decimal(str(max(0.0, bill_amount - total_paid)))
 
     if total_paid <= 0:
@@ -665,9 +665,9 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 
 @app.post("/api/complex", response_model=ComplexResponse, status_code=201, tags=["Complex"])
 def create_complex(
-    body: ComplexCreate,
-    db:   Session = Depends(get_db),
-    actor: User   = Depends(require_admin),
+        body: ComplexCreate,
+        db: Session = Depends(get_db),
+        actor: User = Depends(require_admin),
 ):
     """Create a new complex. Admin only."""
     obj = Complex(**body.model_dump())
@@ -805,10 +805,10 @@ def complex_summary(id: int, db: Session = Depends(get_db), _: User = Depends(re
 
 @app.put("/api/complex/{id}", response_model=ComplexResponse, tags=["Complex"])
 def update_complex(
-    id:   int,
-    body: ComplexUpdate,
-    db:   Session = Depends(get_db),
-    actor:User    = Depends(require_admin),
+        id: int,
+        body: ComplexUpdate,
+        db: Session = Depends(get_db),
+        actor: User = Depends(require_admin),
 ):
     """Update a complex. Admin only."""
     obj = db.query(Complex).filter(Complex.id == id).first()
@@ -844,9 +844,9 @@ def delete_complex(id: int, db: Session = Depends(get_db), actor: User = Depends
 
 @app.post("/api/shop", response_model=ShopResponse, status_code=201, tags=["Shop"])
 def create_shop(
-    body:  ShopCreate,
-    db:    Session = Depends(get_db),
-    actor: User    = Depends(require_admin),
+        body: ShopCreate,
+        db: Session = Depends(get_db),
+        actor: User = Depends(require_admin),
 ):
     """Create a new shop. Admin only."""
     if body.complex_id:
@@ -882,10 +882,10 @@ def get_shop(id: int, db: Session = Depends(get_db), _: User = Depends(require_a
 
 @app.put("/api/shop/{id}", response_model=ShopResponse, tags=["Shop"])
 def update_shop(
-    id:    int,
-    body:  ShopUpdate,
-    db:    Session = Depends(get_db),
-    actor: User    = Depends(require_admin),
+        id: int,
+        body: ShopUpdate,
+        db: Session = Depends(get_db),
+        actor: User = Depends(require_admin),
 ):
     """Update a shop. Admin only."""
     obj = db.query(Shop).filter(Shop.id == id).first()
@@ -905,9 +905,9 @@ def update_shop(
 
 @app.delete("/api/shop/{id}", tags=["Shop"])
 def delete_shop(
-    id: int,
-    db: Session = Depends(get_db),
-    actor: User = Depends(require_admin)
+        id: int,
+        db: Session = Depends(get_db),
+        actor: User = Depends(require_admin)
 ):
     shop = db.query(Shop).filter(Shop.id == id).first()
 
@@ -932,10 +932,10 @@ def delete_shop(
 
 @app.post("/api/shop/{shop_id}/assign-complex", tags=["Shop"])
 def assign_complex_to_shop(
-    shop_id: int,
-    body:    AssignComplexRequest,
-    db:      Session = Depends(get_db),
-    actor:   User    = Depends(require_admin),
+        shop_id: int,
+        body: AssignComplexRequest,
+        db: Session = Depends(get_db),
+        actor: User = Depends(require_admin),
 ):
     """
     Assign a shop to a complex. One shop can belong to only one complex.
@@ -949,7 +949,7 @@ def assign_complex_to_shop(
     if not complex_obj:
         raise HTTPException(404, detail="Complex not found")
 
-    old_complex_id  = shop.complex_id
+    old_complex_id = shop.complex_id
     shop.complex_id = body.complex_id
 
     write_audit(
@@ -967,9 +967,9 @@ def assign_complex_to_shop(
 
 @app.post("/api/user", response_model=UserResponse, status_code=201, tags=["User"])
 def create_user(
-    body:  UserCreate,
-    db:    Session = Depends(get_db),
-    actor: User    = Depends(require_admin),
+        body: UserCreate,
+        db: Session = Depends(get_db),
+        actor: User = Depends(require_admin),
 ):
     """Create a new user (admin or tenant). Admin only."""
     if db.query(User).filter(User.mobile == body.mobile).first():
@@ -981,12 +981,12 @@ def create_user(
     password_hash = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode()
 
     obj = User(
-        name          = body.name,
-        mobile        = body.mobile,
-        email         = body.email,
-        password_hash = password_hash,
-        role          = body.role or "tenant",
-        is_active     = True,
+        name=body.name,
+        mobile=body.mobile,
+        email=body.email,
+        password_hash=password_hash,
+        role=body.role or "tenant",
+        is_active=True,
     )
     db.add(obj)
     db.flush()
@@ -1015,10 +1015,10 @@ def get_user(id: int, db: Session = Depends(get_db), _: User = Depends(require_a
 
 @app.put("/api/user/{id}", response_model=UserResponse, tags=["User"])
 def update_user(
-    id:    int,
-    body:  UserUpdate,
-    db:    Session = Depends(get_db),
-    actor: User    = Depends(require_admin),
+        id: int,
+        body: UserUpdate,
+        db: Session = Depends(get_db),
+        actor: User = Depends(require_admin),
 ):
     """Update a user. Admin only."""
     obj = db.query(User).filter(User.id == id).first()
@@ -1050,7 +1050,7 @@ def update_user(
     write_audit(db, actor.id, "UPDATE", "users", id, old_data=old,
                 new_data={**{k: v for k, v in update_data.items() if k != "password"},
                           "released_shops": released_shops} if released_shops
-                          else {k: v for k, v in update_data.items() if k != "password"})
+                else {k: v for k, v in update_data.items() if k != "password"})
     db.commit()
     db.refresh(obj)
     return obj
@@ -1073,10 +1073,10 @@ def delete_user(id: int, db: Session = Depends(get_db), actor: User = Depends(re
 
 @app.put("/api/user/{id}/reset-password", tags=["User"])
 def reset_password(
-    id:    int,
-    body:  ResetPasswordRequest,
-    db:    Session = Depends(get_db),
-    actor: User    = Depends(require_admin),
+        id: int,
+        body: ResetPasswordRequest,
+        db: Session = Depends(get_db),
+        actor: User = Depends(require_admin),
 ):
     """Admin resets a user's password without knowing the old one. Admin only."""
     obj = db.query(User).filter(User.id == id).first()
@@ -1091,9 +1091,9 @@ def reset_password(
 
 @app.get("/api/user/{id}/financial-summary", tags=["User"])
 def user_financial_summary(
-    id: int,
-    db: Session = Depends(get_db),
-    _:  User    = Depends(require_admin),
+        id: int,
+        db: Session = Depends(get_db),
+        _: User = Depends(require_admin),
 ):
     """Full financial picture for a specific user/tenant. Admin only."""
     user = db.query(User).filter(User.id == id).first()
@@ -1104,10 +1104,10 @@ def user_financial_summary(
 
 @app.post("/api/user/{user_id}/assign-shops", tags=["User"])
 def assign_shops_to_user(
-    user_id: int,
-    body:    AssignShopsRequest,
-    db:      Session = Depends(get_db),
-    actor:   User    = Depends(require_admin),
+        user_id: int,
+        body: AssignShopsRequest,
+        db: Session = Depends(get_db),
+        actor: User = Depends(require_admin),
 ):
     """
     Assign one or more shops to a user.
@@ -1239,10 +1239,10 @@ def update_agreement_dates(
 
 @app.post("/api/user/{user_id}/detach-shops", tags=["User"])
 def detach_shops_from_user(
-    user_id: int,
-    body:    DetachShopsRequest,
-    db:      Session = Depends(get_db),
-    actor:   User    = Depends(require_admin),
+        user_id: int,
+        body: DetachShopsRequest,
+        db: Session = Depends(get_db),
+        actor: User = Depends(require_admin),
 ):
     """Detach one or more shops from a user and mark them available. Admin only."""
     user = db.query(User).filter(User.id == user_id).first()
@@ -1266,72 +1266,72 @@ def detach_shops_from_user(
     db.commit()
     return {"success": True, "message": f"Detached shops {detached} from user {user_id}"}
 
+    # ══════════════════════════════════════════════════════════════════════════════
+    # ── ROUTES: Bill Management
+    # ══════════════════════════════════════════════════════════════════════════════
 
-# ══════════════════════════════════════════════════════════════════════════════
-# ── ROUTES: Bill Management
-# ══════════════════════════════════════════════════════════════════════════════
+def generate_due_rent_bills():
+    """Runs once daily. Creates a Rent bill for every active shop
+    assignment whose rent_day matches today's date — skips if a
+    Rent bill for that user+shop already exists this month."""
+    from db_config import SessionLocal
+    db = SessionLocal()
+    try:
+        today = datetime.now(timezone.utc)
+        assignments = db.query(UserShop).filter(UserShop.rent_day == today.day).all()
+        created = 0
+        for us in assignments:
+            shop = db.query(Shop).filter(Shop.id == us.shop_id).first()
+            if not shop or shop.shop_rent <= 0:
+                continue
+            already = db.query(Bill).filter(
+                Bill.user_id == us.user_id,
+                Bill.shop_id == us.shop_id,
+                Bill.bill_type == "Rent",
+                extract("month", Bill.bill_date) == today.month,
+                extract("year", Bill.bill_date) == today.year,
+            ).first()
+            if already:
+                continue
+            amount = shop.shop_rent
+            bill = Bill(
+                user_id=us.user_id, shop_id=us.shop_id, bill_type="Rent",
+                description="Auto-generated monthly rent",
+                amount=amount, paid_amount=Decimal("0"), pending_amount=amount,
+                bill_date=today, status="pending",
+            )
+            db.add(bill)
+            db.flush()
+            write_audit(db, None, "AUTO_RENT_BILL", "bills", bill.id,
+                        new_data={"user_id": us.user_id, "shop_id": us.shop_id, "amount": float(amount)})
+            created += 1
+        db.commit()
+        logger.info("Auto rent job: created %d bill(s) for day %d", created, today.day)
+    except Exception as exc:
+        db.rollback()
+        logger.error("Auto rent job failed: %s", exc)
+    finally:
+        db.close()
 
-    def generate_due_rent_bills():
-        """Runs once daily. Creates a Rent bill for every active shop
-        assignment whose rent_day matches today's date — skips if a
-        Rent bill for that user+shop already exists this month."""
-        from db_config import SessionLocal
-        db = SessionLocal()
-        try:
-            today = datetime.now(timezone.utc)
-            assignments = db.query(UserShop).filter(UserShop.rent_day == today.day).all()
-            created = 0
-            for us in assignments:
-                shop = db.query(Shop).filter(Shop.id == us.shop_id).first()
-                if not shop or shop.shop_rent <= 0:
-                    continue
-                already = db.query(Bill).filter(
-                    Bill.user_id == us.user_id,
-                    Bill.shop_id == us.shop_id,
-                    Bill.bill_type == "Rent",
-                    extract("month", Bill.bill_date) == today.month,
-                    extract("year", Bill.bill_date) == today.year,
-                ).first()
-                if already:
-                    continue
-                amount = shop.shop_rent
-                bill = Bill(
-                    user_id=us.user_id, shop_id=us.shop_id, bill_type="Rent",
-                    description="Auto-generated monthly rent",
-                    amount=amount, paid_amount=Decimal("0"), pending_amount=amount,
-                    bill_date=today, status="pending",
-                )
-                db.add(bill)
-                db.flush()
-                write_audit(db, None, "AUTO_RENT_BILL", "bills", bill.id,
-                            new_data={"user_id": us.user_id, "shop_id": us.shop_id, "amount": float(amount)})
-                created += 1
-            db.commit()
-            logger.info("Auto rent job: created %d bill(s) for day %d", created, today.day)
-        except Exception as exc:
-            db.rollback()
-            logger.error("Auto rent job failed: %s", exc)
-        finally:
-            db.close()
+@app.post("/api/bill", response_model=BillResponse, status_code=201, tags=["Bill"])
+def create_bill(
+            body: BillCreate,
+            db: Session = Depends(get_db),
+            actor: User = Depends(require_admin),
+    ):
 
-    @app.post("/api/bill", response_model=BillResponse, status_code=201, tags=["Bill"])
-    def create_bill(
-    body:  BillCreate,
-    db:    Session = Depends(get_db),
-    actor: User    = Depends(require_admin),
-):
-    """
-    Create a bill for a tenant.
+        """
+        Create a bill for a tenant.
 
-    bill_type == "Rent": the bill amount is auto-filled from the current shop rent.
-    Any `amount` supplied in the request body is ignored for Rent bills — the server
-    is the source of truth so rent always matches what is set on the shop.
+        bill_type == "Rent": the bill amount is auto-filled from the current shop rent.
+        Any `amount` supplied in the request body is ignored for Rent bills — the server
+        is the source of truth so rent always matches what is set on the shop.
 
-    Any other bill_type (e.g. "Electricity", "Maintenance", "Other"):
-    `amount` is required and used as-is. `description` is optional and is
-    commonly used to clarify what the charge is for.
-    Admin only.
-    """
+        Any other bill_type (e.g. "Electricity", "Maintenance", "Other"):
+        `amount` is required and used as-is. `description` is optional and is
+        commonly used to clarify what the charge is for.
+        Admin only.
+        """
     user = db.query(User).filter(User.id == body.user_id).first()
     if not user:
         raise HTTPException(400, detail="User not found")
@@ -1358,16 +1358,16 @@ def detach_shops_from_user(
 
     amount = Decimal(str(amount_value))
     bill = Bill(
-        user_id        = body.user_id,
-        shop_id        = body.shop_id,
-        bill_type      = body.bill_type,
-        description    = body.description,
-        amount         = amount,
-        paid_amount    = Decimal("0"),
-        pending_amount = amount,
-        due_date       = body.due_date,
+        user_id=body.user_id,
+        shop_id=body.shop_id,
+        bill_type=body.bill_type,
+        description=body.description,
+        amount=amount,
+        paid_amount=Decimal("0"),
+        pending_amount=amount,
+        due_date=body.due_date,
         bill_date=body.bill_date or datetime.now(timezone.utc),
-        status         = "pending",
+        status="pending",
     )
     db.add(bill)
     db.flush()
@@ -1399,9 +1399,9 @@ def get_bill(id: int, db: Session = Depends(get_db), _: User = Depends(require_a
 
 @app.post("/api/payment", response_model=PaymentResponse, status_code=201, tags=["Payment"])
 def record_payment(
-    body:  PaymentCreate,
-    db:    Session = Depends(get_db),
-    actor: User    = Depends(require_admin),
+        body: PaymentCreate,
+        db: Session = Depends(get_db),
+        actor: User = Depends(require_admin),
 ):
     """
     Record a payment against a bill.
@@ -1437,9 +1437,9 @@ def record_payment(
 
 @app.post("/api/payment/auto-allocate/preview", response_model=AutoAllocatePreviewResponse, tags=["Payment"])
 def auto_allocate_preview(
-    body: AutoAllocatePreviewRequest,
-    db:   Session = Depends(get_db),
-    _:    User    = Depends(require_admin),
+        body: AutoAllocatePreviewRequest,
+        db: Session = Depends(get_db),
+        _: User = Depends(require_admin),
 ):
     """
     Read-only. Shows the admin exactly which bills a lump-sum amount would be
@@ -1466,7 +1466,8 @@ def auto_allocate_preview(
             continue
         alloc = min(remaining, outstanding) if remaining > 0 else Decimal("0")
         new_paid = _decimal_to_float(bill.paid_amount) + float(alloc)
-        resulting_status = "paid" if new_paid >= _decimal_to_float(bill.amount) - 0.005 else ("partial" if new_paid > 0 else "pending")
+        resulting_status = "paid" if new_paid >= _decimal_to_float(bill.amount) - 0.005 else (
+            "partial" if new_paid > 0 else "pending")
         shop = db.query(Shop).filter(Shop.id == bill.shop_id).first()
         rows.append(AllocationRow(
             bill_id=bill.id, bill_type=bill.bill_type, description=bill.description,
@@ -1485,9 +1486,9 @@ def auto_allocate_preview(
 
 @app.post("/api/payment/auto-allocate/confirm", response_model=AutoAllocateResponse, status_code=201, tags=["Payment"])
 def auto_allocate_confirm(
-    body:  AutoAllocateConfirmRequest,
-    db:    Session = Depends(get_db),
-    actor: User    = Depends(require_admin),
+        body: AutoAllocateConfirmRequest,
+        db: Session = Depends(get_db),
+        actor: User = Depends(require_admin),
 ):
     """
     Admin-approved execution step. Takes the (possibly hand-edited) list of
@@ -1541,7 +1542,8 @@ def auto_allocate_confirm(
             })
             db.refresh(pay)
             payments.append(pay)
-            allocations.append(AutoAllocateResult(bill_id=bill.id, allocated=float(alloc), bill_status=bill.status, note=note))
+            allocations.append(
+                AutoAllocateResult(bill_id=bill.id, allocated=float(alloc), bill_status=bill.status, note=note))
             total_allocated += alloc
 
         db.commit()
@@ -1571,9 +1573,9 @@ def list_payments(db: Session = Depends(get_db), _: User = Depends(require_admin
 
 @app.post("/api/deposit-payment", response_model=DepositPaymentResponse, status_code=201, tags=["Deposit Payment"])
 def create_deposit_payment(
-    body:  DepositPaymentCreate,
-    db:    Session = Depends(get_db),
-    actor: User    = Depends(require_admin),
+        body: DepositPaymentCreate,
+        db: Session = Depends(get_db),
+        actor: User = Depends(require_admin),
 ):
     """Record a deposit payment for a tenant against a specific shop. Admin only."""
     user = db.query(User).filter(User.id == body.user_id).first()
@@ -1598,11 +1600,11 @@ def create_deposit_payment(
         ))
 
     dp = DepositPayment(
-        user_id      = body.user_id,
-        shop_id      = body.shop_id,
-        amount       = Decimal(str(body.amount)),
-        payment_date = body.payment_date or datetime.now(timezone.utc),
-        remarks      = body.remarks,
+        user_id=body.user_id,
+        shop_id=body.shop_id,
+        amount=Decimal(str(body.amount)),
+        payment_date=body.payment_date or datetime.now(timezone.utc),
+        remarks=body.remarks,
     )
     db.add(dp)
     db.flush()
@@ -1618,14 +1620,15 @@ def create_deposit_payment(
 
 @app.get("/api/deposit-payment", tags=["Deposit Payment"])
 def list_deposit_payments(
-    user_id:    Optional[int] = None,
-    shop_id:    Optional[int] = None,
-    complex_id: Optional[int] = None,
-    db:         Session = Depends(get_db),
-    _:          User    = Depends(require_admin),
+        user_id: Optional[int] = None,
+        shop_id: Optional[int] = None,
+        complex_id: Optional[int] = None,
+        db: Session = Depends(get_db),
+        _: User = Depends(require_admin),
 ):
     """List all deposit payments. Supports filters by user_id, shop_id, complex_id. Admin only."""
-    q = db.query(DepositPayment, User, Shop).join(User, User.id == DepositPayment.user_id).join(Shop, Shop.id == DepositPayment.shop_id)
+    q = db.query(DepositPayment, User, Shop).join(User, User.id == DepositPayment.user_id).join(Shop,
+                                                                                                Shop.id == DepositPayment.shop_id)
     if user_id is not None:
         q = q.filter(DepositPayment.user_id == user_id)
     if shop_id is not None:
@@ -1653,9 +1656,9 @@ def list_deposit_payments(
 
 @app.get("/api/search", tags=["Search"])
 def global_search(
-    q:  str = Query(..., min_length=1),
-    db: Session = Depends(get_db),
-    _:  User    = Depends(require_admin),
+        q: str = Query(..., min_length=1),
+        db: Session = Depends(get_db),
+        _: User = Depends(require_admin),
 ):
     """Case-insensitive search across users, shops, and complexes. Admin only."""
     term = f"%{q.strip().lower()}%"
@@ -1714,10 +1717,10 @@ def global_search(
 
 @app.get("/api/reports/summary", tags=["Reports"])
 def reports_summary(
-    start_date: Optional[datetime] = None,
-    end_date:   Optional[datetime] = None,
-    db:         Session = Depends(get_db),
-    _:          User    = Depends(require_admin),
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        db: Session = Depends(get_db),
+        _: User = Depends(require_admin),
 ):
     """
     Business summary report for a date range (defaults to all-time if omitted).
@@ -1798,16 +1801,16 @@ def reports_summary(
 
 @app.get("/api/reports/rent-collection", tags=["Reports"])
 def report_rent_collection(
-    complex_id: Optional[int] = None,
-    user_id:    Optional[int] = None,
-    shop_id:    Optional[int] = None,
-    start_date: Optional[datetime] = None,
-    end_date:   Optional[datetime] = None,
-    month:      Optional[int] = None,
-    year:       Optional[int] = None,
-    status_filter: Optional[str] = Query(None, alias="status", pattern="^(paid|partial|pending)$"),
-    db:         Session = Depends(get_db),
-    _:          User    = Depends(require_admin),
+        complex_id: Optional[int] = None,
+        user_id: Optional[int] = None,
+        shop_id: Optional[int] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        month: Optional[int] = None,
+        year: Optional[int] = None,
+        status_filter: Optional[str] = Query(None, alias="status", pattern="^(paid|partial|pending)$"),
+        db: Session = Depends(get_db),
+        _: User = Depends(require_admin),
 ):
     """Rent collection report with optional filters. Admin only."""
     q = db.query(Bill).filter(Bill.bill_type == "Rent")
@@ -1867,11 +1870,11 @@ def report_rent_collection(
 
 @app.get("/api/reports/deposit", tags=["Reports"])
 def report_deposit(
-    complex_id: Optional[int] = None,
-    user_id:    Optional[int] = None,
-    shop_id:    Optional[int] = None,
-    db:         Session = Depends(get_db),
-    _:          User    = Depends(require_admin),
+        complex_id: Optional[int] = None,
+        user_id: Optional[int] = None,
+        shop_id: Optional[int] = None,
+        db: Session = Depends(get_db),
+        _: User = Depends(require_admin),
 ):
     """Deposit collection report. Admin only."""
     q = db.query(UserShop, User, Shop).join(User, User.id == UserShop.user_id).join(Shop, Shop.id == UserShop.shop_id)
@@ -1936,9 +1939,9 @@ def report_deposit(
 
 @app.get("/api/reports/occupancy", tags=["Reports"])
 def report_occupancy(
-    complex_id: Optional[int] = None,
-    db:         Session = Depends(get_db),
-    _:          User    = Depends(require_admin),
+        complex_id: Optional[int] = None,
+        db: Session = Depends(get_db),
+        _: User = Depends(require_admin),
 ):
     """Occupancy report, overall and broken down by complex. Admin only."""
     shop_q = db.query(Shop)
@@ -2004,13 +2007,13 @@ def report_occupancy(
 
 @app.get("/api/reports/user-wise", tags=["Reports"])
 def report_user_wise(
-    complex_id: Optional[int] = None,
-    start_date: Optional[datetime] = None,
-    end_date:   Optional[datetime] = None,
-    month:      Optional[int] = None,
-    year:       Optional[int] = None,
-    db:         Session = Depends(get_db),
-    _:          User    = Depends(require_admin),
+        complex_id: Optional[int] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        month: Optional[int] = None,
+        year: Optional[int] = None,
+        db: Session = Depends(get_db),
+        _: User = Depends(require_admin),
 ):
     """User-wise financial report. Admin only."""
     users = db.query(User).filter(User.role == "tenant").order_by(User.id).all()
@@ -2083,11 +2086,11 @@ def report_user_wise(
 
 @app.get("/api/reports/business-overview", tags=["Reports"])
 def report_business_overview(
-    complex_id: Optional[int] = None,
-    start_date: Optional[datetime] = None,
-    end_date:   Optional[datetime] = None,
-    db:         Session = Depends(get_db),
-    _:          User    = Depends(require_admin),
+        complex_id: Optional[int] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        db: Session = Depends(get_db),
+        _: User = Depends(require_admin),
 ):
     """
     Consolidated business-health report: collection efficiency, overdue aging buckets,
@@ -2111,7 +2114,8 @@ def report_business_overview(
 
     total_billed = sum(_decimal_to_float(b.amount) for b in bills_in_range)
     total_collected_of_range_bills = sum(_decimal_to_float(b.paid_amount) for b in bills_in_range)
-    collection_efficiency_percent = round((total_collected_of_range_bills / total_billed) * 100, 1) if total_billed else 0.0
+    collection_efficiency_percent = round((total_collected_of_range_bills / total_billed) * 100,
+                                          1) if total_billed else 0.0
 
     # ── Overdue aging buckets (based on ALL unpaid bills, not range-limited — it's a liability snapshot) ──
     unpaid_q = _bills_query(db.query(Bill)).filter(Bill.status != "paid")
@@ -2141,7 +2145,8 @@ def report_business_overview(
     buckets = {k: round(v, 2) for k, v in buckets.items()}
 
     # ── Complex-wise performance comparison ──
-    all_shops = db.query(Shop).all() if complex_id is None else db.query(Shop).filter(Shop.complex_id == complex_id).all()
+    all_shops = db.query(Shop).all() if complex_id is None else db.query(Shop).filter(
+        Shop.complex_id == complex_id).all()
     by_complex = {}
     for s in all_shops:
         cdata = by_complex.setdefault(s.complex_id, {
@@ -2214,7 +2219,8 @@ def report_business_overview(
 
         m_pay_q = db.query(Payment).filter(Payment.payment_date >= m_start, Payment.payment_date < m_end)
         if complex_id is not None:
-            m_pay_q = m_pay_q.join(Bill, Bill.id == Payment.bill_id).join(Shop, Shop.id == Bill.shop_id).filter(Shop.complex_id == complex_id)
+            m_pay_q = m_pay_q.join(Bill, Bill.id == Payment.bill_id).join(Shop, Shop.id == Bill.shop_id).filter(
+                Shop.complex_id == complex_id)
         m_collected = sum(_decimal_to_float(p.amount) for p in m_pay_q.all())
 
         trend.append({
@@ -2231,8 +2237,10 @@ def report_business_overview(
     today_payments = db.query(Payment).filter(Payment.payment_date >= day_start, Payment.payment_date < day_end).all()
     collections_today = round(sum(_decimal_to_float(p.amount) for p in today_payments), 2)
 
-    due_today = [b for b in unpaid_bills if b.due_date and day_start.date() <= (b.due_date.date() if isinstance(b.due_date, datetime) else b.due_date) < day_end.date()]
-    due_this_week = [b for b in unpaid_bills if b.due_date and today <= (b.due_date.date() if isinstance(b.due_date, datetime) else b.due_date) <= week_end.date()]
+    due_today = [b for b in unpaid_bills if b.due_date and day_start.date() <= (
+        b.due_date.date() if isinstance(b.due_date, datetime) else b.due_date) < day_end.date()]
+    due_this_week = [b for b in unpaid_bills if b.due_date and today <= (
+        b.due_date.date() if isinstance(b.due_date, datetime) else b.due_date) <= week_end.date()]
 
     today_snapshot = {
         "collections_today": collections_today,
@@ -2266,11 +2274,11 @@ def report_business_overview(
 
 @app.get("/api/reports/tenant-statement", tags=["Reports"])
 def report_tenant_statement(
-    user_id:    int,
-    start_date: Optional[datetime] = None,
-    end_date:   Optional[datetime] = None,
-    db:         Session = Depends(get_db),
-    _:          User    = Depends(require_admin),
+        user_id: int,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        db: Session = Depends(get_db),
+        _: User = Depends(require_admin),
 ):
     """
     Full bill + payment ledger for one tenant — every bill they've ever been
@@ -2292,7 +2300,8 @@ def report_tenant_statement(
     shops = {s.id: s for s in db.query(Shop).all()}
     complexes = {c.id: c.name for c in db.query(Complex).all()}
     bill_ids = [b.id for b in bills]
-    payments = db.query(Payment).filter(Payment.bill_id.in_(bill_ids)).order_by(Payment.payment_date).all() if bill_ids else []
+    payments = db.query(Payment).filter(Payment.bill_id.in_(bill_ids)).order_by(
+        Payment.payment_date).all() if bill_ids else []
     payments_by_bill = {}
     for p in payments:
         payments_by_bill.setdefault(p.bill_id, []).append(p)
@@ -2346,14 +2355,14 @@ def report_tenant_statement(
 
 @app.get("/api/finance/overview", tags=["Reports"])
 def finance_overview(
-    complex_id: Optional[int] = None,
-    user_id:    Optional[int] = None,
-    start_date: Optional[datetime] = None,
-    end_date:   Optional[datetime] = None,
-    month:      Optional[int] = None,
-    year:       Optional[int] = None,
-    db:         Session = Depends(get_db),
-    _:          User    = Depends(require_admin),
+        complex_id: Optional[int] = None,
+        user_id: Optional[int] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        month: Optional[int] = None,
+        year: Optional[int] = None,
+        db: Session = Depends(get_db),
+        _: User = Depends(require_admin),
 ):
     """Aggregated finance overview with filters. Powers the Finance module page. Admin only."""
     bill_q = db.query(Bill)
@@ -2376,7 +2385,8 @@ def finance_overview(
     total_rent_pending = sum(_decimal_to_float(b.pending_amount) for b in rent_bills)
 
     # Deposit figures are point-in-time (not date filtered), scoped by complex/user if given
-    us_q = db.query(UserShop, User, Shop).join(User, User.id == UserShop.user_id).join(Shop, Shop.id == UserShop.shop_id)
+    us_q = db.query(UserShop, User, Shop).join(User, User.id == UserShop.user_id).join(Shop,
+                                                                                       Shop.id == UserShop.shop_id)
     if user_id is not None:
         us_q = us_q.filter(UserShop.user_id == user_id)
     if complex_id is not None:
@@ -2498,8 +2508,8 @@ def tenant_profile(current_user: User = Depends(require_tenant)):
 
 @app.get("/api/tenant/shops", tags=["Tenant"])
 def tenant_shops(
-    db:           Session = Depends(get_db),
-    current_user: User    = Depends(require_tenant),
+        db: Session = Depends(get_db),
+        current_user: User = Depends(require_tenant),
 ):
     """Return all shops assigned to the authenticated tenant."""
     rows = (
@@ -2511,13 +2521,13 @@ def tenant_shops(
     complexes = {c.id: c.name for c in db.query(Complex).all()}
     return [
         {
-            "id":           s.id,
-            "shop_number":  s.shop_number,
-            "area_sqft":    _decimal_to_float(s.area_sqft),
-            "st atus":       s.status,
-            "complex_id":   s.complex_id,
+            "id": s.id,
+            "shop_number": s.shop_number,
+            "area_sqft": _decimal_to_float(s.area_sqft),
+            "st atus": s.status,
+            "complex_id": s.complex_id,
             "complex_name": complexes.get(s.complex_id),
-            "shop_rent":    _decimal_to_float(s.shop_rent),  # <-- DIRECT
+            "shop_rent": _decimal_to_float(s.shop_rent),  # <-- DIRECT
             "shop_deposit": _decimal_to_float(s.shop_deposit),
             "agreement_start_date": us.agreement_start_date,
             "agreement_end_date": us.agreement_end_date,
@@ -2529,23 +2539,23 @@ def tenant_shops(
 
 @app.get("/api/tenant/bills", tags=["Tenant"])
 def tenant_bills(
-    db:           Session = Depends(get_db),
-    current_user: User    = Depends(require_tenant),
+        db: Session = Depends(get_db),
+        current_user: User = Depends(require_tenant),
 ):
     """Return all bills for the authenticated tenant."""
     bills = db.query(Bill).filter(Bill.user_id == current_user.id).order_by(Bill.id).all()
     return [
         {
-            "id":             b.id,
-            "shop_id":        b.shop_id,
-            "bill_type":      b.bill_type,
-            "description":    b.description,
-            "amount":         _decimal_to_float(b.amount),
-            "paid_amount":    _decimal_to_float(b.paid_amount),
+            "id": b.id,
+            "shop_id": b.shop_id,
+            "bill_type": b.bill_type,
+            "description": b.description,
+            "amount": _decimal_to_float(b.amount),
+            "paid_amount": _decimal_to_float(b.paid_amount),
             "pending_amount": _decimal_to_float(b.pending_amount),
-            "bill_date":      b.bill_date,
-            "due_date":       b.due_date,
-            "status":         b.status,
+            "bill_date": b.bill_date,
+            "due_date": b.due_date,
+            "status": b.status,
         }
         for b in bills
     ]
@@ -2553,8 +2563,8 @@ def tenant_bills(
 
 @app.get("/api/tenant/payments", tags=["Tenant"])
 def tenant_payments(
-    db:           Session = Depends(get_db),
-    current_user: User    = Depends(require_tenant),
+        db: Session = Depends(get_db),
+        current_user: User = Depends(require_tenant),
 ):
     """Return all payments made by the authenticated tenant (via their bills)."""
     # Join Payment → Bill → filter by user
@@ -2567,20 +2577,21 @@ def tenant_payments(
     )
     return [
         {
-            "id":             p.id,
-            "bill_id":        p.bill_id,
-            "amount":         _decimal_to_float(p.amount),
+            "id": p.id,
+            "bill_id": p.bill_id,
+            "amount": _decimal_to_float(p.amount),
             "payment_method": p.payment_method,
-            "payment_date":   p.payment_date,
-            "remarks":        p.remarks,
+            "payment_date": p.payment_date,
+            "remarks": p.remarks,
         }
         for p in payments
     ]
 
+
 @app.get("/api/tenant/deposit-payments", tags=["Tenant"])
 def tenant_deposit_payments(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_tenant),
+        db: Session = Depends(get_db),
+        current_user: User = Depends(require_tenant),
 ):
     """Return all deposit payments made by the authenticated tenant."""
     deposits = (
@@ -2600,10 +2611,11 @@ def tenant_deposit_payments(
         for dp in deposits
     ]
 
+
 @app.get("/api/tenant/financial-summary", tags=["Tenant"])
 def tenant_financial_summary(
-    db:           Session = Depends(get_db),
-    current_user: User    = Depends(require_tenant),
+        db: Session = Depends(get_db),
+        current_user: User = Depends(require_tenant),
 ):
     """Return the authenticated tenant's own full financial picture."""
     return _build_user_financial_summary(db, current_user)
@@ -2620,26 +2632,26 @@ def tenant_financial_summary(
 
 class BillUpdate(BaseModel):
     """Partial-update schema for bills.  Only supplied fields are changed."""
-    bill_type:   Optional[str]      = Field(None, min_length=1, max_length=80)
-    description: Optional[str]      = None
-    amount:      Optional[float]    = Field(None, gt=0)
-    due_date:    Optional[datetime] = None
-    status:      Optional[str]      = Field(None, pattern="^(pending|partial|paid|cancelled)$")
+    bill_type: Optional[str] = Field(None, min_length=1, max_length=80)
+    description: Optional[str] = None
+    amount: Optional[float] = Field(None, gt=0)
+    due_date: Optional[datetime] = None
+    status: Optional[str] = Field(None, pattern="^(pending|partial|paid|cancelled)$")
 
 
 class PaymentUpdate(BaseModel):
     """Partial-update schema for payments."""
-    amount:         Optional[float] = Field(None, gt=0)
-    payment_method: Optional[str]   = Field(None, min_length=1, max_length=60)
-    payment_date:   Optional[datetime] = None
-    remarks:        Optional[str]   = None
+    amount: Optional[float] = Field(None, gt=0)
+    payment_method: Optional[str] = Field(None, min_length=1, max_length=60)
+    payment_date: Optional[datetime] = None
+    remarks: Optional[str] = None
 
 
 class DepositPaymentUpdate(BaseModel):
     """Partial-update schema for deposit payments."""
-    amount:       Optional[float]    = Field(None, gt=0)
+    amount: Optional[float] = Field(None, gt=0)
     payment_date: Optional[datetime] = None
-    remarks:      Optional[str]      = None
+    remarks: Optional[str] = None
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2660,16 +2672,16 @@ def _parse_json_field(value):
 
 def _audit_log_to_dict(log: "AuditLog", user: Optional["User"]) -> dict:
     return {
-        "id":         log.id,
+        "id": log.id,
         "created_at": log.created_at,
-        "action":     log.action,
+        "action": log.action,
         "table_name": log.table_name,
-        "record_id":  log.record_id,
+        "record_id": log.record_id,
         "user": {
-            "id":     user.id     if user else log.user_id,
-            "name":   user.name   if user else "Unknown",
+            "id": user.id if user else log.user_id,
+            "name": user.name if user else "Unknown",
             "mobile": user.mobile if user else "",
-            "role":   user.role   if user else "",
+            "role": user.role if user else "",
         },
         "old_data": _parse_json_field(log.old_data),
         "new_data": _parse_json_field(log.new_data),
@@ -2678,8 +2690,8 @@ def _audit_log_to_dict(log: "AuditLog", user: Optional["User"]) -> dict:
 
 @app.get("/api/audit-logs/filters", tags=["Audit Log"])
 def audit_log_filters(
-    db:    Session = Depends(get_db),
-    _:     User    = Depends(require_admin),
+        db: Session = Depends(get_db),
+        _: User = Depends(require_admin),
 ):
     """
     Return distinct values for action and table_name that exist in the audit log.
@@ -2691,27 +2703,28 @@ def audit_log_filters(
           "table_names":  ["bills", "payments", "users", ...]
         }
     """
-    actions     = [r[0] for r in db.query(AuditLog.action    ).distinct().order_by(AuditLog.action).all()     if r[0]]
+    actions = [r[0] for r in db.query(AuditLog.action).distinct().order_by(AuditLog.action).all() if r[0]]
     table_names = [r[0] for r in db.query(AuditLog.table_name).distinct().order_by(AuditLog.table_name).all() if r[0]]
     return {"success": True, "actions": actions, "table_names": table_names}
 
 
 @app.get("/api/audit-logs", tags=["Audit Log"])
 def list_audit_logs(
-    # ── Pagination ────────────────────────────────
-    page:       int            = Query(1,  ge=1),
-    limit:      int            = Query(20, ge=1, le=200),
-    # ── Filters ───────────────────────────────────
-    user_id:    Optional[int]  = None,
-    action:     Optional[str]  = None,
-    table_name: Optional[str]  = None,
-    start_date: Optional[datetime] = None,
-    end_date:   Optional[datetime] = None,
-    # ── Search ────────────────────────────────────
-    search:     Optional[str]  = Query(None, description="Search by user name, mobile, action, table_name, or record_id"),
-    # ── DB / Auth ─────────────────────────────────
-    db:         Session        = Depends(get_db),
-    _:          User           = Depends(require_admin),
+        # ── Pagination ────────────────────────────────
+        page: int = Query(1, ge=1),
+        limit: int = Query(20, ge=1, le=200),
+        # ── Filters ───────────────────────────────────
+        user_id: Optional[int] = None,
+        action: Optional[str] = None,
+        table_name: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        # ── Search ────────────────────────────────────
+        search: Optional[str] = Query(None,
+                                      description="Search by user name, mobile, action, table_name, or record_id"),
+        # ── DB / Auth ─────────────────────────────────
+        db: Session = Depends(get_db),
+        _: User = Depends(require_admin),
 ):
     """
     Paginated, filterable, searchable list of all audit log entries.
@@ -2764,22 +2777,22 @@ def list_audit_logs(
 
     # ── Sort + paginate ───────────────────────────
     offset = (page - 1) * limit
-    rows   = q.order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).offset(offset).limit(limit).all()
+    rows = q.order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).offset(offset).limit(limit).all()
 
     return {
         "success": True,
-        "page":    page,
-        "limit":   limit,
-        "total":   total,
-        "data":    [_audit_log_to_dict(log, user) for log, user in rows],
+        "page": page,
+        "limit": limit,
+        "total": total,
+        "data": [_audit_log_to_dict(log, user) for log, user in rows],
     }
 
 
 @app.get("/api/audit-logs/{log_id}", tags=["Audit Log"])
 def get_audit_log(
-    log_id: int,
-    db:     Session = Depends(get_db),
-    _:      User    = Depends(require_admin),
+        log_id: int,
+        db: Session = Depends(get_db),
+        _: User = Depends(require_admin),
 ):
     """
     Return the full detail of a single audit log entry, including parsed
@@ -2803,10 +2816,10 @@ def get_audit_log(
 
 @app.put("/api/bill/{bill_id}", tags=["Bill"])
 def update_bill(
-    bill_id: int,
-    body:    BillUpdate,
-    db:      Session = Depends(get_db),
-    actor:   User    = Depends(require_admin),
+        bill_id: int,
+        body: BillUpdate,
+        db: Session = Depends(get_db),
+        actor: User = Depends(require_admin),
 ):
     """
     Partially update a bill.  Only the fields included in the request body
@@ -2834,11 +2847,11 @@ def update_bill(
         raise HTTPException(status_code=404, detail="Bill not found")
 
     old_snapshot = {
-        "bill_type":   bill.bill_type,
+        "bill_type": bill.bill_type,
         "description": bill.description,
-        "amount":      _decimal_to_float(bill.amount),
-        "due_date":    str(bill.due_date) if bill.due_date else None,
-        "status":      bill.status,
+        "amount": _decimal_to_float(bill.amount),
+        "due_date": str(bill.due_date) if bill.due_date else None,
+        "status": bill.status,
     }
 
     changes = body.model_dump(exclude_none=True)
@@ -2846,9 +2859,9 @@ def update_bill(
         raise HTTPException(status_code=422, detail="No fields provided to update")
 
     # Apply simple field updates
-    if "bill_type"   in changes: bill.bill_type   = changes["bill_type"]
+    if "bill_type" in changes: bill.bill_type = changes["bill_type"]
     if "description" in changes: bill.description = changes["description"]
-    if "due_date"    in changes: bill.due_date    = changes["due_date"]
+    if "due_date" in changes: bill.due_date = changes["due_date"]
 
     # Amount change requires reconciliation
     if "amount" in changes:
@@ -2879,26 +2892,26 @@ def update_bill(
         "success": True,
         "message": "Bill updated successfully",
         "data": {
-            "id":             bill.id,
-            "user_id":        bill.user_id,
-            "shop_id":        bill.shop_id,
-            "bill_type":      bill.bill_type,
-            "description":    bill.description,
-            "amount":         _decimal_to_float(bill.amount),
-            "paid_amount":    _decimal_to_float(bill.paid_amount),
+            "id": bill.id,
+            "user_id": bill.user_id,
+            "shop_id": bill.shop_id,
+            "bill_type": bill.bill_type,
+            "description": bill.description,
+            "amount": _decimal_to_float(bill.amount),
+            "paid_amount": _decimal_to_float(bill.paid_amount),
             "pending_amount": _decimal_to_float(bill.pending_amount),
-            "bill_date":      bill.bill_date,
-            "due_date":       bill.due_date,
-            "status":         bill.status,
+            "bill_date": bill.bill_date,
+            "due_date": bill.due_date,
+            "status": bill.status,
         },
     }
 
 
 @app.delete("/api/bill/{bill_id}", tags=["Bill"])
 def delete_bill(
-    bill_id: int,
-    db:      Session = Depends(get_db),
-    actor:   User    = Depends(require_admin),
+        bill_id: int,
+        db: Session = Depends(get_db),
+        actor: User = Depends(require_admin),
 ):
     """
     Delete a bill and all its associated payments.
@@ -2912,9 +2925,9 @@ def delete_bill(
         raise HTTPException(status_code=404, detail="Bill not found")
 
     old_snapshot = {
-        "id":        bill.id, "user_id": bill.user_id, "shop_id": bill.shop_id,
+        "id": bill.id, "user_id": bill.user_id, "shop_id": bill.shop_id,
         "bill_type": bill.bill_type, "amount": _decimal_to_float(bill.amount),
-        "status":    bill.status,
+        "status": bill.status,
     }
 
     # Delete linked payments first (cascade not guaranteed on all DB configs)
@@ -2932,9 +2945,9 @@ def delete_bill(
 
 @app.get("/api/payment/{payment_id}", tags=["Payment"])
 def get_payment(
-    payment_id: int,
-    db:         Session = Depends(get_db),
-    _:          User    = Depends(require_admin),
+        payment_id: int,
+        db: Session = Depends(get_db),
+        _: User = Depends(require_admin),
 ):
     """Return a single payment by ID, including its associated bill info. Admin only."""
     pay = db.query(Payment).filter(Payment.id == payment_id).first()
@@ -2944,20 +2957,20 @@ def get_payment(
     return {
         "success": True,
         "data": {
-            "id":             pay.id,
-            "bill_id":        pay.bill_id,
-            "amount":         _decimal_to_float(pay.amount),
+            "id": pay.id,
+            "bill_id": pay.bill_id,
+            "amount": _decimal_to_float(pay.amount),
             "payment_method": pay.payment_method,
-            "payment_date":   pay.payment_date,
-            "remarks":        pay.remarks,
-            "created_at":     pay.created_at,
+            "payment_date": pay.payment_date,
+            "remarks": pay.remarks,
+            "created_at": pay.created_at,
             "bill": {
-                "id":        bill.id,
-                "user_id":   bill.user_id,
-                "shop_id":   bill.shop_id,
+                "id": bill.id,
+                "user_id": bill.user_id,
+                "shop_id": bill.shop_id,
                 "bill_type": bill.bill_type,
-                "amount":    _decimal_to_float(bill.amount),
-                "status":    bill.status,
+                "amount": _decimal_to_float(bill.amount),
+                "status": bill.status,
             } if bill else None,
         },
     }
@@ -2965,10 +2978,10 @@ def get_payment(
 
 @app.put("/api/payment/{payment_id}", tags=["Payment"])
 def update_payment(
-    payment_id: int,
-    body:       PaymentUpdate,
-    db:         Session = Depends(get_db),
-    actor:      User    = Depends(require_admin),
+        payment_id: int,
+        body: PaymentUpdate,
+        db: Session = Depends(get_db),
+        actor: User = Depends(require_admin),
 ):
     """
     Partially update a payment.  After updating, the parent bill is
@@ -2991,16 +3004,16 @@ def update_payment(
         raise HTTPException(status_code=422, detail="No fields provided to update")
 
     old_snapshot = {
-        "amount":         _decimal_to_float(pay.amount),
+        "amount": _decimal_to_float(pay.amount),
         "payment_method": pay.payment_method,
-        "payment_date":   str(pay.payment_date),
-        "remarks":        pay.remarks,
+        "payment_date": str(pay.payment_date),
+        "remarks": pay.remarks,
     }
 
-    if "amount"         in changes: pay.amount         = Decimal(str(changes["amount"]))
+    if "amount" in changes: pay.amount = Decimal(str(changes["amount"]))
     if "payment_method" in changes: pay.payment_method = changes["payment_method"]
-    if "payment_date"   in changes: pay.payment_date   = changes["payment_date"]
-    if "remarks"        in changes: pay.remarks        = changes["remarks"]
+    if "payment_date" in changes: pay.payment_date = changes["payment_date"]
+    if "remarks" in changes: pay.remarks = changes["remarks"]
 
     db.flush()
 
@@ -3019,27 +3032,27 @@ def update_payment(
         "success": True,
         "message": "Payment updated successfully",
         "data": {
-            "id":             pay.id,
-            "bill_id":        pay.bill_id,
-            "amount":         _decimal_to_float(pay.amount),
+            "id": pay.id,
+            "bill_id": pay.bill_id,
+            "amount": _decimal_to_float(pay.amount),
             "payment_method": pay.payment_method,
-            "payment_date":   pay.payment_date,
-            "remarks":        pay.remarks,
+            "payment_date": pay.payment_date,
+            "remarks": pay.remarks,
         },
         "bill_reconciled": {
-            "id":             bill.id,
-            "paid_amount":    _decimal_to_float(bill.paid_amount),
+            "id": bill.id,
+            "paid_amount": _decimal_to_float(bill.paid_amount),
             "pending_amount": _decimal_to_float(bill.pending_amount),
-            "status":         bill.status,
+            "status": bill.status,
         } if bill else None,
     }
 
 
 @app.delete("/api/payment/{payment_id}", tags=["Payment"])
 def delete_payment(
-    payment_id: int,
-    db:         Session = Depends(get_db),
-    actor:      User    = Depends(require_admin),
+        payment_id: int,
+        db: Session = Depends(get_db),
+        actor: User = Depends(require_admin),
 ):
     """
     Delete a payment and re-reconcile the parent bill.
@@ -3051,9 +3064,9 @@ def delete_payment(
 
     bill = pay.bill
     old_snapshot = {
-        "id":             pay.id,
-        "bill_id":        pay.bill_id,
-        "amount":         _decimal_to_float(pay.amount),
+        "id": pay.id,
+        "bill_id": pay.bill_id,
+        "amount": _decimal_to_float(pay.amount),
         "payment_method": pay.payment_method,
     }
 
@@ -3065,10 +3078,10 @@ def delete_payment(
         db.refresh(bill)
         _reconcile_bill(bill)
         bill_after = {
-            "id":             bill.id,
-            "paid_amount":    _decimal_to_float(bill.paid_amount),
+            "id": bill.id,
+            "paid_amount": _decimal_to_float(bill.paid_amount),
             "pending_amount": _decimal_to_float(bill.pending_amount),
-            "status":         bill.status,
+            "status": bill.status,
         }
 
     write_audit(db, actor.id, "DELETE", "payments", payment_id, old_data=old_snapshot)
@@ -3087,9 +3100,9 @@ def delete_payment(
 
 @app.get("/api/deposit-payment/{dp_id}", tags=["Deposit Payment"])
 def get_deposit_payment(
-    dp_id: int,
-    db:    Session = Depends(get_db),
-    _:     User    = Depends(require_admin),
+        dp_id: int,
+        db: Session = Depends(get_db),
+        _: User = Depends(require_admin),
 ):
     """Return a single deposit payment with shop + user context. Admin only."""
     dp = db.query(DepositPayment).filter(DepositPayment.id == dp_id).first()
@@ -3100,25 +3113,25 @@ def get_deposit_payment(
     return {
         "success": True,
         "data": {
-            "id":           dp.id,
-            "user_id":      dp.user_id,
-            "user_name":    user.name   if user else None,
-            "shop_id":      dp.shop_id,
-            "shop_number":  shop.shop_number if shop else None,
-            "amount":       _decimal_to_float(dp.amount),
+            "id": dp.id,
+            "user_id": dp.user_id,
+            "user_name": user.name if user else None,
+            "shop_id": dp.shop_id,
+            "shop_number": shop.shop_number if shop else None,
+            "amount": _decimal_to_float(dp.amount),
             "payment_date": dp.payment_date,
-            "remarks":      dp.remarks,
-            "created_at":   dp.created_at,
+            "remarks": dp.remarks,
+            "created_at": dp.created_at,
         },
     }
 
 
 @app.put("/api/deposit-payment/{dp_id}", tags=["Deposit Payment"])
 def update_deposit_payment(
-    dp_id: int,
-    body:  DepositPaymentUpdate,
-    db:    Session = Depends(get_db),
-    actor: User    = Depends(require_admin),
+        dp_id: int,
+        body: DepositPaymentUpdate,
+        db: Session = Depends(get_db),
+        actor: User = Depends(require_admin),
 ):
     """
     Partially update a deposit payment.
@@ -3142,9 +3155,9 @@ def update_deposit_payment(
         raise HTTPException(status_code=422, detail="No fields provided to update")
 
     old_snapshot = {
-        "amount":       _decimal_to_float(dp.amount),
+        "amount": _decimal_to_float(dp.amount),
         "payment_date": str(dp.payment_date),
-        "remarks":      dp.remarks,
+        "remarks": dp.remarks,
     }
 
     if "amount" in changes:
@@ -3157,14 +3170,14 @@ def update_deposit_payment(
                 status_code=400,
                 detail=(
                     f"Updated amount would exceed the required deposit. "
-                    f"Required={deposit_required}, other payments={round(other_paid,2)}, "
+                    f"Required={deposit_required}, other payments={round(other_paid, 2)}, "
                     f"max you can set here={round(max(0, deposit_required - other_paid), 2)}"
                 ),
             )
         dp.amount = Decimal(str(changes["amount"]))
 
     if "payment_date" in changes: dp.payment_date = changes["payment_date"]
-    if "remarks"      in changes: dp.remarks      = changes["remarks"]
+    if "remarks" in changes: dp.remarks = changes["remarks"]
 
     write_audit(db, actor.id, "UPDATE", "deposit_payments", dp.id,
                 old_data=old_snapshot, new_data=changes)
@@ -3176,22 +3189,22 @@ def update_deposit_payment(
         "success": True,
         "message": "Deposit payment updated successfully",
         "data": {
-            "id":           dp.id,
-            "user_id":      dp.user_id,
-            "shop_id":      dp.shop_id,
-            "shop_number":  shop.shop_number if shop else None,
-            "amount":       _decimal_to_float(dp.amount),
+            "id": dp.id,
+            "user_id": dp.user_id,
+            "shop_id": dp.shop_id,
+            "shop_number": shop.shop_number if shop else None,
+            "amount": _decimal_to_float(dp.amount),
             "payment_date": dp.payment_date,
-            "remarks":      dp.remarks,
+            "remarks": dp.remarks,
         },
     }
 
 
 @app.delete("/api/deposit-payment/{dp_id}", tags=["Deposit Payment"])
 def delete_deposit_payment(
-    dp_id: int,
-    db:    Session = Depends(get_db),
-    actor: User    = Depends(require_admin),
+        dp_id: int,
+        db: Session = Depends(get_db),
+        actor: User = Depends(require_admin),
 ):
     """Delete a deposit payment record. Admin only."""
     dp = db.query(DepositPayment).filter(DepositPayment.id == dp_id).first()
@@ -3199,8 +3212,8 @@ def delete_deposit_payment(
         raise HTTPException(status_code=404, detail="Deposit payment not found")
 
     old_snapshot = {
-        "id":      dp.id, "user_id": dp.user_id, "shop_id": dp.shop_id,
-        "amount":  _decimal_to_float(dp.amount), "payment_date": str(dp.payment_date),
+        "id": dp.id, "user_id": dp.user_id, "shop_id": dp.shop_id,
+        "amount": _decimal_to_float(dp.amount), "payment_date": str(dp.payment_date),
     }
     db.delete(dp)
     write_audit(db, actor.id, "DELETE", "deposit_payments", dp_id, old_data=old_snapshot)
@@ -3214,8 +3227,8 @@ def delete_deposit_payment(
 
 @app.get("/api/dashboard/kpis", tags=["Dashboard"])
 def dashboard_kpis(
-    db: Session = Depends(get_db),
-    _:  User    = Depends(require_admin),
+        db: Session = Depends(get_db),
+        _: User = Depends(require_admin),
 ):
     """
     Single endpoint that returns all top-level KPI numbers needed for the
@@ -3236,19 +3249,19 @@ def dashboard_kpis(
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
     # Tenants
-    tenants_total  = db.query(User).filter(User.role == "tenant").count()
+    tenants_total = db.query(User).filter(User.role == "tenant").count()
     tenants_active = db.query(User).filter(User.role == "tenant", User.is_active == True).count()
 
     # Shops
     shop_counts = dict(db.query(Shop.status, func.count(Shop.id)).group_by(Shop.status).all())
-    shops_total       = sum(shop_counts.values())
-    shops_occupied    = shop_counts.get("occupied", 0)
-    shops_available   = shop_counts.get("available", 0)
+    shops_total = sum(shop_counts.values())
+    shops_occupied = shop_counts.get("occupied", 0)
+    shops_available = shop_counts.get("available", 0)
     shops_maintenance = shop_counts.get("maintenance", 0)
 
     # Pending bills
     pending_bills = db.query(Bill).filter(Bill.status.in_(["pending", "partial"])).all()
-    bills_pending_count  = len(pending_bills)
+    bills_pending_count = len(pending_bills)
     bills_pending_amount = round(sum(_decimal_to_float(b.pending_amount) for b in pending_bills), 2)
 
     # Collections this month
@@ -3277,12 +3290,12 @@ def dashboard_kpis(
     )
     recent_activity = [
         {
-            "id":         log.id,
-            "action":     log.action,
+            "id": log.id,
+            "action": log.action,
             "table_name": log.table_name,
-            "record_id":  log.record_id,
+            "record_id": log.record_id,
             "created_at": log.created_at,
-            "actor":      user.name if user else "Unknown",
+            "actor": user.name if user else "Unknown",
         }
         for log, user in recent_rows
     ]
@@ -3291,18 +3304,18 @@ def dashboard_kpis(
         "success": True,
         "tenants": {"total": tenants_total, "active": tenants_active},
         "shops": {
-            "total":       shops_total,
-            "occupied":    shops_occupied,
-            "available":   shops_available,
+            "total": shops_total,
+            "occupied": shops_occupied,
+            "available": shops_available,
             "maintenance": shops_maintenance,
         },
         "bills": {
-            "pending_count":  bills_pending_count,
+            "pending_count": bills_pending_count,
             "pending_amount": bills_pending_amount,
         },
         "collections_this_month": collections_this_month,
         "deposits": {
-            "required":  deposit_required_total,
+            "required": deposit_required_total,
             "collected": deposit_collected_total,
             "remaining": round(deposit_required_total - deposit_collected_total, 2),
         },
@@ -3316,18 +3329,18 @@ def dashboard_kpis(
 
 @app.get("/api/bills", tags=["Bill"])
 def list_bills_paginated(
-    page:       int            = Query(1,  ge=1),
-    limit:      int            = Query(20, ge=1, le=200),
-    user_id:    Optional[int]  = None,
-    shop_id:    Optional[int]  = None,
-    complex_id: Optional[int]  = None,
-    status:     Optional[str]  = Query(None, pattern="^(pending|partial|paid|cancelled)$"),
-    bill_type:  Optional[str]  = None,
-    start_date: Optional[datetime] = None,
-    end_date:   Optional[datetime] = None,
-    search:     Optional[str]  = None,
-    db:         Session        = Depends(get_db),
-    _:          User           = Depends(require_admin),
+        page: int = Query(1, ge=1),
+        limit: int = Query(20, ge=1, le=200),
+        user_id: Optional[int] = None,
+        shop_id: Optional[int] = None,
+        complex_id: Optional[int] = None,
+        status: Optional[str] = Query(None, pattern="^(pending|partial|paid|cancelled)$"),
+        bill_type: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        search: Optional[str] = None,
+        db: Session = Depends(get_db),
+        _: User = Depends(require_admin),
 ):
     """
     Paginated, filterable list of all bills enriched with tenant name,
@@ -3340,9 +3353,9 @@ def list_bills_paginated(
         .join(Shop, Shop.id == Bill.shop_id)
     )
 
-    if user_id:    q = q.filter(Bill.user_id  == user_id)
-    if shop_id:    q = q.filter(Bill.shop_id  == shop_id)
-    if status:     q = q.filter(Bill.status   == status)
+    if user_id:    q = q.filter(Bill.user_id == user_id)
+    if shop_id:    q = q.filter(Bill.shop_id == shop_id)
+    if status:     q = q.filter(Bill.status == status)
     if bill_type:  q = q.filter(Bill.bill_type.ilike(f"%{bill_type}%"))
     if start_date: q = q.filter(Bill.bill_date >= start_date)
     if end_date:   q = q.filter(Bill.bill_date <= end_date)
@@ -3357,33 +3370,33 @@ def list_bills_paginated(
             | Bill.description.ilike(term)
         )
 
-    total  = q.count()
+    total = q.count()
     offset = (page - 1) * limit
-    rows   = q.order_by(Bill.id.desc()).offset(offset).limit(limit).all()
+    rows = q.order_by(Bill.id.desc()).offset(offset).limit(limit).all()
 
     complexes = {c.id: c.name for c in db.query(Complex).all()}
 
     return {
         "success": True,
-        "page":    page,
-        "limit":   limit,
-        "total":   total,
+        "page": page,
+        "limit": limit,
+        "total": total,
         "data": [
             {
-                "id":             b.id,
-                "bill_date":      b.bill_date,
-                "due_date":       b.due_date,
-                "bill_type":      b.bill_type,
-                "description":    b.description,
-                "amount":         _decimal_to_float(b.amount),
-                "paid_amount":    _decimal_to_float(b.paid_amount),
+                "id": b.id,
+                "bill_date": b.bill_date,
+                "due_date": b.due_date,
+                "bill_type": b.bill_type,
+                "description": b.description,
+                "amount": _decimal_to_float(b.amount),
+                "paid_amount": _decimal_to_float(b.paid_amount),
                 "pending_amount": _decimal_to_float(b.pending_amount),
-                "status":         b.status,
+                "status": b.status,
                 "user": {"id": u.id, "name": u.name, "mobile": u.mobile},
                 "shop": {
-                    "id":           s.id,
-                    "shop_number":  s.shop_number,
-                    "complex_id":   s.complex_id,
+                    "id": s.id,
+                    "shop_number": s.shop_number,
+                    "complex_id": s.complex_id,
                     "complex_name": complexes.get(s.complex_id),
                 },
             }
@@ -3398,17 +3411,17 @@ def list_bills_paginated(
 
 @app.get("/api/payments", tags=["Payment"])
 def list_payments_paginated(
-    page:       int            = Query(1,  ge=1),
-    limit:      int            = Query(20, ge=1, le=200),
-    user_id:    Optional[int]  = None,
-    bill_id:    Optional[int]  = None,
-    shop_id:    Optional[int]  = None,
-    complex_id: Optional[int]  = None,
-    start_date: Optional[datetime] = None,
-    end_date:   Optional[datetime] = None,
-    search:     Optional[str]  = None,
-    db:         Session        = Depends(get_db),
-    _:          User           = Depends(require_admin),
+        page: int = Query(1, ge=1),
+        limit: int = Query(20, ge=1, le=200),
+        user_id: Optional[int] = None,
+        bill_id: Optional[int] = None,
+        shop_id: Optional[int] = None,
+        complex_id: Optional[int] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        search: Optional[str] = None,
+        db: Session = Depends(get_db),
+        _: User = Depends(require_admin),
 ):
     """
     Paginated payments list enriched with tenant and shop info.
@@ -3421,10 +3434,10 @@ def list_payments_paginated(
         .join(Shop, Shop.id == Bill.shop_id)
     )
 
-    if user_id:    q = q.filter(Bill.user_id     == user_id)
-    if bill_id:    q = q.filter(Payment.bill_id  == bill_id)
-    if shop_id:    q = q.filter(Bill.shop_id     == shop_id)
-    if complex_id: q = q.filter(Shop.complex_id  == complex_id)
+    if user_id:    q = q.filter(Bill.user_id == user_id)
+    if bill_id:    q = q.filter(Payment.bill_id == bill_id)
+    if shop_id:    q = q.filter(Bill.shop_id == shop_id)
+    if complex_id: q = q.filter(Shop.complex_id == complex_id)
     if start_date: q = q.filter(Payment.payment_date >= start_date)
     if end_date:   q = q.filter(Payment.payment_date <= end_date)
     if search:
@@ -3437,36 +3450,36 @@ def list_payments_paginated(
             | Payment.remarks.ilike(term)
         )
 
-    total  = q.count()
+    total = q.count()
     offset = (page - 1) * limit
-    rows   = q.order_by(Payment.payment_date.desc(), Payment.id.desc()).offset(offset).limit(limit).all()
+    rows = q.order_by(Payment.payment_date.desc(), Payment.id.desc()).offset(offset).limit(limit).all()
 
     complexes = {c.id: c.name for c in db.query(Complex).all()}
 
     return {
         "success": True,
-        "page":    page,
-        "limit":   limit,
-        "total":   total,
+        "page": page,
+        "limit": limit,
+        "total": total,
         "data": [
             {
-                "id":             p.id,
-                "payment_date":   p.payment_date,
-                "amount":         _decimal_to_float(p.amount),
+                "id": p.id,
+                "payment_date": p.payment_date,
+                "amount": _decimal_to_float(p.amount),
                 "payment_method": p.payment_method,
-                "remarks":        p.remarks,
-                "created_at":     p.created_at,
+                "remarks": p.remarks,
+                "created_at": p.created_at,
                 "bill": {
-                    "id":        b.id,
+                    "id": b.id,
                     "bill_type": b.bill_type,
-                    "amount":    _decimal_to_float(b.amount),
-                    "status":    b.status,
+                    "amount": _decimal_to_float(b.amount),
+                    "status": b.status,
                 },
                 "user": {"id": u.id, "name": u.name, "mobile": u.mobile},
                 "shop": {
-                    "id":           s.id,
-                    "shop_number":  s.shop_number,
-                    "complex_id":   s.complex_id,
+                    "id": s.id,
+                    "shop_number": s.shop_number,
+                    "complex_id": s.complex_id,
                     "complex_name": complexes.get(s.complex_id),
                 },
             }
@@ -3487,17 +3500,17 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"success": False, "detail": "Internal server error"},
     )
 
-#=======================================================
+
+# =======================================================
 
 @app.get("/api/ledger/monthly", tags=["Ledger"])
 def monthly_ledger(
-    user_id: int,
-    year: int = Query(..., description="Year to filter bills by bill_date"),
-    db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
+        user_id: int,
+        year: int = Query(..., description="Year to filter bills by bill_date"),
+        db: Session = Depends(get_db),
+        _: User = Depends(require_admin),
 ):
     return _get_monthly_ledger_data(user_id, year, db)
-
 
 
 def _get_monthly_ledger_data(user_id: int, year: int, db: Session) -> dict:
@@ -3510,7 +3523,7 @@ def _get_monthly_ledger_data(user_id: int, year: int, db: Session) -> dict:
         extract('year', Bill.bill_date) == year
     ).all()
 
-    monthly_data = {m: {"bills": [], "billed": 0.0, "paid": 0.0, "remaining": 0.0} for m in range(1,13)}
+    monthly_data = {m: {"bills": [], "billed": 0.0, "paid": 0.0, "remaining": 0.0} for m in range(1, 13)}
     for bill in bills:
         month = bill.bill_date.month
         monthly_data[month]["bills"].append(bill)
@@ -3521,7 +3534,7 @@ def _get_monthly_ledger_data(user_id: int, year: int, db: Session) -> dict:
     monthly_rows = []
     total_billed = total_paid = total_remaining = 0.0
     total_bills_count = 0
-    for m in range(1,13):
+    for m in range(1, 13):
         data = monthly_data[m]
         count = len(data["bills"])
         billed = round(data["billed"], 2)
@@ -3616,15 +3629,18 @@ def _get_monthly_ledger_data(user_id: int, year: int, db: Session) -> dict:
 
 @app.get("/api/tenant/ledger/monthly", tags=["Tenant"])
 def tenant_monthly_ledger(
-    year: int = Query(..., description="Year to filter bills by bill_date"),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_tenant),
+        year: int = Query(..., description="Year to filter bills by bill_date"),
+        db: Session = Depends(get_db),
+        current_user: User = Depends(require_tenant),
 ):
     return _get_monthly_ledger_data(current_user.id, year, db)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Entrypoint (for direct `python app.py` execution)
 # ══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
