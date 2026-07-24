@@ -1409,12 +1409,20 @@ async function usersView(){
     const owned = shops.filter(s => s.assigned_to?.id === uid);
     const totalRent = owned.reduce((sum,s)=>sum+Number(s.shop_rent||0),0);
     const totalDeposit = owned.reduce((sum,s)=>sum+Number(s.shop_deposit||0),0);
-    // Nearest-expiring agreement across all of this tenant's shops (most urgent first)
+    // Nearest-expiring agreement end date and earliest agreement start date across this tenant's shops
     const endDates = owned.map(s => s.assigned_to?.agreement_end_date).filter(Boolean);
     const nearestEnd = endDates.length
       ? endDates.reduce((a,b) => new Date(a) < new Date(b) ? a : b)
       : null;
-    return { count: owned.length, totalRent, totalDeposit, nearestEnd };
+    const startDates = owned.map(s => s.assigned_to?.agreement_start_date).filter(Boolean);
+    const earliestStart = startDates.length
+      ? startDates.reduce((a,b) => new Date(a) < new Date(b) ? a : b)
+      : null;
+    const rentDays = owned.map(s => s.assigned_to?.rent_day).filter(d => d !== null && d !== undefined);
+    const uniqueRentDays = [...new Set(rentDays)];
+    const rentDay = uniqueRentDays.length === 1 ? uniqueRentDays[0] : (uniqueRentDays.length === 0 ? null : 'multiple');
+    const missingRentDay = owned.some(s => !s.assigned_to || s.assigned_to.rent_day === null || s.assigned_to.rent_day === undefined);
+    return { count: owned.length, totalRent, totalDeposit, nearestEnd, earliestStart, rentDay, missingRentDay };
   };
 
   return `
@@ -1422,7 +1430,7 @@ async function usersView(){
   ${users.length === 0 ? emptyStateHtml('No users yet', 'Add tenants or admins to get started.', emptyIcon()) : `
   <div class="table-wrap">
     <table>
-<thead><tr><th>Name</th><th>Mobile</th><th>Role</th><th>Status</th><th class="num">Shops</th><th class="num">Monthly Rent</th><th class="num">Total Deposit</th><th>Agreement</th><th></th></tr></thead>
+<thead><tr><th>Name</th><th>Mobile</th><th>Role</th><th>Status</th><th class="num">Shops</th><th class="num">Monthly Rent</th><th class="num">Total Deposit</th><th>Agreement Start</th><th>Rent Day</th><th>Agreement End</th><th></th></tr></thead>
       <tbody>
         ${users.map(u => {
           const summary = u.role === 'tenant' ? userShopSummary(u.id) : null;
@@ -1435,6 +1443,8 @@ async function usersView(){
             <td class="num">${summary ? summary.count : '—'}</td>
             <td class="num">${summary ? currency(summary.totalRent) : '—'}</td>
             <td class="num">${summary ? currency(summary.totalDeposit) : '—'}</td>
+            <td>${summary ? dateFmt(summary.earliestStart) : '—'}</td>
+            <td>${summary ? (summary.rentDay === 'multiple' ? 'Multiple' : (summary.rentDay == null ? '—' : summary.rentDay)) : '—'}${summary && summary.missingRentDay ? ` <span style="color:var(--danger); font-weight:700;">⚠</span>` : ''}</td>
             <td>${summary ? daysLeftHtml(summary.nearestEnd) : '—'}</td>
             <td><div class="row-actions">
               ${u.role === 'tenant' ? `<button class="btn-icon" data-financial-summary="${u.id}" data-name="${escapeHtml(u.name)}" aria-label="Financial summary" title="Financial summary"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg></button>` : ''}
@@ -1961,11 +1971,15 @@ function openEditAgreementModal(userId, userName, shopId, shopNumber, startIso, 
   document.getElementById('cancelBtn').addEventListener('click', () => openFinancialSummaryModal(userId, userName));
   document.getElementById('saveAgreementBtn').addEventListener('click', async () => {
     await withSavingState('saveAgreementBtn', async () => {
-
-
-      showToast('Agreement dates updated', 'success');
-      await openFinancialSummaryModal(userId, userName);
-    }, 'Saving…');
+    const agreement_start_date = document.getElementById('editAgreementStart').value || null;
+    const agreement_end_date = document.getElementById('editAgreementEnd').value || null;
+    const rentDayVal = document.getElementById('editRentDay').value || null;
+    const rent_day = rentDayVal ? Number(rentDayVal) : null;
+    await api(`/api/user/${userId}/shop/${shopId}/agreement`, { method:'PUT', body: { agreement_start_date, agreement_end_date, rent_day } });
+    state.loaded.shops = false;
+    showToast('Agreement dates updated', 'success');
+    await openFinancialSummaryModal(userId, userName);
+  }, 'Saving…');
   });
 }
 
@@ -2578,6 +2592,15 @@ function renderAdminTenantDashboard(data, user, complexFilter){
               <div><div style="font-size:11px; color:var(--muted); font-weight:600; text-transform:uppercase;">Rent/mo</div><div class="mono" style="font-weight:700; font-size:14px;">${currency(s.shop_rent||0)}</div></div>
               <div><div style="font-size:11px; color:var(--muted); font-weight:600; text-transform:uppercase;">Deposit</div><div class="mono" style="font-weight:700; font-size:14px;">${currency(s.shop_deposit||0)}</div></div>
             </div>
+            <div class="amt-row" style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; border:none; padding:0;">
+              <div><div style="font-size:11px; color:var(--muted); font-weight:600; text-transform:uppercase;">Agreement Start</div><div class="mono" style="font-weight:700; font-size:14px;">${dateFmt(s.assigned_to?.agreement_start_date)}</div></div>
+              <div><div style="font-size:11px; color:var(--muted); font-weight:600; text-transform:uppercase;">Rent due day</div><div class="mono" style="font-weight:700; font-size:14px;">${s.assigned_to?.rent_day ? s.assigned_to.rent_day : '<span style="color:var(--danger); font-weight:700;">Missing</span>'}</div></div>
+            </div>
+            <div class="amt-row" style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; border:none; padding:0;">
+              <div><div style="font-size:11px; color:var(--muted); font-weight:600; text-transform:uppercase;">Agreement Ends</div><div class="mono" style="font-weight:700; font-size:14px;">${dateFmt(s.assigned_to?.agreement_end_date)}</div></div>
+              <div><div style="font-size:11px; color:var(--muted); font-weight:600; text-transform:uppercase;">Status</div><div style="font-weight:700; font-size:14px;">${daysLeftHtml(s.assigned_to?.agreement_end_date)}</div></div>
+            </div>
+            <div style="margin-top:8px; text-align:right;">${s.assigned_to ? `<button class="btn btn-ghost" data-edit-agreement="${s.id}" data-user-id="${s.assigned_to?.id||''}" data-name="${escapeHtml(s.assigned_to?.name||'')}" data-shop-number="${escapeHtml(s.shop_number)}" data-start="${s.assigned_to?.agreement_start_date||''}" data-end="${s.assigned_to?.agreement_end_date||''}" data-rent-day="${s.assigned_to?.rent_day||''}">Edit agreement</button>` : ''}</div>
           </div>`).join('')}
       </div>
     </div>
@@ -5314,6 +5337,8 @@ document.getElementById('tenantGreeting').textContent = greeting;
       cx.forEach(c => complexNames[c.id] = c.name);
     } catch(e){}
 
+    const missingRentDay = shops.some(s => !s.rent_day);
+
     let depositPaid = 0;
     let depositRemaining = totalDeposit;
     let depositSourceFailed = false;
@@ -5342,6 +5367,8 @@ document.getElementById('tenantGreeting').textContent = greeting;
       <div class="tp-stat accent-green"><div class="tp-label">Total Paid</div><div class="tp-value" style="font-size:16px;">${currency(paidTotal)}</div></div>
       <div class="tp-stat accent-partial"><div class="tp-label">Next Due Date</div><div class="tp-value" style="font-size:14px;">${nextDue ? dateFmt(nextDue.due_date) : '—'}</div></div>
     </div>
+
+    ${missingRentDay ? '<div class="warn-box" style="margin:12px 0; color:var(--danger); font-weight:700;">⚠ One or more assigned shops do not have a Rent Due Day configured. Monthly billing will be paused for those shops until configured.</div>' : ''}
 
     <!-- Profile Section -->
     <div class="collapsible-section">
@@ -5379,6 +5406,10 @@ document.getElementById('tenantGreeting').textContent = greeting;
             <div class="amt-row" style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; border:none; padding:0;">
               <div><div style="font-size:11px; color:var(--muted); font-weight:600; text-transform:uppercase;">Rent/mo</div><div class="mono" style="font-weight:700; font-size:14px;">${currency(s.shop_rent||0)}</div></div>
               <div><div style="font-size:11px; color:var(--muted); font-weight:600; text-transform:uppercase;">Deposit</div><div class="mono" style="font-weight:700; font-size:14px;">${currency(s.shop_deposit||0)}</div></div>
+            </div>
+            <div class="amt-row" style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; border:none; padding:0;">
+              <div><div style="font-size:11px; color:var(--muted); font-weight:600; text-transform:uppercase;">Agreement Start</div><div class="mono" style="font-weight:700; font-size:14px;">${dateFmt(s.agreement_start_date)}</div></div>
+              <div><div style="font-size:11px; color:var(--muted); font-weight:600; text-transform:uppercase;">Rent due day</div><div class="mono" style="font-weight:700; font-size:14px;">${s.rent_day ? s.rent_day : '<span style="color:var(--danger); font-weight:700;">Missing</span>'}</div></div>
             </div>
             <div class="amt-row" style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; border:none; padding:0;">
               <div><div style="font-size:11px; color:var(--muted); font-weight:600; text-transform:uppercase;">Agreement Ends</div><div class="mono" style="font-weight:700; font-size:14px;">${dateFmt(s.agreement_end_date)}</div></div>
@@ -5825,6 +5856,23 @@ function renderMonthSummary(bills, payments){
     </div>`;
   }).join('');
 }
+
+// Global delegated handler for Edit Agreement buttons (works across views)
+document.body.addEventListener('click', function (e) {
+  const btn = e.target.closest('[data-edit-agreement]');
+  if (!btn) return;
+  const shopId = Number(btn.dataset.editAgreement);
+  const shopNumber = btn.dataset.shopNumber || '';
+  const startIso = btn.dataset.start || '';
+  const endIso = btn.dataset.end || '';
+  const rentDay = btn.dataset.rentDay || '';
+  const userId = btn.dataset.userId ? Number(btn.dataset.userId) : null;
+  const userName = btn.dataset.name || '';
+  if (typeof openEditAgreementModal === 'function') {
+  openEditAgreementModal(userId, userName, shopId, shopNumber, startIso, endIso, rentDay);
+  }
+});
+
 </script>
 </body>
 </html>
