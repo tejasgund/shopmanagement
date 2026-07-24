@@ -2429,14 +2429,16 @@ def tenant_shops(
         .filter(UserShop.user_id == current_user.id)
         .all()
     )
+    complexes = {c.id: c.name for c in db.query(Complex).all()}
     return [
         {
-            "id": s.id,
-            "shop_number": s.shop_number,
-            "area_sqft": _decimal_to_float(s.area_sqft),
-            "status": s.status,
-            "complex_id": s.complex_id,
-            "shop_rent": _decimal_to_float(s.shop_rent),  # <-- DIRECT
+            "id":           s.id,
+            "shop_number":  s.shop_number,
+            "area_sqft":    _decimal_to_float(s.area_sqft),
+            "status":       s.status,
+            "complex_id":   s.complex_id,
+            "complex_name": complexes.get(s.complex_id),
+            "shop_rent":    _decimal_to_float(s.shop_rent),  # <-- DIRECT
             "shop_deposit": _decimal_to_float(s.shop_deposit),
             "agreement_start_date": us.agreement_start_date,
             "agreement_end_date": us.agreement_end_date,
