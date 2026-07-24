@@ -1151,10 +1151,10 @@ def assign_shops_to_user(
                 db.delete(old_row)
                 reassigned_from.append({"shop_id": shop_id, "from_user_id": conflicts[shop_id].id})
 
-        exists = db.query(UserShop).filter(
+        existing_row = db.query(UserShop).filter(
             UserShop.user_id == user_id, UserShop.shop_id == shop_id
         ).first()
-        if not exists:
+        if not existing_row:
             # No rent stored – the assignment is now purely a relationship
             db.add(UserShop(
                 user_id=user_id,
@@ -1163,6 +1163,13 @@ def assign_shops_to_user(
                 agreement_end_date=body.agreement_end_date,
             ))
             assigned.append(shop_id)
+        else:
+            # Already assigned to this same user — still update agreement dates
+            # if the admin provided new ones via this same modal.
+            if body.agreement_start_date is not None:
+                existing_row.agreement_start_date = body.agreement_start_date
+            if body.agreement_end_date is not None:
+                existing_row.agreement_end_date = body.agreement_end_date
 
         shop.status = "occupied"
 
