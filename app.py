@@ -34,6 +34,7 @@ from db_config import SessionLocal, get_db
 from log import get_logger, log_request_middleware
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import extract
+from scheduler_config import load_scheduler_config
 
 APP_TIMEZONE = "Asia/Kolkata"
 
@@ -1390,19 +1391,45 @@ scheduler = BackgroundScheduler(timezone=APP_TIMEZONE)
 
 @app.on_event("startup")
 def _start_rent_bill_scheduler():
+    """Reads conf/scheduler.conf and (if enabled) schedules the nightly rent
+    bill job accordingly. See scheduler_config.py for defaults/fallback
+    behavior if the conf file is missing or invalid."""
+    config = load_scheduler_config()
+
+    if not config["scheduler_enabled"]:
+        logger.info("Scheduler disabled via conf/scheduler.conf ([scheduler] enabled = false) — no jobs will run")
+        return
+
+    job = config["rent_bill_generation"]
+    if not job["enabled"]:
+        logger.info("Rent bill generation job disabled via conf/scheduler.conf — skipping")
+        return
+
     scheduler.add_job(
         _run_scheduled_rent_bill_generation,
-        CronTrigger(hour=2, minute=0, timezone=APP_TIMEZONE),
+        CronTrigger(
+            minute=job["minute"],
+            hour=job["hour"],
+            day=job["day"],
+            month=job["month"],
+            day_of_week=job["day_of_week"],
+            timezone=job["timezone"],
+        ),
         id="generate_rent_bills",
         replace_existing=True,
+        misfire_grace_time=job["misfire_grace_time"],
     )
     scheduler.start()
-    logger.info("Rent bill generation scheduler started (daily 02:00 %s)", APP_TIMEZONE)
+    logger.info(
+        "Rent bill generation scheduler started (cron minute=%s hour=%s day=%s month=%s day_of_week=%s %s)",
+        job["minute"], job["hour"], job["day"], job["month"], job["day_of_week"], job["timezone"],
+    )
 
 
 @app.on_event("shutdown")
 def _stop_rent_bill_scheduler():
-    scheduler.shutdown(wait=False)
+    if scheduler.running:
+        scheduler.shutdown(wait=False)
 
 
 @app.post("/api/bill", response_model=BillResponse, status_code=201, tags=["Bill"])

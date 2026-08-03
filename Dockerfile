@@ -42,6 +42,8 @@ COPY app.py .
 COPY db_config.py .
 COPY log.py .
 COPY create_tables.py .
+COPY scheduler_config.py .
+COPY conf/ ./conf/
 
 # ──────────────────────────────────────────────
 # Create logs directory (log.py will also auto-create it,
