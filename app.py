@@ -2605,7 +2605,7 @@ def tenant_shops(
             "id":           s.id,
             "shop_number":  s.shop_number,
             "area_sqft":    _decimal_to_float(s.area_sqft),
-            "st atus":       s.status,
+            "status":       s.status,
             "complex_id":   s.complex_id,
             "complex_name": complexes.get(s.complex_id),
             "shop_rent":    _decimal_to_float(s.shop_rent),  # <-- DIRECT
