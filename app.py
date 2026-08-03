@@ -14,11 +14,14 @@ Features:
 
 import json
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import List, Optional
+from zoneinfo import ZoneInfo
 
 import bcrypt
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -27,10 +30,12 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from db_config import get_db
+from db_config import SessionLocal, get_db
 from log import get_logger, log_request_middleware
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import extract
+
+APP_TIMEZONE = "Asia/Kolkata"
 
 
 
@@ -254,6 +259,8 @@ class UserCreate(BaseModel):
     email:    Optional[str]  = None
     password: str            = Field(..., min_length=6)
     role:     Optional[str]  = Field("tenant", pattern="^(admin|tenant)$")
+    rent_bill_date: Optional[int] = Field(None, ge=1, le=28)
+    auto_rent_bill_enabled: bool = Field(False, description="If true, the nightly scheduler auto-generates this user's Rent bill on rent_bill_date each month.")
 
 
 class UserUpdate(BaseModel):
@@ -263,6 +270,8 @@ class UserUpdate(BaseModel):
     password: Optional[str] = Field(None, min_length=6)
     role:     Optional[str] = Field(None, pattern="^(admin|tenant)$")
     is_active:Optional[bool]= None
+    rent_bill_date: Optional[int] = Field(None, ge=1, le=28)
+    auto_rent_bill_enabled: Optional[bool] = None
 
 
 class UserResponse(BaseModel):
@@ -272,6 +281,8 @@ class UserResponse(BaseModel):
     email:     Optional[str]
     role:      str
     is_active: bool
+    rent_bill_date: Optional[int]
+    auto_rent_bill_enabled: bool
     created_at:datetime
     updated_at:datetime
 
@@ -963,12 +974,14 @@ def create_user(
     password_hash = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode()
 
     obj = User(
-        name          = body.name,
-        mobile        = body.mobile,
-        email         = body.email,
-        password_hash = password_hash,
-        role          = body.role or "tenant",
-        is_active     = True,
+        name                   = body.name,
+        mobile                 = body.mobile,
+        email                  = body.email,
+        password_hash          = password_hash,
+        role                   = body.role or "tenant",
+        rent_bill_date         = body.rent_bill_date,
+        auto_rent_bill_enabled = body.auto_rent_bill_enabled,
+        is_active              = True,
     )
     db.add(obj)
     db.flush()
@@ -1247,6 +1260,150 @@ def detach_shops_from_user(
 # ══════════════════════════════════════════════════════════════════════════════
 # ── ROUTES: Bill Management
 # ══════════════════════════════════════════════════════════════════════════════
+
+def generate_rent_bills_for_date(db: Session, target_date: date) -> dict:
+    """
+    Auto-generate Rent bills for every active user who has opted into
+    auto_rent_bill_enabled and whose rent_bill_date matches the day-of-month
+    of target_date, one bill per shop currently assigned to them.
+
+    A user with auto_rent_bill_enabled=False is skipped entirely, even if
+    rent_bill_date matches, since the admin has not opted them in. A user
+    who is opted in but currently has no shops assigned produces no bills
+    (nothing to bill) — reflected in skipped_no_shops.
+
+    Idempotent: safe to call more than once for the same date (e.g. from
+    multiple worker processes, or a manual re-run) — a user/shop that
+    already has a Rent bill for that month is skipped, never duplicated.
+    """
+    target_dt = datetime.combine(target_date, datetime.min.time())
+    summary = {
+        "date": target_date.isoformat(),
+        "users_matched": 0,
+        "created": [],
+        "skipped_existing": 0,
+        "skipped_zero_rent": 0,
+        "skipped_no_shops": 0,
+    }
+
+    users = db.query(User).filter(
+        User.is_active == True,
+        User.auto_rent_bill_enabled == True,
+        User.rent_bill_date == target_date.day,
+    ).all()
+    summary["users_matched"] = len(users)
+
+    for user in users:
+        user_shops = db.query(UserShop).filter(UserShop.user_id == user.id).all()
+        if not user_shops:
+            summary["skipped_no_shops"] += 1
+            continue
+        for user_shop in user_shops:
+            shop = db.query(Shop).filter(Shop.id == user_shop.shop_id).first()
+            if not shop:
+                continue
+
+            already_exists = db.query(Bill).filter(
+                Bill.user_id == user.id,
+                Bill.shop_id == shop.id,
+                Bill.bill_type == "Rent",
+                extract("year", Bill.bill_date) == target_date.year,
+                extract("month", Bill.bill_date) == target_date.month,
+            ).first()
+            if already_exists:
+                summary["skipped_existing"] += 1
+                continue
+
+            amount_value = _decimal_to_float(shop.shop_rent)
+            if amount_value <= 0:
+                summary["skipped_zero_rent"] += 1
+                continue
+
+            amount = Decimal(str(amount_value))
+            bill = Bill(
+                user_id        = user.id,
+                shop_id        = shop.id,
+                bill_type      = "Rent",
+                description    = "Auto-generated monthly rent",
+                amount         = amount,
+                paid_amount    = Decimal("0"),
+                pending_amount = amount,
+                bill_date      = target_dt,
+                due_date       = target_dt,
+                status         = "pending",
+            )
+            db.add(bill)
+            db.flush()
+
+            write_audit(
+                db, None, "AUTO_GENERATE", "bills", bill.id,
+                new_data={"user_id": user.id, "shop_id": shop.id, "amount": float(amount),
+                          "bill_date": target_dt.isoformat()},
+            )
+            summary["created"].append(bill.id)
+
+    db.commit()
+    return summary
+
+
+@app.post("/api/bills/generate-rent", tags=["Bill"])
+def generate_rent_bills(
+    date: Optional[str] = Query(None, description="YYYY-MM-DD. Defaults to today (Asia/Kolkata)."),
+    db:   Session = Depends(get_db),
+    _:    User    = Depends(require_admin),
+):
+    """
+    Manually trigger Rent bill generation for a given day (defaults to
+    today). This is the same logic the automatic nightly scheduler runs —
+    useful for on-demand runs, testing, or backfilling a date the scheduler
+    missed. Safe to call repeatedly; already-generated bills are skipped.
+    Admin only.
+    """
+    if date:
+        try:
+            target_date = datetime.strptime(date, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(400, detail="date must be in YYYY-MM-DD format")
+    else:
+        target_date = datetime.now(ZoneInfo(APP_TIMEZONE)).date()
+
+    return generate_rent_bills_for_date(db, target_date)
+
+
+def _run_scheduled_rent_bill_generation():
+    """Entry point for the APScheduler job: owns its own DB session since it
+    runs outside request scope."""
+    db = SessionLocal()
+    try:
+        target_date = datetime.now(ZoneInfo(APP_TIMEZONE)).date()
+        summary = generate_rent_bills_for_date(db, target_date)
+        logger.info("Scheduled rent bill generation for %s: %s", target_date, summary)
+    except Exception:
+        db.rollback()
+        logger.exception("Scheduled rent bill generation failed")
+    finally:
+        db.close()
+
+
+scheduler = BackgroundScheduler(timezone=APP_TIMEZONE)
+
+
+@app.on_event("startup")
+def _start_rent_bill_scheduler():
+    scheduler.add_job(
+        _run_scheduled_rent_bill_generation,
+        CronTrigger(hour=2, minute=0, timezone=APP_TIMEZONE),
+        id="generate_rent_bills",
+        replace_existing=True,
+    )
+    scheduler.start()
+    logger.info("Rent bill generation scheduler started (daily 02:00 %s)", APP_TIMEZONE)
+
+
+@app.on_event("shutdown")
+def _stop_rent_bill_scheduler():
+    scheduler.shutdown(wait=False)
+
 
 @app.post("/api/bill", response_model=BillResponse, status_code=201, tags=["Bill"])
 def create_bill(

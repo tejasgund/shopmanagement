@@ -67,6 +67,14 @@ class User(Base):
     email         = Column(String(150), nullable=True,  unique=True, index=True)
     password_hash = Column(String(255), nullable=False)
     role          = Column(Enum("admin", "tenant", name="user_role"), nullable=False, default="tenant")
+    # Day-of-month (1-28) on which this user's monthly rent bill is raised.
+    # Capped at 28 so it's valid in every month, including February.
+    # Range is enforced at the API layer (see UserCreate/UserUpdate in app.py).
+    rent_bill_date = Column(Integer, nullable=True)
+    # Admin toggle: when True, the automatic rent-bill scheduler generates a
+    # Rent bill for this user on rent_bill_date every month (only for shops
+    # currently assigned to them). Off by default - opt-in per user.
+    auto_rent_bill_enabled = Column(Boolean, nullable=False, default=False)
     is_active     = Column(Boolean, nullable=False, default=True)
     created_at    = Column(DateTime, nullable=False, default=now_utc)
     updated_at    = Column(DateTime, nullable=False, default=now_utc, onupdate=now_utc)
