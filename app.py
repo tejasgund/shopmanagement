@@ -2692,17 +2692,30 @@ def tenant_payments(
         .order_by(Payment.id)
         .all()
     )
-    return [
-        {
-            "id":             p.id,
-            "bill_id":        p.bill_id,
-            "amount":         _decimal_to_float(p.amount),
-            "payment_method": p.payment_method,
-            "payment_date":   p.payment_date,
-            "remarks":        p.remarks,
-        }
-        for p in payments
-    ]
+    return [_tenant_payment_dict(p) for p in payments]
+
+
+def _tenant_payment_dict(p: Payment) -> dict:
+    """
+    One payment row as the tenant portal needs it.
+
+    created_at matters more than it looks: when a lump sum is split across
+    several bills by auto-allocate, every row it creates is written in the
+    same transaction, so they share a created_at to the second. The portal
+    uses that to show "you paid Rs 6,000" once instead of three fragments,
+    which is what tenants were ringing up about. payment_group is used in
+    preference when it exists (see the note in tenant-payments.js).
+    """
+    return {
+        "id":             p.id,
+        "bill_id":        p.bill_id,
+        "amount":         _decimal_to_float(p.amount),
+        "payment_method": p.payment_method,
+        "payment_date":   p.payment_date,
+        "remarks":        p.remarks,
+        "created_at":     p.created_at,
+        "payment_group":  getattr(p, "payment_group", None),
+    }
 
 @app.get("/api/tenant/deposit-payments", tags=["Tenant"])
 def tenant_deposit_payments(
@@ -2750,6 +2763,10 @@ class BillUpdate(BaseModel):
     bill_type:   Optional[str]      = Field(None, min_length=1, max_length=80)
     description: Optional[str]      = None
     amount:      Optional[float]    = Field(None, gt=0)
+    # The date the bill is *for*. Editable because bills are often entered a
+    # few days after the fact, and the month a bill belongs to drives the
+    # tenant's monthly view and every month-wise report.
+    bill_date:   Optional[datetime] = None
     due_date:    Optional[datetime] = None
     status:      Optional[str]      = Field(None, pattern="^(pending|partial|paid|cancelled)$")
 
@@ -2975,6 +2992,7 @@ def update_bill(
     # Apply simple field updates
     if "bill_type"   in changes: bill.bill_type   = changes["bill_type"]
     if "description" in changes: bill.description = changes["description"]
+    if "bill_date"   in changes: bill.bill_date   = changes["bill_date"]
     if "due_date"    in changes: bill.due_date    = changes["due_date"]
 
     # Amount change requires reconciliation
@@ -4594,6 +4612,154 @@ def tenant_meter_reading_detail(
     if reading.user_id != current_user.id:
         raise HTTPException(404, detail="Reading not found")
     return _reading_to_dict(db, reading)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ── ROUTE: Tenant home bundle
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/tenant/home", tags=["Tenant"])
+def tenant_home(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_tenant),
+):
+    """
+    Everything the tenant portal needs on open, in one response.
+
+    The portal previously made seven parallel calls on every load. On a shop's
+    phone connection each round trip costs more than the query does, so this
+    collapses them into one. Same data, same shapes as the individual
+    endpoints - those are all still there and still work, so nothing that
+    already calls them breaks.
+    """
+    shop_ids = _tenant_shop_ids(db, current_user.id)
+
+    # ── Shops (with agreement dates and rent) ──
+    shops = []
+    if shop_ids:
+        rows = (
+            db.query(Shop, UserShop)
+            .join(UserShop, UserShop.shop_id == Shop.id)
+            .filter(UserShop.user_id == current_user.id)
+            .all()
+        )
+        complexes = {c.id: c.name for c in db.query(Complex).all()}
+        shops = [
+            {
+                "id": s.id,
+                "shop_number": s.shop_number,
+                "complex_id": s.complex_id,
+                "complex_name": complexes.get(s.complex_id),
+                "area_sqft": _decimal_to_float(s.area_sqft),
+                "shop_rent": _decimal_to_float(s.shop_rent),
+                "shop_deposit": _decimal_to_float(s.shop_deposit),
+                "agreement_start_date": us.agreement_start_date,
+                "agreement_end_date": us.agreement_end_date,
+            }
+            for s, us in rows
+        ]
+
+    # ── Bills ──
+    bills = db.query(Bill).filter(Bill.user_id == current_user.id).order_by(Bill.id).all()
+    bills_out = [
+        {
+            "id": b.id, "shop_id": b.shop_id, "bill_type": b.bill_type,
+            "description": b.description,
+            "amount": _decimal_to_float(b.amount),
+            "paid_amount": _decimal_to_float(b.paid_amount),
+            "pending_amount": _decimal_to_float(b.pending_amount),
+            "bill_date": b.bill_date, "due_date": b.due_date, "status": b.status,
+        }
+        for b in bills
+    ]
+
+    # ── Payments ──
+    payments = (
+        db.query(Payment)
+        .join(Bill, Bill.id == Payment.bill_id)
+        .filter(Bill.user_id == current_user.id)
+        .order_by(Payment.id)
+        .all()
+    )
+
+    # ── Deposit payments ──
+    deposits = (
+        db.query(DepositPayment)
+        .filter(DepositPayment.user_id == current_user.id)
+        .order_by(DepositPayment.payment_date.desc())
+        .all()
+    )
+
+    # ── Meters + readings ──
+    meters_out, readings_out = [], []
+    if shop_ids:
+        meters = (
+            db.query(Meter)
+            .filter(Meter.shop_id.in_(shop_ids), Meter.is_active == True)
+            .order_by(Meter.id)
+            .all()
+        )
+        shop_numbers = {s["id"]: s["shop_number"] for s in shops}
+        for m in meters:
+            pending = (
+                db.query(MeterReading)
+                .filter(
+                    MeterReading.meter_id == m.id,
+                    MeterReading.user_id == current_user.id,
+                    MeterReading.status == "pending",
+                )
+                .order_by(MeterReading.id.desc())
+                .first()
+            )
+            meters_out.append({
+                "id": m.id,
+                "meter_number": m.meter_number,
+                "meter_type": m.meter_type,
+                "shop_id": m.shop_id,
+                "shop_number": shop_numbers.get(m.shop_id),
+                "previous_reading": float(meter_service.previous_reading_value(db, m)),
+                "pending_reading_id": pending.id if pending else None,
+                "has_pending": pending is not None,
+            })
+
+        readings = (
+            db.query(MeterReading)
+            .filter(MeterReading.user_id == current_user.id)
+            .order_by(MeterReading.reading_date.desc(), MeterReading.id.desc())
+            .limit(24)          # the portal only ever shows the recent ones
+            .all()
+        )
+        readings_out = [_reading_to_dict(db, r) for r in readings]
+
+    # ── Branding / payment-methods line ──
+    cfg = settings_service.get_all(db)
+
+    return {
+        "profile": {
+            "id": current_user.id, "name": current_user.name,
+            "mobile": current_user.mobile, "email": current_user.email,
+            "role": current_user.role,
+        },
+        "shops": shops,
+        "bills": bills_out,
+        "payments": [_tenant_payment_dict(p) for p in payments],
+        "deposits": [
+            {
+                "id": dp.id, "shop_id": dp.shop_id,
+                "amount": _decimal_to_float(dp.amount),
+                "payment_date": dp.payment_date, "remarks": dp.remarks,
+            }
+            for dp in deposits
+        ],
+        "meters": meters_out,
+        "readings": readings_out,
+        "settings": {
+            "app_name": cfg.get("app.name"),
+            "currency_symbol": cfg.get("app.currency_symbol"),
+            "support_contact": cfg.get("app.support_contact"),
+            "payment_methods": cfg.get("app.payment_methods"),
+        },
+    }
 
 
 # ══════════════════════════════════════════════════════════════════════════════
