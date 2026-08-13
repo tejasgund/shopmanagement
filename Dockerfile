@@ -43,6 +43,9 @@ COPY db_config.py .
 COPY log.py .
 COPY create_tables.py .
 COPY scheduler_config.py .
+COPY meter_service.py .
+COPY photo_storage.py .
+COPY settings_service.py .
 COPY conf/ ./conf/
 
 # ──────────────────────────────────────────────
