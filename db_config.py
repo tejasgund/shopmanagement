@@ -34,7 +34,10 @@ DB_PASSWORD = os.getenv("DB_PASSWORD", "root")
 # SQLAlchemy Database URL (MySQL + PyMySQL driver)
 # pip install pymysql
 # ──────────────────────────────────────────────
-DATABASE_URL = (
+# DATABASE_URL can be overridden wholesale via environment variable. This is
+# used by the automated test suite (SQLite, no server required); when unset the
+# behaviour is exactly as before - a MySQL URL built from the DB_* vars above.
+DATABASE_URL = os.getenv("DATABASE_URL") or (
     f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}"
     f"@{DB_HOST}:{DB_PORT}/{DB_NAME}"
     f"?charset=utf8mb4"
@@ -46,14 +49,23 @@ DATABASE_URL = (
 # pool_recycle:  recycle connections every 30 min (MySQL cuts idle conns at 8 h)
 # echo:          set True to print raw SQL for debugging
 # ──────────────────────────────────────────────
-engine = create_engine(
-    DATABASE_URL,
-    pool_pre_ping=True,
-    pool_recycle=1800,
-    pool_size=10,
-    max_overflow=20,
-    echo=False,
-)
+if DATABASE_URL.startswith("sqlite"):
+    # Test/dev fallback: SQLite has no server-side connection pool to tune, and
+    # needs check_same_thread=False so FastAPI's threadpool can share the session.
+    engine = create_engine(
+        DATABASE_URL,
+        connect_args={"check_same_thread": False},
+        echo=False,
+    )
+else:
+    engine = create_engine(
+        DATABASE_URL,
+        pool_pre_ping=True,
+        pool_recycle=1800,
+        pool_size=10,
+        max_overflow=20,
+        echo=False,
+    )
 
 # ──────────────────────────────────────────────
 # Session factory

@@ -130,6 +130,7 @@ class Shop(Base):
     user_shops        = relationship("UserShop",       back_populates="shop", cascade="all, delete-orphan")
     bills             = relationship("Bill",           back_populates="shop")
     deposit_payments  = relationship("DepositPayment", back_populates="shop")
+    meters            = relationship("Meter",          back_populates="shop", cascade="all, delete-orphan")
 
 
 # ──────────────────────────────────────────────
@@ -216,6 +217,171 @@ class DepositPayment(Base):
     # Relationships
     user = relationship("User", back_populates="deposit_payments")
     shop = relationship("Shop", back_populates="deposit_payments")
+
+
+# ──────────────────────────────────────────────
+# meters  (electricity submeters attached to a shop)
+# ──────────────────────────────────────────────
+class Meter(Base):
+    """
+    A submeter physically installed at a shop. A shop may have more than one
+    (e.g. separate light/power meters), so this is a one-to-many from Shop.
+
+    initial_reading is the meter face value on the day it was installed. It is
+    used as the "previous reading" for the very first reading submitted, so the
+    first bill only charges units consumed since installation.
+    """
+    __tablename__ = "meters"
+
+    id                = Column(Integer, primary_key=True, autoincrement=True)
+    shop_id           = Column(Integer, ForeignKey("shops.id", ondelete="CASCADE"), nullable=False, index=True)
+    meter_number      = Column(String(60), nullable=False, index=True)
+    meter_type        = Column(String(40), nullable=False, default="electricity")
+    initial_reading   = Column(Numeric(12, 2), nullable=False, default=0)
+    installation_date = Column(DateTime, nullable=True)
+    notes             = Column(Text, nullable=True)
+    is_active         = Column(Boolean, nullable=False, default=True)
+    created_at        = Column(DateTime, nullable=False, default=now_utc)
+    updated_at        = Column(DateTime, nullable=False, default=now_utc, onupdate=now_utc)
+
+    # Relationships
+    shop     = relationship("Shop", back_populates="meters")
+    readings = relationship("MeterReading", back_populates="meter", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        # The same physical meter number can't be registered twice on one shop.
+        Index("uq_meter_shop_number", "shop_id", "meter_number", unique=True),
+    )
+
+
+# ──────────────────────────────────────────────
+# meter_tariffs  (unit price history)
+# ──────────────────────────────────────────────
+class MeterTariff(Base):
+    """
+    Price per unit, effective from a given date. Never edit history: to change
+    the rate, add a new row with a later effective_from. The applicable tariff
+    for a reading is the most recent row whose effective_from <= reading date,
+    which keeps old bills reproducible at the rate that was live at the time.
+
+    meter_type lets electricity and (future) water meters have separate rates.
+    """
+    __tablename__ = "meter_tariffs"
+
+    id             = Column(Integer, primary_key=True, autoincrement=True)
+    meter_type     = Column(String(40), nullable=False, default="electricity", index=True)
+    unit_price     = Column(Numeric(10, 4), nullable=False)
+    fixed_charge   = Column(Numeric(10, 2), nullable=False, default=0)
+    tax_percent    = Column(Numeric(5, 2),  nullable=False, default=0)
+    effective_from = Column(DateTime, nullable=False, index=True)
+    notes          = Column(Text, nullable=True)
+    created_by     = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at     = Column(DateTime, nullable=False, default=now_utc)
+
+
+# ──────────────────────────────────────────────
+# meter_readings
+# ──────────────────────────────────────────────
+class MeterReading(Base):
+    """
+    One submission in the submeter workflow. The full history of the reading is
+    preserved on a single row so it can be audited later:
+
+        customer_reading        - what the tenant typed in
+        photo_path              - the ORIGINAL evidence photo, never overwritten
+        admin_verified_reading  - what the admin read off that photo (authority)
+        approved_reading        - copied from admin_verified_reading on approval
+
+    The bill is only ever calculated from approved_reading. bill_id is UNIQUE,
+    so the database itself guarantees an approved reading can produce at most
+    one bill even if Approve is double-clicked or two admins race.
+    """
+    __tablename__ = "meter_readings"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    meter_id    = Column(Integer, ForeignKey("meters.id", ondelete="CASCADE"),  nullable=False, index=True)
+    shop_id     = Column(Integer, ForeignKey("shops.id",  ondelete="RESTRICT"), nullable=False, index=True)
+    user_id     = Column(Integer, ForeignKey("users.id",  ondelete="RESTRICT"), nullable=False, index=True)
+
+    # Snapshot of the previous approved reading at submission time, so the
+    # consumption maths stays reproducible even if later rows change.
+    previous_reading = Column(Numeric(12, 2), nullable=False, default=0)
+
+    # What the tenant entered (supporting information only - never billed from).
+    customer_reading = Column(Numeric(12, 2), nullable=False)
+    customer_note    = Column(Text, nullable=True)
+
+    # The evidence photo (stored on disk, served only through an authorised
+    # endpoint - the path is never exposed directly to the browser).
+    photo_path         = Column(String(400), nullable=True)
+    photo_original_name = Column(String(255), nullable=True)
+    photo_size_bytes   = Column(Integer, nullable=True)
+    photo_mime         = Column(String(80), nullable=True)
+
+    # What the admin read off the photo. THIS is the billing authority.
+    admin_verified_reading = Column(Numeric(12, 2), nullable=True)
+    admin_verified_by      = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    admin_verified_at      = Column(DateTime, nullable=True)
+    admin_note             = Column(Text, nullable=True)
+    # Filled in when the admin's reading differs from the customer's.
+    override_reason        = Column(Text, nullable=True)
+
+    approved_reading = Column(Numeric(12, 2), nullable=True)
+    approved_by      = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    approved_at      = Column(DateTime, nullable=True)
+
+    reading_date     = Column(DateTime, nullable=False, default=now_utc, index=True)
+    calculated_units = Column(Numeric(12, 2), nullable=True)
+
+    # Tariff actually applied, copied onto the row so a later price change
+    # never rewrites the history of an already-approved reading.
+    unit_price_applied = Column(Numeric(10, 4), nullable=True)
+    tariff_id          = Column(Integer, ForeignKey("meter_tariffs.id", ondelete="SET NULL"), nullable=True)
+
+    status = Column(
+        Enum("pending", "approved", "rejected", name="meter_reading_status"),
+        nullable=False, default="pending", index=True,
+    )
+    rejection_reason = Column(Text, nullable=True)
+    rejected_by      = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    rejected_at      = Column(DateTime, nullable=True)
+
+    # UNIQUE - the database-level guarantee of "one approved reading -> one bill".
+    bill_id = Column(Integer, ForeignKey("bills.id", ondelete="SET NULL"), nullable=True, unique=True)
+
+    created_at = Column(DateTime, nullable=False, default=now_utc)
+    updated_at = Column(DateTime, nullable=False, default=now_utc, onupdate=now_utc)
+
+    # Relationships
+    meter = relationship("Meter", back_populates="readings")
+    shop  = relationship("Shop")
+    user  = relationship("User", foreign_keys=[user_id])
+    bill  = relationship("Bill", foreign_keys=[bill_id])
+
+    __table_args__ = (
+        Index("ix_meter_readings_status_date", "status", "reading_date"),
+        Index("ix_meter_readings_meter_status", "meter_id", "status"),
+    )
+
+
+# ──────────────────────────────────────────────
+# app_settings  (runtime configuration, editable from the admin UI)
+# ──────────────────────────────────────────────
+class AppSetting(Base):
+    """
+    Key/value application configuration so an admin can change branding, upload
+    limits and billing behaviour from the frontend instead of redeploying.
+
+    Defaults live in settings_service.py; a row here only exists once a value
+    has actually been customised, so upgrading the defaults still works.
+    """
+    __tablename__ = "app_settings"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    key         = Column(String(120), nullable=False, unique=True, index=True)
+    value       = Column(Text, nullable=True)
+    updated_by  = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    updated_at  = Column(DateTime, nullable=False, default=now_utc, onupdate=now_utc)
 
 
 # ──────────────────────────────────────────────
@@ -490,6 +656,31 @@ def main():
             )
             db.add(log_entry)
             db.commit()
+
+        # ── Seed a starting electricity tariff ──
+        # Without at least one tariff row, approving a submeter reading has no
+        # unit price to bill at. Seeded far in the past so it applies to any
+        # reading date; the admin changes the rate from Settings -> Tariffs,
+        # which adds a NEW row rather than editing this one (history is kept).
+        existing_tariff = db.query(MeterTariff).filter(
+            MeterTariff.meter_type == "electricity"
+        ).first()
+        if existing_tariff:
+            print("ℹ  Electricity tariff already configured – skipping seed.\n")
+        else:
+            tariff = MeterTariff(
+                meter_type     = "electricity",
+                unit_price     = Decimal("8.00"),
+                fixed_charge   = Decimal("0"),
+                tax_percent    = Decimal("0"),
+                effective_from = datetime(2000, 1, 1),
+                notes          = "Default starting rate – update this from Settings.",
+            )
+            db.add(tariff)
+            db.commit()
+            print("✔  Default electricity tariff created: 8.00 per unit")
+            print("   Change it in the admin UI (Settings → Tariffs) – a new rate is\n"
+                  "   added with an effective date, so past bills keep their old price.\n")
 
     except Exception as exc:
         db.rollback()

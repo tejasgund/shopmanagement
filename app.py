@@ -22,8 +22,10 @@ from zoneinfo import ZoneInfo
 import bcrypt
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
-from fastapi.responses import JSONResponse
+from fastapi import (
+    Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile, status,
+)
+from fastapi.responses import JSONResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from pydantic import BaseModel, EmailStr, Field
@@ -42,8 +44,16 @@ APP_TIMEZONE = "Asia/Kolkata"
 
 # Import ORM models from create_tables so we have a single schema source-of-truth
 from create_tables import (
-    AuditLog, Bill, Complex, DepositPayment, Payment, Shop, User, UserShop,
+    AppSetting, AuditLog, Bill, Complex, DepositPayment, Meter, MeterReading,
+    MeterTariff, Payment, Shop, User, UserShop,
 )
+
+# Submeter reading feature: business rules, photo storage and runtime settings
+# live in their own modules so app.py stays a routing/serialisation layer.
+import meter_service
+import photo_storage
+import settings_service
+from meter_service import MeterError
 
 # ──────────────────────────────────────────────
 # Logger
@@ -3627,13 +3637,25 @@ def _get_monthly_ledger_data(user_id: int, year: int, db: Session) -> dict:
         extract('year', Bill.bill_date) == year
     ).all()
 
+    # Payments are grouped by the month money actually changed hands (payment_date),
+    # not by the month of the bill they were applied against — a payment made in
+    # August against a July bill must show up under August so the tenant can see
+    # how much they actually paid in that month.
+    payments = db.query(Payment).join(Bill, Bill.id == Payment.bill_id).filter(
+        Bill.user_id == user_id,
+        extract('year', Payment.payment_date) == year
+    ).all()
+
     monthly_data = {m: {"bills": [], "billed": 0.0, "paid": 0.0, "remaining": 0.0} for m in range(1,13)}
     for bill in bills:
         month = bill.bill_date.month
         monthly_data[month]["bills"].append(bill)
         monthly_data[month]["billed"] += _decimal_to_float(bill.amount)
-        monthly_data[month]["paid"] += _decimal_to_float(bill.paid_amount)
         monthly_data[month]["remaining"] += _decimal_to_float(bill.pending_amount)
+
+    for payment in payments:
+        month = payment.payment_date.month
+        monthly_data[month]["paid"] += _decimal_to_float(payment.amount)
 
     monthly_rows = []
     total_billed = total_paid = total_remaining = 0.0
@@ -3649,11 +3671,14 @@ def _get_monthly_ledger_data(user_id: int, year: int, db: Session) -> dict:
         total_remaining += remaining
         total_bills_count += count
 
+        # Status reflects whether that month's bills are settled, based on the
+        # bills' own running balance — independent of which month the payment
+        # landed in (that's what "paid" above is for).
         if count == 0:
-            status = "No bills"
+            status = "Paid" if paid > 0 else "No bills"
         elif remaining == 0:
             status = "Paid"
-        elif paid > 0 and remaining > 0:
+        elif remaining < billed:
             status = "Partial"
         else:
             status = "Pending"
@@ -3679,10 +3704,6 @@ def _get_monthly_ledger_data(user_id: int, year: int, db: Session) -> dict:
         "shop_deposit": _decimal_to_float(s.shop_deposit),
     } for s in shops]
 
-    payments = db.query(Payment).join(Bill, Bill.id == Payment.bill_id).filter(
-        Bill.user_id == user_id,
-        extract('year', Payment.payment_date) == year
-    ).all()
     payment_list = [{
         "id": p.id,
         "amount": _decimal_to_float(p.amount),
@@ -3738,6 +3759,1065 @@ def tenant_monthly_ledger(
     current_user: User = Depends(require_tenant),
 ):
     return _get_monthly_ledger_data(current_user.id, year, db)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
+# SUBMETER READINGS
+#
+# Workflow (see meter_service.py for the rules):
+#     tenant photographs the meter and types the reading   -> status "pending"
+#     admin opens the SAME photo, types what they can see
+#     admin approves  -> that admin value becomes the billed reading, and one
+#                        Electricity bill is raised at the tariff live that day
+#     admin rejects   -> reason recorded, no bill, tenant can resubmit
+#
+# The tenant's number and photo are evidence. The admin's verified reading is
+# the only thing a bill is ever calculated from.
+# ══════════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── Schemas ───────────────────────────────────
+class MeterCreate(BaseModel):
+    shop_id:           int
+    meter_number:      str = Field(..., min_length=1, max_length=60)
+    meter_type:        Optional[str] = Field("electricity", max_length=40)
+    initial_reading:   Optional[float] = Field(0, ge=0)
+    installation_date: Optional[datetime] = None
+    notes:             Optional[str] = None
+    is_active:         Optional[bool] = True
+
+
+class MeterUpdate(BaseModel):
+    meter_number:      Optional[str] = Field(None, min_length=1, max_length=60)
+    meter_type:        Optional[str] = Field(None, max_length=40)
+    initial_reading:   Optional[float] = Field(None, ge=0)
+    installation_date: Optional[datetime] = None
+    notes:             Optional[str] = None
+    is_active:         Optional[bool] = None
+
+
+class TariffCreate(BaseModel):
+    meter_type:     Optional[str]  = Field("electricity", max_length=40)
+    unit_price:     float          = Field(..., gt=0)
+    fixed_charge:   Optional[float] = Field(0, ge=0)
+    tax_percent:    Optional[float] = Field(0, ge=0, le=100)
+    effective_from: datetime
+    notes:          Optional[str]  = None
+
+
+class VerifyReadingRequest(BaseModel):
+    """Saves the admin's reading without approving - lets them come back to it."""
+    admin_verified_reading: float = Field(..., ge=0)
+    admin_note:             Optional[str] = None
+
+
+class ApproveReadingRequest(BaseModel):
+    admin_verified_reading: float = Field(..., ge=0)
+    override_reason:        Optional[str] = None
+    admin_note:             Optional[str] = None
+
+
+class RejectReadingRequest(BaseModel):
+    reason: str = Field(..., min_length=1)
+
+
+class SettingsUpdateRequest(BaseModel):
+    values: dict
+
+
+# ── Helpers ───────────────────────────────────
+
+def _meter_error(exc: MeterError) -> HTTPException:
+    return HTTPException(status_code=exc.status_code, detail=exc.message)
+
+
+def _tenant_shop_ids(db: Session, user_id: int) -> List[int]:
+    """Shops currently assigned to this tenant - the basis of every ownership check."""
+    return [us.shop_id for us in db.query(UserShop).filter(UserShop.user_id == user_id).all()]
+
+
+def _reading_to_dict(db: Session, r: MeterReading, include_admin_fields: bool = False) -> dict:
+    """
+    Serialise a reading. Admin-only fields are omitted for tenants so the
+    tenant response never leaks internal review notes.
+    """
+    meter = db.query(Meter).filter(Meter.id == r.meter_id).first()
+    shop  = db.query(Shop).filter(Shop.id == r.shop_id).first()
+    user  = db.query(User).filter(User.id == r.user_id).first()
+
+    data = {
+        "id": r.id,
+        "meter_id": r.meter_id,
+        "meter_number": meter.meter_number if meter else None,
+        "meter_type": meter.meter_type if meter else None,
+        "shop_id": r.shop_id,
+        "shop_number": shop.shop_number if shop else None,
+        "user_id": r.user_id,
+        "user_name": user.name if user else None,
+        "user_mobile": user.mobile if user else None,
+        "previous_reading": _decimal_to_float(r.previous_reading),
+        "customer_reading": _decimal_to_float(r.customer_reading),
+        "customer_note": r.customer_note,
+        "reading_date": r.reading_date,
+        "status": r.status,
+        "has_photo": bool(r.photo_path),
+        "photo_url": f"/api/meter-readings/{r.id}/photo" if r.photo_path else None,
+        "calculated_units": _decimal_to_float(r.calculated_units) if r.calculated_units is not None else None,
+        "unit_price_applied": _decimal_to_float(r.unit_price_applied) if r.unit_price_applied is not None else None,
+        "approved_reading": _decimal_to_float(r.approved_reading) if r.approved_reading is not None else None,
+        "approved_at": r.approved_at,
+        "rejection_reason": r.rejection_reason,
+        "bill_id": r.bill_id,
+        "created_at": r.created_at,
+    }
+
+    if r.bill_id:
+        bill = db.query(Bill).filter(Bill.id == r.bill_id).first()
+        if bill:
+            data["bill"] = {
+                "id": bill.id,
+                "amount": _decimal_to_float(bill.amount),
+                "paid_amount": _decimal_to_float(bill.paid_amount),
+                "pending_amount": _decimal_to_float(bill.pending_amount),
+                "status": bill.status,
+                "due_date": bill.due_date,
+                "description": bill.description,
+            }
+
+    if include_admin_fields:
+        verifier = db.query(User).filter(User.id == r.admin_verified_by).first() if r.admin_verified_by else None
+        data.update({
+            "admin_verified_reading": _decimal_to_float(r.admin_verified_reading) if r.admin_verified_reading is not None else None,
+            "admin_verified_by": r.admin_verified_by,
+            "admin_verified_by_name": verifier.name if verifier else None,
+            "admin_verified_at": r.admin_verified_at,
+            "admin_note": r.admin_note,
+            "override_reason": r.override_reason,
+            "approved_by": r.approved_by,
+            "rejected_by": r.rejected_by,
+            "rejected_at": r.rejected_at,
+            "photo_original_name": r.photo_original_name,
+            "photo_size_bytes": r.photo_size_bytes,
+        })
+
+    return data
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ── ROUTES: Meters (admin)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/meters", tags=["Meter"], status_code=201)
+def create_meter(
+    payload: MeterCreate,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_admin),
+):
+    """Register a submeter against a shop. Admin only."""
+    shop = db.query(Shop).filter(Shop.id == payload.shop_id).first()
+    if not shop:
+        raise HTTPException(404, detail="Shop not found")
+
+    clash = (
+        db.query(Meter)
+        .filter(Meter.shop_id == payload.shop_id, Meter.meter_number == payload.meter_number)
+        .first()
+    )
+    if clash:
+        raise HTTPException(409, detail=f"Meter {payload.meter_number} already exists on this shop")
+
+    meter = Meter(
+        shop_id           = payload.shop_id,
+        meter_number      = payload.meter_number.strip(),
+        meter_type        = (payload.meter_type or "electricity").strip().lower(),
+        initial_reading   = Decimal(str(payload.initial_reading or 0)),
+        installation_date = payload.installation_date,
+        notes             = payload.notes,
+        is_active         = payload.is_active if payload.is_active is not None else True,
+    )
+    db.add(meter)
+    db.flush()
+    write_audit(db, actor.id, "CREATE", "meters", meter.id, new_data={
+        "shop_id": meter.shop_id, "meter_number": meter.meter_number,
+        "initial_reading": float(meter.initial_reading),
+    })
+    db.commit()
+    db.refresh(meter)
+    return _meter_to_dict(db, meter)
+
+
+def _meter_to_dict(db: Session, m: Meter) -> dict:
+    shop = db.query(Shop).filter(Shop.id == m.shop_id).first()
+    complex_name = None
+    if shop and shop.complex_id:
+        cx = db.query(Complex).filter(Complex.id == shop.complex_id).first()
+        complex_name = cx.name if cx else None
+    owner = None
+    if shop:
+        us = db.query(UserShop).filter(UserShop.shop_id == shop.id).first()
+        if us:
+            u = db.query(User).filter(User.id == us.user_id).first()
+            if u:
+                owner = {"id": u.id, "name": u.name, "mobile": u.mobile}
+
+    last = meter_service.latest_approved_reading(db, m.id)
+    return {
+        "id": m.id,
+        "shop_id": m.shop_id,
+        "shop_number": shop.shop_number if shop else None,
+        "complex_name": complex_name,
+        "assigned_to": owner,
+        "meter_number": m.meter_number,
+        "meter_type": m.meter_type,
+        "initial_reading": _decimal_to_float(m.initial_reading),
+        "installation_date": m.installation_date,
+        "notes": m.notes,
+        "is_active": m.is_active,
+        "last_approved_reading": _decimal_to_float(last.approved_reading) if last else None,
+        "last_reading_date": last.reading_date if last else None,
+        "current_previous_reading": float(meter_service.previous_reading_value(db, m)),
+        "created_at": m.created_at,
+    }
+
+
+@app.get("/api/meters", tags=["Meter"])
+def list_meters(
+    shop_id: Optional[int] = None,
+    complex_id: Optional[int] = None,
+    is_active: Optional[bool] = None,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """All registered submeters, optionally filtered. Admin only."""
+    q = db.query(Meter)
+    if shop_id is not None:
+        q = q.filter(Meter.shop_id == shop_id)
+    if is_active is not None:
+        q = q.filter(Meter.is_active == is_active)
+    if complex_id is not None:
+        q = q.join(Shop, Shop.id == Meter.shop_id).filter(Shop.complex_id == complex_id)
+    return [_meter_to_dict(db, m) for m in q.order_by(Meter.id.desc()).all()]
+
+
+@app.get("/api/meters/{id}", tags=["Meter"])
+def get_meter(id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    meter = db.query(Meter).filter(Meter.id == id).first()
+    if not meter:
+        raise HTTPException(404, detail="Meter not found")
+    return _meter_to_dict(db, meter)
+
+
+@app.put("/api/meters/{id}", tags=["Meter"])
+def update_meter(
+    id: int,
+    payload: MeterUpdate,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_admin),
+):
+    meter = db.query(Meter).filter(Meter.id == id).first()
+    if not meter:
+        raise HTTPException(404, detail="Meter not found")
+
+    old = {
+        "meter_number": meter.meter_number, "meter_type": meter.meter_type,
+        "initial_reading": float(meter.initial_reading), "is_active": meter.is_active,
+    }
+
+    if payload.meter_number is not None:
+        clash = (
+            db.query(Meter)
+            .filter(Meter.shop_id == meter.shop_id,
+                    Meter.meter_number == payload.meter_number,
+                    Meter.id != meter.id)
+            .first()
+        )
+        if clash:
+            raise HTTPException(409, detail=f"Meter {payload.meter_number} already exists on this shop")
+        meter.meter_number = payload.meter_number.strip()
+
+    if payload.meter_type is not None:
+        meter.meter_type = payload.meter_type.strip().lower()
+    if payload.initial_reading is not None:
+        # Changing this after readings exist would silently rewrite the basis of
+        # the first bill, so only allow it while the meter has no approved history.
+        has_history = (
+            db.query(MeterReading)
+            .filter(MeterReading.meter_id == meter.id, MeterReading.status == "approved")
+            .first()
+        )
+        if has_history:
+            raise HTTPException(
+                400,
+                detail="Initial reading cannot be changed once this meter has approved readings.",
+            )
+        meter.initial_reading = Decimal(str(payload.initial_reading))
+    if payload.installation_date is not None:
+        meter.installation_date = payload.installation_date
+    if payload.notes is not None:
+        meter.notes = payload.notes
+    if payload.is_active is not None:
+        meter.is_active = payload.is_active
+
+    write_audit(db, actor.id, "UPDATE", "meters", meter.id, old_data=old, new_data={
+        "meter_number": meter.meter_number, "meter_type": meter.meter_type,
+        "initial_reading": float(meter.initial_reading), "is_active": meter.is_active,
+    })
+    db.commit()
+    db.refresh(meter)
+    return _meter_to_dict(db, meter)
+
+
+@app.delete("/api/meters/{id}", tags=["Meter"])
+def delete_meter(id: int, db: Session = Depends(get_db), actor: User = Depends(require_admin)):
+    """
+    Remove a meter. Refused once it has approved readings - those are billing
+    evidence. Deactivate it instead (is_active = false).
+    """
+    meter = db.query(Meter).filter(Meter.id == id).first()
+    if not meter:
+        raise HTTPException(404, detail="Meter not found")
+
+    approved = (
+        db.query(MeterReading)
+        .filter(MeterReading.meter_id == meter.id, MeterReading.status == "approved")
+        .first()
+    )
+    if approved:
+        raise HTTPException(
+            400,
+            detail="This meter has approved readings and cannot be deleted. "
+                   "Mark it inactive instead so its history is preserved.",
+        )
+
+    write_audit(db, actor.id, "DELETE", "meters", meter.id, old_data={
+        "shop_id": meter.shop_id, "meter_number": meter.meter_number,
+    })
+    db.delete(meter)
+    db.commit()
+    return {"success": True, "message": f"Meter {meter.meter_number} deleted"}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ── ROUTES: Tariffs (admin)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/meter-tariffs", tags=["Meter"], status_code=201)
+def create_tariff(
+    payload: TariffCreate,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_admin),
+):
+    """
+    Add a unit price effective from a date. Rates are never edited in place -
+    a new row is added so that already-issued bills keep the rate they used.
+    """
+    tariff = MeterTariff(
+        meter_type     = (payload.meter_type or "electricity").strip().lower(),
+        unit_price     = Decimal(str(payload.unit_price)),
+        fixed_charge   = Decimal(str(payload.fixed_charge or 0)),
+        tax_percent    = Decimal(str(payload.tax_percent or 0)),
+        effective_from = payload.effective_from,
+        notes          = payload.notes,
+        created_by     = actor.id,
+    )
+    db.add(tariff)
+    db.flush()
+    write_audit(db, actor.id, "CREATE", "meter_tariffs", tariff.id, new_data={
+        "meter_type": tariff.meter_type, "unit_price": float(tariff.unit_price),
+        "effective_from": tariff.effective_from.isoformat(),
+    })
+    db.commit()
+    db.refresh(tariff)
+    return _tariff_to_dict(tariff)
+
+
+def _tariff_to_dict(t: MeterTariff) -> dict:
+    return {
+        "id": t.id,
+        "meter_type": t.meter_type,
+        "unit_price": _decimal_to_float(t.unit_price),
+        "fixed_charge": _decimal_to_float(t.fixed_charge),
+        "tax_percent": _decimal_to_float(t.tax_percent),
+        "effective_from": t.effective_from,
+        "notes": t.notes,
+        "created_at": t.created_at,
+    }
+
+
+@app.get("/api/meter-tariffs", tags=["Meter"])
+def list_tariffs(
+    meter_type: Optional[str] = None,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """Full rate history, newest first. Admin only."""
+    q = db.query(MeterTariff)
+    if meter_type:
+        q = q.filter(MeterTariff.meter_type == meter_type.strip().lower())
+    rows = q.order_by(MeterTariff.effective_from.desc(), MeterTariff.id.desc()).all()
+
+    now = datetime.now(ZoneInfo(APP_TIMEZONE)).replace(tzinfo=None)
+    current = meter_service.applicable_tariff(db, meter_type or "electricity", now)
+    return {
+        "current_tariff_id": current.id if current else None,
+        "tariffs": [_tariff_to_dict(t) for t in rows],
+    }
+
+
+@app.delete("/api/meter-tariffs/{id}", tags=["Meter"])
+def delete_tariff(id: int, db: Session = Depends(get_db), actor: User = Depends(require_admin)):
+    """
+    Delete a rate. Refused if a bill was already issued using it, since that
+    would break the audit trail behind an existing bill.
+    """
+    tariff = db.query(MeterTariff).filter(MeterTariff.id == id).first()
+    if not tariff:
+        raise HTTPException(404, detail="Tariff not found")
+
+    used = db.query(MeterReading).filter(MeterReading.tariff_id == tariff.id).first()
+    if used:
+        raise HTTPException(
+            400,
+            detail="This rate has already been used to bill a reading and cannot be "
+                   "deleted. Add a newer rate instead.",
+        )
+
+    write_audit(db, actor.id, "DELETE", "meter_tariffs", tariff.id, old_data=_tariff_to_dict(tariff))
+    db.delete(tariff)
+    db.commit()
+    return {"success": True, "message": "Tariff deleted"}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ── ROUTES: Meter readings (tenant)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/tenant/meters", tags=["Tenant"])
+def tenant_meters(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_tenant),
+):
+    """
+    Meters on the shops assigned to the signed-in tenant, each with the number
+    their next reading must be above and whether a submission is already
+    awaiting review.
+    """
+    shop_ids = _tenant_shop_ids(db, current_user.id)
+    if not shop_ids:
+        return []
+
+    meters = (
+        db.query(Meter)
+        .filter(Meter.shop_id.in_(shop_ids), Meter.is_active == True)
+        .order_by(Meter.id)
+        .all()
+    )
+
+    result = []
+    for m in meters:
+        shop = db.query(Shop).filter(Shop.id == m.shop_id).first()
+        pending = (
+            db.query(MeterReading)
+            .filter(
+                MeterReading.meter_id == m.id,
+                MeterReading.user_id == current_user.id,
+                MeterReading.status == "pending",
+            )
+            .order_by(MeterReading.id.desc())
+            .first()
+        )
+        result.append({
+            "id": m.id,
+            "meter_number": m.meter_number,
+            "meter_type": m.meter_type,
+            "shop_id": m.shop_id,
+            "shop_number": shop.shop_number if shop else None,
+            "previous_reading": float(meter_service.previous_reading_value(db, m)),
+            "pending_reading_id": pending.id if pending else None,
+            "has_pending": pending is not None,
+        })
+    return result
+
+
+@app.post("/api/tenant/meter-readings", tags=["Tenant"], status_code=201)
+async def submit_meter_reading(
+    meter_id: int = Form(...),
+    customer_reading: float = Form(...),
+    customer_note: Optional[str] = Form(None),
+    photo: Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_tenant),
+):
+    """
+    Tenant submits a meter photo and the reading they can see on it.
+
+    Nothing is billed here - the submission simply enters the admin's review
+    queue. Sent as multipart/form-data so the photo and the reading arrive in
+    one request (no separate upload step for the tenant to get wrong).
+    """
+    meter = db.query(Meter).filter(Meter.id == meter_id).first()
+    if not meter:
+        raise HTTPException(404, detail="Meter not found")
+    if not meter.is_active:
+        raise HTTPException(400, detail="This meter is no longer in use.")
+
+    # Ownership: the meter must be on a shop assigned to THIS tenant. Without
+    # this an ID in the form body would let anyone submit against any meter.
+    if meter.shop_id not in _tenant_shop_ids(db, current_user.id):
+        raise HTTPException(403, detail="This meter is not on one of your shops.")
+
+    # One open submission per meter, otherwise the review queue fills with
+    # duplicates of the same month and the previous-reading basis gets murky.
+    existing_pending = (
+        db.query(MeterReading)
+        .filter(MeterReading.meter_id == meter.id, MeterReading.status == "pending")
+        .first()
+    )
+    if existing_pending:
+        raise HTTPException(
+            409,
+            detail="A reading for this meter is already waiting for admin review. "
+                   "Please wait for it to be checked before sending another.",
+        )
+
+    cfg = settings_service.get_all(db)
+    previous = meter_service.previous_reading_value(db, meter)
+    current_value = Decimal(str(customer_reading))
+
+    if current_value < 0:
+        raise HTTPException(400, detail="Reading cannot be negative.")
+    if current_value < previous:
+        raise HTTPException(
+            400,
+            detail=f"The reading you entered ({current_value}) is lower than the last "
+                   f"approved reading ({previous}). Please check the meter and try again.",
+        )
+
+    # ── Photo ──
+    photo_key = photo_name = photo_mime = None
+    photo_size = None
+    photo_bytes = None
+
+    if photo is not None and photo.filename:
+        photo_bytes = await photo.read()
+        try:
+            ext, mime = photo_storage.validate(
+                photo_bytes,
+                photo.filename,
+                str(cfg.get("meter.photo_allowed_types")),
+                int(cfg.get("meter.photo_max_mb")),
+            )
+        except photo_storage.PhotoValidationError as exc:
+            raise HTTPException(400, detail=str(exc))
+        photo_key = photo_storage.build_key(meter.shop_id, meter.id, ext)
+        photo_name = photo_storage.safe_original_name(photo.filename)
+        photo_mime = mime
+        photo_size = len(photo_bytes)
+    elif cfg.get("meter.photo_required"):
+        raise HTTPException(400, detail="A photo of the meter is required.")
+
+    now = datetime.now(ZoneInfo(APP_TIMEZONE)).replace(tzinfo=None)
+    reading = MeterReading(
+        meter_id            = meter.id,
+        shop_id             = meter.shop_id,
+        user_id             = current_user.id,
+        previous_reading    = previous,
+        customer_reading    = current_value,
+        customer_note       = (customer_note or "").strip() or None,
+        photo_path          = photo_key,
+        photo_original_name = photo_name,
+        photo_size_bytes    = photo_size,
+        photo_mime          = photo_mime,
+        reading_date        = now,
+        status              = "pending",
+    )
+    db.add(reading)
+    db.flush()
+
+    # Write the file only after the row is valid, so a rejected submission
+    # never leaves an orphaned photo on disk.
+    if photo_key:
+        try:
+            photo_storage.save(str(cfg.get("meter.photo_storage_dir")), photo_key, photo_bytes)
+        except photo_storage.PhotoStorageError as exc:
+            db.rollback()
+            logger.error("Meter photo save failed for user %s: %s", current_user.id, exc)
+            raise HTTPException(500, detail=str(exc))
+
+    write_audit(db, current_user.id, "SUBMIT", "meter_readings", reading.id, new_data={
+        "meter_id": meter.id, "customer_reading": float(current_value),
+        "previous_reading": float(previous), "has_photo": bool(photo_key),
+    })
+    db.commit()
+    db.refresh(reading)
+
+    return {
+        "success": True,
+        "message": "Reading submitted. An admin will check your photo and confirm it.",
+        "reading": _reading_to_dict(db, reading),
+    }
+
+
+@app.get("/api/tenant/meter-readings", tags=["Tenant"])
+def tenant_meter_readings(
+    status_filter: Optional[str] = Query(None, alias="status",
+                                         pattern="^(pending|approved|rejected)$"),
+    meter_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_tenant),
+):
+    """The signed-in tenant's own submissions, newest first."""
+    q = db.query(MeterReading).filter(MeterReading.user_id == current_user.id)
+    if status_filter:
+        q = q.filter(MeterReading.status == status_filter)
+    if meter_id is not None:
+        q = q.filter(MeterReading.meter_id == meter_id)
+    rows = q.order_by(MeterReading.reading_date.desc(), MeterReading.id.desc()).all()
+    return [_reading_to_dict(db, r) for r in rows]
+
+
+@app.get("/api/tenant/meter-readings/{id}", tags=["Tenant"])
+def tenant_meter_reading_detail(
+    id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_tenant),
+):
+    reading = db.query(MeterReading).filter(MeterReading.id == id).first()
+    if not reading:
+        raise HTTPException(404, detail="Reading not found")
+    # IDOR guard: 404 (not 403) so the response can't be used to probe which
+    # reading IDs exist for other tenants.
+    if reading.user_id != current_user.id:
+        raise HTTPException(404, detail="Reading not found")
+    return _reading_to_dict(db, reading)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ── ROUTE: Meter photo (tenant owner or admin only)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/meter-readings/{id}/photo", tags=["Meter"])
+def get_meter_photo(
+    id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Stream the original evidence photo.
+
+    This is the ONLY way to see a meter photo - files are stored outside any
+    static directory and never given a public URL. An admin may view any photo;
+    a tenant may view only their own.
+    """
+    reading = db.query(MeterReading).filter(MeterReading.id == id).first()
+    if not reading:
+        raise HTTPException(404, detail="Reading not found")
+
+    if current_user.role != "admin" and reading.user_id != current_user.id:
+        raise HTTPException(404, detail="Reading not found")
+
+    if not reading.photo_path:
+        raise HTTPException(404, detail="No photo was attached to this reading")
+
+    cfg = settings_service.get_all(db)
+    try:
+        content = photo_storage.read(str(cfg.get("meter.photo_storage_dir")), reading.photo_path)
+    except photo_storage.PhotoStorageError as exc:
+        raise HTTPException(404, detail=str(exc))
+
+    return Response(
+        content=content,
+        media_type=reading.photo_mime or "image/jpeg",
+        headers={
+            "Cache-Control": "private, max-age=300",
+            "Content-Disposition": f'inline; filename="meter-{reading.id}.jpg"',
+        },
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ── ROUTES: Meter readings (admin review)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/meter-readings", tags=["Meter"])
+def list_meter_readings(
+    status_filter: Optional[str] = Query(None, alias="status",
+                                         pattern="^(pending|approved|rejected)$"),
+    meter_id:   Optional[int] = None,
+    shop_id:    Optional[int] = None,
+    user_id:    Optional[int] = None,
+    complex_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """
+    The review queue. Defaults to every status; pass ?status=pending for the
+    admin's actual to-do list. Oldest pending first so nobody is left waiting.
+    """
+    q = db.query(MeterReading)
+    if status_filter:
+        q = q.filter(MeterReading.status == status_filter)
+    if meter_id is not None:
+        q = q.filter(MeterReading.meter_id == meter_id)
+    if shop_id is not None:
+        q = q.filter(MeterReading.shop_id == shop_id)
+    if user_id is not None:
+        q = q.filter(MeterReading.user_id == user_id)
+    if complex_id is not None:
+        q = q.join(Shop, Shop.id == MeterReading.shop_id).filter(Shop.complex_id == complex_id)
+
+    if status_filter == "pending":
+        q = q.order_by(MeterReading.reading_date.asc(), MeterReading.id.asc())
+    else:
+        q = q.order_by(MeterReading.reading_date.desc(), MeterReading.id.desc())
+
+    return [_reading_to_dict(db, r, include_admin_fields=True) for r in q.all()]
+
+
+@app.get("/api/meter-readings/{id}", tags=["Meter"])
+def get_meter_reading(id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    """
+    Everything the admin needs on one screen to verify a submission: the photo,
+    the previous approved reading, what the tenant entered, the live tariff,
+    and - once they type their own reading - the comparison and estimate.
+    """
+    reading = db.query(MeterReading).filter(MeterReading.id == id).first()
+    if not reading:
+        raise HTTPException(404, detail="Reading not found")
+
+    meter = db.query(Meter).filter(Meter.id == reading.meter_id).first()
+    data = _reading_to_dict(db, reading, include_admin_fields=True)
+
+    previous = _decimal_to_float(reading.previous_reading)
+    customer_value = Decimal(str(reading.customer_reading))
+
+    # Provisional numbers based on the TENANT's reading, clearly labelled as
+    # such. They preview what the bill would look like; they are never used to
+    # bill anything - only the admin's own entry does that.
+    provisional_units = None
+    provisional_estimate = None
+    if customer_value >= Decimal(str(previous)):
+        provisional_units = float(customer_value - Decimal(str(previous)))
+        provisional_estimate = meter_service.estimate_bill(
+            db, meter, Decimal(str(provisional_units)), reading.reading_date,
+        )
+
+    anomalies = []
+    if provisional_units is not None:
+        anomalies = meter_service.detect_anomalies(
+            db, meter, Decimal(str(previous)), customer_value, Decimal(str(provisional_units)),
+        )
+
+    cfg = settings_service.get_all(db)
+    data["review"] = {
+        "previous_reading": previous,
+        "previous_reading_source": (
+            "last approved reading" if meter_service.latest_approved_reading(db, meter.id)
+            else "meter initial reading"
+        ),
+        "provisional_units_from_customer": provisional_units,
+        "provisional_estimate_from_customer": provisional_estimate,
+        "comparison": meter_service.build_comparison(
+            reading.customer_reading, reading.admin_verified_reading,
+        ),
+        "anomalies": anomalies,
+        "requires_override_reason": bool(cfg.get("meter.require_override_reason")),
+        "auto_create_bill": bool(cfg.get("meter.auto_create_bill")),
+        "note": (
+            "The bill is calculated from YOUR verified reading, not from the "
+            "tenant's entry. Check the photo before approving."
+        ),
+    }
+    return data
+
+
+@app.post("/api/meter-readings/{id}/preview", tags=["Meter"])
+def preview_meter_reading(
+    id: int,
+    payload: VerifyReadingRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """
+    Dry run: what this reading would produce if approved at the admin's value.
+    Changes nothing - it powers the live comparison/estimate on the review
+    screen as the admin types, so they see the bill before committing to it.
+    """
+    reading = db.query(MeterReading).filter(MeterReading.id == id).first()
+    if not reading:
+        raise HTTPException(404, detail="Reading not found")
+
+    meter = db.query(Meter).filter(Meter.id == reading.meter_id).first()
+    previous = Decimal(str(reading.previous_reading))
+    admin_value = Decimal(str(payload.admin_verified_reading))
+
+    try:
+        units = meter_service.calculate_units(previous, admin_value)
+    except MeterError as exc:
+        return {
+            "valid": False,
+            "error": exc.message,
+            "comparison": meter_service.build_comparison(reading.customer_reading, admin_value),
+        }
+
+    estimate = meter_service.estimate_bill(db, meter, units, reading.reading_date)
+    return {
+        "valid": estimate["error"] is None,
+        "error": estimate["error"],
+        "previous_reading": float(previous),
+        "admin_verified_reading": float(admin_value),
+        "units": float(units),
+        "estimate": estimate,
+        "comparison": meter_service.build_comparison(reading.customer_reading, admin_value),
+        "anomalies": meter_service.detect_anomalies(db, meter, previous, admin_value, units),
+    }
+
+
+@app.patch("/api/meter-readings/{id}/verify", tags=["Meter"])
+def verify_meter_reading(
+    id: int,
+    payload: VerifyReadingRequest,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_admin),
+):
+    """
+    Save the admin's reading without approving yet - useful when they want to
+    record what they read but check something else before billing.
+    """
+    reading = db.query(MeterReading).filter(MeterReading.id == id).first()
+    if not reading:
+        raise HTTPException(404, detail="Reading not found")
+    if reading.status != "pending":
+        raise HTTPException(409, detail=f"This reading is already {reading.status}.")
+
+    old_value = _decimal_to_float(reading.admin_verified_reading) if reading.admin_verified_reading is not None else None
+    reading.admin_verified_reading = Decimal(str(payload.admin_verified_reading))
+    reading.admin_verified_by = actor.id
+    reading.admin_verified_at = datetime.now(ZoneInfo(APP_TIMEZONE)).replace(tzinfo=None)
+    reading.admin_note = (payload.admin_note or "").strip() or None
+
+    write_audit(db, actor.id, "VERIFY", "meter_readings", reading.id,
+                old_data={"admin_verified_reading": old_value},
+                new_data={"admin_verified_reading": float(reading.admin_verified_reading)})
+    db.commit()
+    db.refresh(reading)
+    return _reading_to_dict(db, reading, include_admin_fields=True)
+
+
+@app.post("/api/meter-readings/{id}/approve", tags=["Meter"])
+def approve_meter_reading(
+    id: int,
+    payload: ApproveReadingRequest,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_admin),
+):
+    """
+    Approve the reading and raise the bill, in one transaction.
+
+    The admin's verified reading becomes the approved (billable) reading. If
+    anything fails - a missing tariff, a reading below the previous one - the
+    whole thing rolls back, so a reading is never left approved without its
+    bill. Approving twice is refused, and meter_readings.bill_id is UNIQUE, so
+    a double-clicked button cannot create a second bill.
+    """
+    # SELECT ... FOR UPDATE where the database supports it, so two admins
+    # clicking Approve at the same moment serialise instead of racing.
+    q = db.query(MeterReading).filter(MeterReading.id == id)
+    try:
+        reading = q.with_for_update().first()
+    except Exception:
+        reading = q.first()   # SQLite and friends - the status check still guards us
+
+    if not reading:
+        raise HTTPException(404, detail="Reading not found")
+
+    meter = db.query(Meter).filter(Meter.id == reading.meter_id).first()
+    if not meter:
+        raise HTTPException(404, detail="The meter for this reading no longer exists")
+
+    old_state = {"status": reading.status,
+                 "customer_reading": _decimal_to_float(reading.customer_reading)}
+
+    try:
+        result = meter_service.approve_reading(
+            db, reading, meter,
+            admin_reading   = Decimal(str(payload.admin_verified_reading)),
+            admin_id        = actor.id,
+            override_reason = payload.override_reason,
+            admin_note      = payload.admin_note,
+        )
+
+        write_audit(db, actor.id, "APPROVE", "meter_readings", reading.id,
+                    old_data=old_state,
+                    new_data={
+                        "status": "approved",
+                        "approved_reading": result["approved_reading"],
+                        "previous_reading": result["previous_reading"],
+                        "units": result["units"],
+                        "bill_id": result["bill_id"],
+                        "override": result["override"],
+                        "override_reason": reading.override_reason,
+                    })
+        if result["bill_created"]:
+            write_audit(db, actor.id, "CREATE", "bills", result["bill_id"], new_data={
+                "source": "meter_reading", "meter_reading_id": reading.id,
+                "amount": result["bill_amount"], "units": result["units"],
+                "unit_price": result.get("unit_price"),
+            })
+        db.commit()
+    except MeterError as exc:
+        db.rollback()
+        raise _meter_error(exc)
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Approval failed for meter reading %s: %s", id, exc)
+        raise HTTPException(500, detail="Could not approve the reading. Nothing was changed.")
+
+    db.refresh(reading)
+    return {
+        "success": True,
+        "message": (
+            f"Approved. Bill of {result['bill_amount']} raised for {result['units']} units."
+            if result["bill_created"]
+            else f"Approved {result['units']} units. No bill was created "
+                 f"(automatic billing is switched off in settings)."
+        ),
+        "reading": _reading_to_dict(db, reading, include_admin_fields=True),
+        "result": result,
+    }
+
+
+@app.post("/api/meter-readings/{id}/reject", tags=["Meter"])
+def reject_meter_reading(
+    id: int,
+    payload: RejectReadingRequest,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_admin),
+):
+    """
+    Reject a submission - blurry photo, wrong meter, obviously wrong number.
+    The reason is shown to the tenant so they know what to fix. The photo is
+    kept for audit.
+    """
+    reading = db.query(MeterReading).filter(MeterReading.id == id).first()
+    if not reading:
+        raise HTTPException(404, detail="Reading not found")
+
+    old_state = {"status": reading.status}
+    try:
+        meter_service.reject_reading(db, reading, actor.id, payload.reason)
+        write_audit(db, actor.id, "REJECT", "meter_readings", reading.id,
+                    old_data=old_state,
+                    new_data={"status": "rejected", "rejection_reason": reading.rejection_reason})
+        db.commit()
+    except MeterError as exc:
+        db.rollback()
+        raise _meter_error(exc)
+
+    db.refresh(reading)
+    return {
+        "success": True,
+        "message": "Reading rejected. The tenant can now submit a new photo.",
+        "reading": _reading_to_dict(db, reading, include_admin_fields=True),
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ── ROUTES: Application settings
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/settings/public", tags=["Settings"])
+def public_settings(db: Session = Depends(get_db)):
+    """
+    The handful of settings the sign-in page and both portals need before a
+    user is authenticated (app name, tagline, currency symbol, support
+    contact). Deliberately a small allow-list - no configuration that isn't
+    already visible on screen is exposed here.
+    """
+    cfg = settings_service.get_all(db)
+    return {
+        "app_name": cfg.get("app.name"),
+        "tagline": cfg.get("app.tagline"),
+        "currency_symbol": cfg.get("app.currency_symbol"),
+        "support_contact": cfg.get("app.support_contact"),
+        "labels": {
+            "tenant": cfg.get("label.tenant_singular"),
+            "shop": cfg.get("label.shop_singular"),
+            "complex": cfg.get("label.complex_singular"),
+        },
+    }
+
+
+@app.get("/api/settings", tags=["Settings"])
+def get_settings(db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    """Every setting with its current value, type, help text and factory default."""
+    values = settings_service.get_all(db)
+    schema = settings_service.describe()
+    for item in schema:
+        item["value"] = values.get(item["key"], item["default"])
+    return {
+        "categories": sorted({item["category"] for item in schema}),
+        "settings": schema,
+    }
+
+
+@app.put("/api/settings", tags=["Settings"])
+def update_settings(
+    payload: SettingsUpdateRequest,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_admin),
+):
+    """
+    Update one or more settings. The whole batch is validated before anything
+    is written, so an invalid value can't leave the config half-applied.
+    """
+    if not payload.values:
+        raise HTTPException(400, detail="No settings were provided")
+
+    try:
+        changed = settings_service.set_many(db, payload.values, actor_id=actor.id)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(400, detail=str(exc))
+
+    if changed:
+        write_audit(db, actor.id, "UPDATE", "app_settings", None, new_data=changed)
+    db.commit()
+    settings_service.invalidate_cache()
+
+    return {
+        "success": True,
+        "message": f"{len(changed)} setting(s) updated" if changed else "No changes to save",
+        "changed": changed,
+    }
+
+
+@app.post("/api/settings/reset", tags=["Settings"])
+def reset_settings(
+    keys: Optional[List[str]] = None,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_admin),
+):
+    """Restore settings to their factory defaults (all, or just the keys given)."""
+    from create_tables import AppSetting
+
+    q = db.query(AppSetting)
+    if keys:
+        q = q.filter(AppSetting.key.in_(keys))
+    rows = q.all()
+    removed = [r.key for r in rows]
+    for row in rows:
+        db.delete(row)
+
+    if removed:
+        write_audit(db, actor.id, "RESET", "app_settings", None, old_data={"keys": removed})
+    db.commit()
+    settings_service.invalidate_cache()
+    return {"success": True, "message": f"{len(removed)} setting(s) reset to default",
+            "reset": removed}
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Entrypoint (for direct `python app.py` execution)
 # ══════════════════════════════════════════════════════════════════════════════

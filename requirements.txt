@@ -19,8 +19,15 @@ passlib[bcrypt]==1.7.4             # Optional wrapper used alongside bcrypt
 pydantic[email]==2.9.2
 email-validator==2.2.0
 
+# Multipart form parsing (meter photo uploads)
+python-multipart==0.0.12
+
 # Environment variables (optional – load .env file)
 python-dotenv==1.0.1
 
 # Scheduling (in-process cron for automatic rent bill generation)
 APScheduler==3.10.4
+
+# Testing
+pytest==8.3.3
+httpx==0.27.2           # required by fastapi.testclient
