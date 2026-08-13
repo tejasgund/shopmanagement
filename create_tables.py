@@ -224,8 +224,13 @@ class DepositPayment(Base):
 # ──────────────────────────────────────────────
 class Meter(Base):
     """
-    A submeter physically installed at a shop. A shop may have more than one
+    A submeter. Normally installed at a shop - a shop may have more than one
     (e.g. separate light/power meters), so this is a one-to-many from Shop.
+
+    shop_id is NULLABLE on purpose: a meter can be registered before it is
+    fitted anywhere (a spare in stock, or one whose shop hasn't been created
+    yet) and assigned to a shop later. An unassigned meter is invisible to
+    tenants - nobody can submit a reading against it until it has a shop.
 
     initial_reading is the meter face value on the day it was installed. It is
     used as the "previous reading" for the very first reading submitted, so the
@@ -234,7 +239,7 @@ class Meter(Base):
     __tablename__ = "meters"
 
     id                = Column(Integer, primary_key=True, autoincrement=True)
-    shop_id           = Column(Integer, ForeignKey("shops.id", ondelete="CASCADE"), nullable=False, index=True)
+    shop_id           = Column(Integer, ForeignKey("shops.id", ondelete="SET NULL"), nullable=True, index=True)
     meter_number      = Column(String(60), nullable=False, index=True)
     meter_type        = Column(String(40), nullable=False, default="electricity")
     initial_reading   = Column(Numeric(12, 2), nullable=False, default=0)
@@ -250,6 +255,8 @@ class Meter(Base):
 
     __table_args__ = (
         # The same physical meter number can't be registered twice on one shop.
+        # Unassigned meters (shop_id NULL) are exempt - SQL treats NULLs as
+        # distinct - so duplicates among those are checked in the API layer.
         Index("uq_meter_shop_number", "shop_id", "meter_number", unique=True),
     )
 
