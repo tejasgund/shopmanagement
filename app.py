@@ -14,6 +14,8 @@ Features:
 
 import json
 import os
+import threading
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import List, Optional
@@ -32,7 +34,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from db_config import SessionLocal, get_db
+from db_config import SessionLocal, engine, get_db
 from log import get_logger, log_request_middleware
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import extract
@@ -1272,6 +1274,94 @@ def detach_shops_from_user(
 # ── ROUTES: Bill Management
 # ══════════════════════════════════════════════════════════════════════════════
 
+# Guards two threads *inside one process* — e.g. the nightly job firing while
+# an admin presses "Generate rent bills". The MySQL named lock below guards
+# across processes; this one costs nothing and closes the smaller gap.
+_rent_generation_thread_lock = threading.Lock()
+
+
+@contextmanager
+def _rent_generation_lock(db: Session, timeout_seconds: int = 30):
+    """
+    Make rent-bill generation run one-at-a-time across the whole deployment.
+
+    Two layers, because there are two ways to race:
+      - threads in this process  -> a plain threading.Lock
+      - other worker processes   -> a MySQL named lock, held by the database
+
+    Why this is needed: the API is served by more than one uvicorn worker, and
+    every worker process runs the startup hook, so every worker has its own
+    APScheduler firing the same cron. Without a lock they all wake at the same
+    second, each reads "no rent bill exists yet", and each inserts one.
+
+    The MySQL lock is taken on its OWN connection, not on `db`. A named lock
+    belongs to the connection that took it, and the generation run commits
+    part-way through — which hands the session's connection back to the pool.
+    Releasing on a different connection would silently fail and leave the lock
+    stuck until that pooled connection was recycled, blocking every later run.
+    """
+    # ── Layer 1: other threads in this process ──
+    if not _rent_generation_thread_lock.acquire(timeout=timeout_seconds):
+        logger.warning("Rent bill generation skipped: busy in this process.")
+        raise _RentGenerationBusy()
+
+    conn = None
+    db_lock_acquired = False
+    try:
+        # ── Layer 2: other worker processes, via the database ──
+        if db.get_bind().dialect.name == "mysql":
+            conn = engine.connect()
+            db_lock_acquired = bool(
+                conn.exec_driver_sql(
+                    "SELECT GET_LOCK('tms_rent_bill_generation', %s)", (timeout_seconds,)
+                ).scalar()
+            )
+            if not db_lock_acquired:
+                # Another worker is generating right now. Its run covers the
+                # same date, so doing nothing here is the correct outcome.
+                logger.warning(
+                    "Rent bill generation skipped: another process holds the lock "
+                    "(waited %ss).", timeout_seconds,
+                )
+                raise _RentGenerationBusy()
+        yield
+    finally:
+        try:
+            if conn is not None:
+                if db_lock_acquired:
+                    conn.exec_driver_sql("SELECT RELEASE_LOCK('tms_rent_bill_generation')")
+                conn.close()
+        except Exception:
+            logger.exception("Could not release the rent generation lock")
+        finally:
+            _rent_generation_thread_lock.release()
+
+
+class _RentGenerationBusy(Exception):
+    """Raised when another process is already generating rent bills."""
+
+
+def generate_rent_bills_for_date_locked(db: Session, target_date: date) -> dict:
+    """
+    generate_rent_bills_for_date, serialised. Every caller should use this —
+    the scheduler and the manual admin endpoint alike.
+    """
+    try:
+        with _rent_generation_lock(db):
+            return generate_rent_bills_for_date(db, target_date)
+    except _RentGenerationBusy:
+        return {
+            "date": target_date.isoformat(),
+            "users_matched": 0,
+            "created": [],
+            "skipped_existing": 0,
+            "skipped_zero_rent": 0,
+            "skipped_no_shops": 0,
+            "skipped_locked": True,
+            "message": "Another run is already in progress; nothing was generated twice.",
+        }
+
+
 def generate_rent_bills_for_date(db: Session, target_date: date) -> dict:
     """
     Auto-generate Rent bills for every active user who has opted into
@@ -1286,6 +1376,15 @@ def generate_rent_bills_for_date(db: Session, target_date: date) -> dict:
     Idempotent: safe to call more than once for the same date (e.g. from
     multiple worker processes, or a manual re-run) — a user/shop that
     already has a Rent bill for that month is skipped, never duplicated.
+
+    IMPORTANT: that guarantee only holds because callers hold the generation
+    lock (see _rent_generation_lock). The "does a bill already exist?" check
+    below is a read followed by a write; two processes running it at the same
+    instant both read "no bill", and both insert. That is exactly how shop 10
+    got two identical rent bills on 2026-08-13 — uvicorn runs with
+    --workers 2, and every worker starts its own scheduler, so the cron fired
+    twice at the same second. Always call this through
+    generate_rent_bills_for_date_locked.
     """
     target_dt = datetime.combine(target_date, datetime.min.time())
     summary = {
@@ -1378,7 +1477,9 @@ def generate_rent_bills(
     else:
         target_date = datetime.now(ZoneInfo(APP_TIMEZONE)).date()
 
-    return generate_rent_bills_for_date(db, target_date)
+    # Locked, same as the scheduler: two admins pressing the button together,
+    # or a press landing while the nightly job runs, must not double-bill.
+    return generate_rent_bills_for_date_locked(db, target_date)
 
 
 def _run_scheduled_rent_bill_generation():
@@ -1387,7 +1488,7 @@ def _run_scheduled_rent_bill_generation():
     db = SessionLocal()
     try:
         target_date = datetime.now(ZoneInfo(APP_TIMEZONE)).date()
-        summary = generate_rent_bills_for_date(db, target_date)
+        summary = generate_rent_bills_for_date_locked(db, target_date)
         logger.info("Scheduled rent bill generation for %s: %s", target_date, summary)
     except Exception:
         db.rollback()
@@ -1405,6 +1506,15 @@ def _start_rent_bill_scheduler():
     bill job accordingly. See scheduler_config.py for defaults/fallback
     behavior if the conf file is missing or invalid."""
     config = load_scheduler_config()
+
+    # Every uvicorn worker runs this startup hook, so with --workers 2 you get
+    # two schedulers firing the same cron at the same second. The generation
+    # lock makes that harmless, but there's no reason to do the work twice:
+    # set RUN_SCHEDULER=0 on the API workers and run one dedicated scheduler
+    # process, so exactly one is alive.
+    if os.getenv("RUN_SCHEDULER", "1").strip().lower() in ("0", "false", "no"):
+        logger.info("Scheduler disabled for this process via RUN_SCHEDULER — no jobs will run")
+        return
 
     if not config["scheduler_enabled"]:
         logger.info("Scheduler disabled via conf/scheduler.conf ([scheduler] enabled = false) — no jobs will run")
