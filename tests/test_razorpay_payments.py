@@ -193,8 +193,10 @@ def test_verify_success_creates_payment_and_reconciles_bill(client, tenant_auth,
     assert res.status_code == 200, res.text
     body = res.json()
     assert body["success"] is True
-    assert body["bill"]["status"] == "paid"
-    assert body["bill"]["pending_amount"] == 0.0
+    assert len(body["bills"]) == 1
+    assert body["bills"][0]["status"] == "paid"
+    assert body["bills"][0]["pending_amount"] == 0.0
+    assert len(body["payments"]) == 1
 
     db.refresh(bill)
     assert bill.status == "paid"
@@ -290,5 +292,178 @@ def test_verify_partial_payment_leaves_bill_partial(client, tenant_auth, bill, d
         "razorpay_signature": "sig",
     }, headers=tenant_auth)
     assert res.status_code == 200, res.text
-    assert res.json()["bill"]["status"] == "partial"
-    assert res.json()["bill"]["pending_amount"] == 600.0
+    assert res.json()["bills"][0]["status"] == "partial"
+    assert res.json()["bills"][0]["pending_amount"] == 600.0
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PAY TOTAL BALANCE (bill_id omitted - Home screen "Pay bill")
+#
+# Same two endpoints, just without a bill_id: the amount is capped at the
+# tenant's WHOLE pending balance, and verify() FIFO-allocates it across
+# every unpaid bill (oldest due date first), automatically - no admin
+# review step, since a verified signature is already proof of payment.
+# ══════════════════════════════════════════════════════════════════════════════
+
+@pytest.fixture
+def two_bills(db, tenant, shop):
+    """Older bill (due first) and a newer one, both unpaid."""
+    older = Bill(user_id=tenant.id, shop_id=shop.id, bill_type="Rent",
+                 amount=1000, paid_amount=0, pending_amount=1000, status="pending",
+                 due_date=__import__("datetime").datetime(2026, 6, 1))
+    newer = Bill(user_id=tenant.id, shop_id=shop.id, bill_type="Electricity",
+                 amount=600, paid_amount=0, pending_amount=600, status="pending",
+                 due_date=__import__("datetime").datetime(2026, 7, 1))
+    db.add(older); db.add(newer)
+    db.commit()
+    db.refresh(older); db.refresh(newer)
+    return older, newer
+
+
+def test_create_order_total_balance_no_bill_id(client, tenant_auth, two_bills, db, mock_order_create):
+    _enable_razorpay(db)
+    res = client.post("/api/tenant/payments/razorpay/create-order",
+                       json={}, headers=tenant_auth)
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["amount"] == 160000     # 1000 + 600 = 1600 rupees -> paise
+    assert body["bill_id"] is None
+
+    row = db.query(RazorpayOrder).filter(RazorpayOrder.razorpay_order_id == body["order_id"]).first()
+    assert row.bill_id is None
+    assert float(row.amount) == 1600.0
+
+
+def test_create_order_total_balance_no_pending_bills(client, tenant_auth, db, mock_order_create):
+    _enable_razorpay(db)
+    res = client.post("/api/tenant/payments/razorpay/create-order", json={}, headers=tenant_auth)
+    assert res.status_code == 400
+    assert "no pending bills" in res.json()["detail"].lower()
+
+
+def test_create_order_total_balance_partial_capped(client, tenant_auth, two_bills, db, mock_order_create):
+    _enable_razorpay(db)
+    res = client.post("/api/tenant/payments/razorpay/create-order",
+                       json={"amount": 5000}, headers=tenant_auth)   # only 1600 is owed
+    assert res.status_code == 400
+    assert "pending" in res.json()["detail"].lower()
+
+
+def test_verify_total_balance_pays_full_amount_fifo(client, tenant_auth, two_bills, db, mock_order_create, monkeypatch):
+    """Full balance (1600) should fully clear both bills, oldest first."""
+    _enable_razorpay(db)
+    _mock_verify_ok(monkeypatch)
+    older, newer = two_bills
+
+    order = _create_order(client, tenant_auth, bill_id=None)
+    res = client.post("/api/tenant/payments/razorpay/verify", json={
+        "razorpay_order_id": order["order_id"],
+        "razorpay_payment_id": "pay_ALL",
+        "razorpay_signature": "sig",
+    }, headers=tenant_auth)
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert len(body["payments"]) == 2
+    assert {b["id"] for b in body["bills"]} == {older.id, newer.id}
+    assert all(b["status"] == "paid" for b in body["bills"])
+
+    db.refresh(older); db.refresh(newer)
+    assert older.status == "paid" and float(older.pending_amount) == 0.0
+    assert newer.status == "paid" and float(newer.pending_amount) == 0.0
+
+
+def test_verify_total_balance_partial_fills_oldest_bill_first(client, tenant_auth, two_bills, db, mock_order_create, monkeypatch):
+    """Rs 1200 of the 1600 owed: the OLDER bill (due first, Rs 1000) should
+    be paid off completely, and the remaining Rs 200 should go to the
+    newer bill, leaving it partial - not split evenly, not newest-first."""
+    _enable_razorpay(db)
+    _mock_verify_ok(monkeypatch)
+    older, newer = two_bills
+
+    order = _create_order(client, tenant_auth, bill_id=None, amount=1200)
+    res = client.post("/api/tenant/payments/razorpay/verify", json={
+        "razorpay_order_id": order["order_id"],
+        "razorpay_payment_id": "pay_PARTIAL_ALL",
+        "razorpay_signature": "sig",
+    }, headers=tenant_auth)
+    assert res.status_code == 200, res.text
+
+    db.refresh(older); db.refresh(newer)
+    assert older.status == "paid" and float(older.pending_amount) == 0.0
+    assert newer.status == "partial" and float(newer.pending_amount) == 400.0
+
+    pays = db.query(Payment).filter(Payment.razorpay_order_id == order["order_id"]).all()
+    assert len(pays) == 2
+    by_bill = {p.bill_id: float(p.amount) for p in pays}
+    assert by_bill[older.id] == 1000.0
+    assert by_bill[newer.id] == 200.0
+
+
+def test_verify_total_balance_race_overpays_last_bill_instead_of_losing_money(
+    client, tenant_auth, two_bills, db, mock_order_create, monkeypatch,
+):
+    """If pending bills get paid down by something else between create-order
+    and verify, the verified amount must still be recorded somewhere, not
+    dropped - even if that means briefly overpaying the last bill touched."""
+    _enable_razorpay(db)
+    _mock_verify_ok(monkeypatch)
+    older, newer = two_bills
+
+    order = _create_order(client, tenant_auth, bill_id=None)   # locks in 1600
+
+    # Simulate an admin manually recording a cash payment on `newer` in the
+    # meantime, so only 1000 is actually outstanding by the time verify runs.
+    newer.pending_amount = 0
+    newer.paid_amount = newer.amount
+    newer.status = "paid"
+    db.commit()
+
+    res = client.post("/api/tenant/payments/razorpay/verify", json={
+        "razorpay_order_id": order["order_id"],
+        "razorpay_payment_id": "pay_RACE",
+        "razorpay_signature": "sig",
+    }, headers=tenant_auth)
+    assert res.status_code == 200, res.text
+
+    total_recorded = sum(
+        float(p.amount) for p in
+        db.query(Payment).filter(Payment.razorpay_order_id == order["order_id"]).all()
+    )
+    assert total_recorded == 1600.0   # the full verified amount is accounted for, nowhere lost
+
+
+def test_verify_total_balance_no_bills_at_all_is_a_500_not_silent_loss(client, tenant_auth, db, mock_order_create, monkeypatch):
+    """Edge case: every bill vanishes between create-order and verify (should
+    be near-impossible in practice) - must fail loudly with the payment ID
+    for manual reconciliation, never silently succeed with nothing recorded."""
+    _enable_razorpay(db)
+    from create_tables import User, Shop, UserShop
+    # Build a fresh tenant+shop+bill dedicated to this test to avoid cross-test coupling.
+    t = User(name="Solo Tenant", mobile="9000099999", email="solo@test.com",
+             password_hash="x", role="tenant", is_active=True)
+    db.add(t); db.commit(); db.refresh(t)
+    s = Shop(shop_number="Z-1", status="occupied", shop_rent=100, shop_deposit=100)
+    db.add(s); db.commit(); db.refresh(s)
+    db.add(UserShop(user_id=t.id, shop_id=s.id)); db.commit()
+    b = Bill(user_id=t.id, shop_id=s.id, bill_type="Rent", amount=500,
+             paid_amount=0, pending_amount=500, status="pending")
+    db.add(b); db.commit(); db.refresh(b)
+
+    import app as app_module
+    solo_auth = {"Authorization": f"Bearer {app_module.create_access_token({'sub': str(t.id)})}"}
+    monkeypatch.setattr(razorpay.utility.utility.Utility, "verify_payment_signature", lambda self, p: True)
+
+    order = _create_order(client, solo_auth, bill_id=None)
+
+    # The bill disappears (e.g. deleted) before verify runs.
+    db.delete(b)
+    db.commit()
+
+    res = client.post("/api/tenant/payments/razorpay/verify", json={
+        "razorpay_order_id": order["order_id"],
+        "razorpay_payment_id": "pay_ORPHAN",
+        "razorpay_signature": "sig",
+    }, headers=solo_auth)
+    assert res.status_code == 500
+    assert "pay_ORPHAN" in res.json()["detail"]
+    assert db.query(Payment).filter(Payment.razorpay_payment_id == "pay_ORPHAN").count() == 0

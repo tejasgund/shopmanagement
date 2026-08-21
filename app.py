@@ -476,9 +476,12 @@ class DepositPaymentResponse(BaseModel):
 
 # ── Razorpay (online tenant payments) ─────────
 class RazorpayCreateOrderRequest(BaseModel):
-    bill_id: int
-    # Rupees. Omit to pay the full pending balance. Server always caps this
-    # at the bill's actual pending amount - this is a ceiling, not a promise.
+    # Omit to pay across the tenant's WHOLE pending balance (every unpaid
+    # bill, oldest due date first) rather than one specific bill.
+    bill_id: Optional[int] = None
+    # Rupees. Omit to pay the full amount owed (that one bill, or the whole
+    # balance). Server always caps this at what's actually pending - this
+    # is a ceiling the tenant can pay less than, never a promise to exceed.
     amount: Optional[float] = Field(None, gt=0)
 
 
@@ -487,7 +490,7 @@ class RazorpayCreateOrderResponse(BaseModel):
     amount:   int    # paise - what checkout.js needs
     currency: str
     key_id:   str
-    bill_id:  int
+    bill_id:  Optional[int]   # None when this order pays across all bills
 
 
 class RazorpayVerifyRequest(BaseModel):
@@ -2883,15 +2886,20 @@ def _tenant_payment_dict(p: Payment) -> dict:
 
 
 # ────────────────────────────────────────────────────────────────────────
-# Razorpay Standard Checkout - tenant pays a bill online
+# Razorpay Standard Checkout - tenant pays online, either one bill (from
+# the bill detail sheet) or the WHOLE pending balance in one go (from
+# Home) - both go through the same two steps:
 #
-#   1. Tenant taps "Pay online" on a bill -> create-order (this decides and
-#      locks in the amount server-side).
+#   1. Tenant taps "Pay online" / "Pay bill" -> create-order (this decides
+#      and locks in the amount server-side, and which bill(s) it can apply
+#      to - a single bill, or every bill this tenant owes on).
 #   2. Browser opens the Razorpay modal with that order_id.
 #   3. On success, Razorpay hands the browser razorpay_payment_id/order_id/
-#      signature -> verify (this is the ONLY place a Payment row gets
-#      created from this flow; nothing is ever marked paid off signature-less
-#      client claims).
+#      signature -> verify (this is the ONLY place any Payment row gets
+#      created from this flow; nothing is ever marked paid off a
+#      signature-less client claim). One payment can become several
+#      Payment rows if it's spread across bills - see
+#      _allocate_razorpay_payment.
 # ────────────────────────────────────────────────────────────────────────
 
 def _razorpay_client() -> "razorpay.Client":
@@ -2900,6 +2908,76 @@ def _razorpay_client() -> "razorpay.Client":
         # admin needs to fix in .env, not a business decision.
         raise HTTPException(503, detail="Online payments are not configured on this server.")
     return razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
+
+
+def _tenant_total_pending(db: Session, user_id: int) -> Decimal:
+    """Sum of pending_amount across every unpaid/partial bill for this tenant."""
+    total = sum(
+        _decimal_to_float(b.pending_amount)
+        for b in db.query(Bill).filter(Bill.user_id == user_id, Bill.status.in_(["pending", "partial"])).all()
+    )
+    return Decimal(str(total)).quantize(Decimal("0.01"))
+
+
+def _allocate_razorpay_payment(
+    db: Session, bills: list, amount: Decimal, razorpay_order_id: str, razorpay_payment_id: str, actor_id: int,
+) -> list:
+    """
+    FIFO-allocate `amount` across `bills` (already row-locked, given in the
+    order they should be paid first - oldest due date first for a
+    whole-balance payment, or just the one bill for a single-bill payment),
+    creating one Payment per bill that receives money and reconciling each
+    via the same _reconcile_bill() every other payment path uses. Mirrors
+    auto_allocate_confirm's algorithm exactly, but for one Razorpay-verified
+    amount instead of admin-entered cash - fully automatic, no admin review
+    step, since the signature already proved the money was actually paid.
+
+    If the tenant's total pending balance shrank between create-order and
+    verify (e.g. an admin recorded a manual payment in between), any
+    leftover is applied on top of the last bill touched rather than being
+    silently dropped - real money that was actually charged is never lost,
+    even if that means a bill ends up briefly overpaid (the existing manual
+    payment path already tolerates overpayment the same way).
+    """
+    remaining = amount
+    payments = []
+    now = datetime.now(timezone.utc)
+
+    for bill in bills:
+        if remaining <= 0:
+            break
+        outstanding = Decimal(str(_decimal_to_float(bill.pending_amount))).quantize(Decimal("0.01"))
+        if outstanding <= 0:
+            continue
+        alloc = min(remaining, outstanding)
+
+        pay = Payment(
+            bill_id=bill.id, amount=alloc, payment_method="Razorpay",
+            remarks=f"Razorpay payment {razorpay_payment_id}",
+            payment_date=now,
+            razorpay_order_id=razorpay_order_id, razorpay_payment_id=razorpay_payment_id,
+        )
+        db.add(pay)
+        db.flush()
+        db.refresh(bill)
+        _reconcile_bill(bill)
+        payments.append(pay)
+
+        write_audit(db, actor_id, "CREATE", "payments", pay.id, new_data={
+            "bill_id": bill.id, "amount": float(alloc), "payment_method": "Razorpay",
+            "razorpay_order_id": razorpay_order_id, "razorpay_payment_id": razorpay_payment_id,
+        })
+        remaining -= alloc
+
+    if remaining > 0 and payments:
+        last = payments[-1]
+        last.amount = Decimal(str(_decimal_to_float(last.amount))) + remaining
+        db.flush()
+        last_bill = db.query(Bill).filter(Bill.id == last.bill_id).first()
+        db.refresh(last_bill)
+        _reconcile_bill(last_bill)
+
+    return payments
 
 
 @app.post("/api/tenant/payments/razorpay/create-order",
@@ -2911,22 +2989,27 @@ def create_razorpay_order(
 ):
     """
     Step 1 of Razorpay Standard Checkout. The amount actually charged is
-    decided HERE - from the bill's own pending_amount, capped, never trusted
-    from the client again - and stored in razorpay_orders so verify() has
-    something authoritative to check against later.
+    decided HERE - never trusted from the client again - and stored in
+    razorpay_orders so verify() has something authoritative to check
+    against later.
     """
     if not settings_service.get_all(db).get("payment.razorpay_enabled"):
         raise HTTPException(403, detail="Online payments are currently turned off.")
 
-    bill = db.query(Bill).filter(Bill.id == body.bill_id).first()
-    if not bill:
-        raise HTTPException(404, detail="Bill not found")
-    if bill.user_id != current_user.id:
-        raise HTTPException(403, detail="This bill does not belong to you.")
-
-    pending = Decimal(str(_decimal_to_float(bill.pending_amount))).quantize(Decimal("0.01"))
-    if pending <= 0:
-        raise HTTPException(400, detail="This bill is already fully paid.")
+    bill = None
+    if body.bill_id is not None:
+        bill = db.query(Bill).filter(Bill.id == body.bill_id).first()
+        if not bill:
+            raise HTTPException(404, detail="Bill not found")
+        if bill.user_id != current_user.id:
+            raise HTTPException(403, detail="This bill does not belong to you.")
+        pending = Decimal(str(_decimal_to_float(bill.pending_amount))).quantize(Decimal("0.01"))
+        if pending <= 0:
+            raise HTTPException(400, detail="This bill is already fully paid.")
+    else:
+        pending = _tenant_total_pending(db, current_user.id)
+        if pending <= 0:
+            raise HTTPException(400, detail="You have no pending bills to pay.")
 
     if body.amount is None:
         charge = pending
@@ -2948,8 +3031,12 @@ def create_razorpay_order(
         order = client.order.create({
             "amount": amount_paise,
             "currency": "INR",
-            "receipt": f"bill-{bill.id}-{int(datetime.now(timezone.utc).timestamp())}",
-            "notes": {"bill_id": str(bill.id), "user_id": str(current_user.id)},
+            "receipt": f"{'bill-' + str(bill.id) if bill else 'balance-' + str(current_user.id)}-"
+                       f"{int(datetime.now(timezone.utc).timestamp())}",
+            "notes": {
+                "bill_id": str(bill.id) if bill else "ALL",
+                "user_id": str(current_user.id),
+            },
         })
     except razorpay.errors.BadRequestError as exc:
         msg = str(exc)
@@ -2957,28 +3044,28 @@ def create_razorpay_order(
             raise HTTPException(401, detail="Payment gateway authentication failed. Contact the office.")
         raise HTTPException(400, detail=f"Payment gateway rejected the request: {msg}")
     except (razorpay.errors.ServerError, razorpay.errors.GatewayError) as exc:
-        logger.error("Razorpay order creation failed for bill %s: %s", bill.id, exc)
+        logger.error("Razorpay order creation failed for user %s: %s", current_user.id, exc)
         raise HTTPException(500, detail="Could not reach the payment gateway. Please try again.")
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error("Unexpected error creating Razorpay order for bill %s: %s", bill.id, exc)
+        logger.error("Unexpected error creating Razorpay order for user %s: %s", current_user.id, exc)
         raise HTTPException(500, detail="Could not start the payment. Please try again.")
 
     order_row = RazorpayOrder(
-        razorpay_order_id=order["id"], bill_id=bill.id, user_id=current_user.id,
+        razorpay_order_id=order["id"], bill_id=(bill.id if bill else None), user_id=current_user.id,
         amount=charge, currency="INR", status="created",
     )
     db.add(order_row)
     db.flush()
     write_audit(db, current_user.id, "CREATE", "razorpay_orders", order_row.id, new_data={
-        "bill_id": bill.id, "amount": float(charge), "razorpay_order_id": order["id"],
+        "bill_id": bill.id if bill else None, "amount": float(charge), "razorpay_order_id": order["id"],
     })
     db.commit()
 
     return RazorpayCreateOrderResponse(
         order_id=order["id"], amount=amount_paise, currency="INR",
-        key_id=RAZORPAY_KEY_ID, bill_id=bill.id,
+        key_id=RAZORPAY_KEY_ID, bill_id=(bill.id if bill else None),
     )
 
 
@@ -2991,9 +3078,9 @@ def verify_razorpay_payment(
     """
     Step 3 of Razorpay Standard Checkout. Verifies the HMAC-SHA256 signature
     (order_id + "|" + payment_id, signed with KEY_SECRET) via the SDK's own
-    utility - a Payment row is only ever created after this succeeds. The
-    bill is row-locked for the write so a duplicated/retried verify call
-    can't double-record the same order.
+    utility - Payment rows are only ever created after this succeeds. Bills
+    are row-locked for the write so a duplicated/retried verify call can't
+    double-record the same order.
     """
     order_row = (
         db.query(RazorpayOrder)
@@ -3022,35 +3109,41 @@ def verify_razorpay_payment(
             400, detail="Payment could not be verified. If money was deducted, contact the office.",
         )
 
-    bill = db.query(Bill).filter(Bill.id == order_row.bill_id).with_for_update().first()
-    if not bill:
+    if order_row.bill_id is not None:
+        bills = db.query(Bill).filter(Bill.id == order_row.bill_id).with_for_update().all()
+    else:
+        bills = (
+            db.query(Bill)
+            .filter(Bill.user_id == order_row.user_id, Bill.status.in_(["pending", "partial"]))
+            .order_by(Bill.due_date.is_(None), Bill.due_date.asc(), Bill.bill_date.asc(), Bill.id.asc())
+            .with_for_update()
+            .all()
+        )
+
+    if not bills:
+        # Verified money with nowhere to apply it (e.g. every bill was
+        # settled some other way between create-order and verify) - never
+        # silently drop it. Leave the order "created" so it isn't wasted;
+        # the office reconciles it manually with the payment ID.
         db.rollback()
-        raise HTTPException(404, detail="Bill not found")
+        raise HTTPException(
+            500,
+            detail="Payment was verified but there were no pending bills to apply it to. Contact "
+                   f"the office with your payment ID ({body.razorpay_payment_id}).",
+        )
 
     try:
-        pay = Payment(
-            bill_id=bill.id,
-            amount=order_row.amount,
-            payment_method="Razorpay",
-            remarks=f"Razorpay payment {body.razorpay_payment_id}",
-            payment_date=datetime.now(timezone.utc),
-            razorpay_order_id=body.razorpay_order_id,
-            razorpay_payment_id=body.razorpay_payment_id,
+        payments = _allocate_razorpay_payment(
+            db, bills, order_row.amount, body.razorpay_order_id, body.razorpay_payment_id, current_user.id,
         )
-        db.add(pay)
-        db.flush()
-        db.refresh(bill)
-        _reconcile_bill(bill)
+        if not payments:
+            raise RuntimeError("allocation produced no payments")
 
         order_row.status = "paid"
-        order_row.payment_id = pay.id
-
-        write_audit(db, current_user.id, "CREATE", "payments", pay.id, new_data={
-            "bill_id": bill.id, "amount": float(order_row.amount), "payment_method": "Razorpay",
-            "razorpay_order_id": body.razorpay_order_id, "razorpay_payment_id": body.razorpay_payment_id,
-        })
+        order_row.payment_id = payments[0].id
         db.commit()
-        db.refresh(pay)
+        for p in payments:
+            db.refresh(p)
     except Exception as exc:
         db.rollback()
         logger.error(
@@ -3063,16 +3156,22 @@ def verify_razorpay_payment(
                    f"payment ID ({body.razorpay_payment_id}) so it can be applied manually.",
         )
 
+    touched_bill_ids = [p.bill_id for p in payments]
+    touched_bills = db.query(Bill).filter(Bill.id.in_(touched_bill_ids)).all()
+    bills_by_id = {b.id: b for b in touched_bills}
+
     return {
         "success": True,
         "message": "Payment verified and recorded.",
-        "payment": PaymentResponse.model_validate(pay),
-        "bill": {
-            "id": bill.id,
-            "status": bill.status,
-            "paid_amount": _decimal_to_float(bill.paid_amount),
-            "pending_amount": _decimal_to_float(bill.pending_amount),
-        },
+        "payments": [PaymentResponse.model_validate(p) for p in payments],
+        "bills": [
+            {
+                "id": b.id, "status": b.status,
+                "paid_amount": _decimal_to_float(b.paid_amount),
+                "pending_amount": _decimal_to_float(b.pending_amount),
+            }
+            for b in (bills_by_id[bid] for bid in dict.fromkeys(touched_bill_ids))
+        ],
     }
 
 

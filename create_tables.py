@@ -219,7 +219,10 @@ class RazorpayOrder(Base):
 
     id               = Column(Integer, primary_key=True, autoincrement=True)
     razorpay_order_id = Column(String(64), nullable=False, unique=True, index=True)
-    bill_id          = Column(Integer, ForeignKey("bills.id", ondelete="CASCADE"), nullable=False, index=True)
+    # NULL means "pay my whole pending balance" rather than one specific
+    # bill - the amount then gets FIFO-allocated across every bill the
+    # tenant owes on at verify time (see _allocate_razorpay_payment).
+    bill_id          = Column(Integer, ForeignKey("bills.id", ondelete="CASCADE"), nullable=True, index=True)
     user_id          = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     amount           = Column(Numeric(12, 2), nullable=False)   # rupees, matches Payment.amount
     currency         = Column(String(8), nullable=False, default="INR")
