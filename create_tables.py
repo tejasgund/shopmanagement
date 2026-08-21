@@ -308,7 +308,14 @@ class MeterReading(Base):
     id          = Column(Integer, primary_key=True, autoincrement=True)
     meter_id    = Column(Integer, ForeignKey("meters.id", ondelete="CASCADE"),  nullable=False, index=True)
     shop_id     = Column(Integer, ForeignKey("shops.id",  ondelete="RESTRICT"), nullable=False, index=True)
+    # Whose meter this is - always the tenant, even when an admin submits the
+    # reading on their behalf (see collected_by below). Everything that shows
+    # "who this reading belongs to" (review queue, tenant's own history) reads
+    # this column, never collected_by.
     user_id     = Column(Integer, ForeignKey("users.id",  ondelete="RESTRICT"), nullable=False, index=True)
+    # Set only when an admin submitted this reading for the tenant (e.g. the
+    # tenant can't use the app). NULL means the tenant submitted it themselves.
+    collected_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
     # Snapshot of the previous approved reading at submission time, so the
     # consumption maths stays reproducible even if later rows change.

@@ -4919,6 +4919,137 @@ def get_meter_photo(
 # ── ROUTES: Meter readings (admin review)
 # ══════════════════════════════════════════════════════════════════════════════
 
+@app.post("/api/meter-readings/collect", tags=["Meter"], status_code=201)
+async def collect_meter_reading(
+    meter_id: int = Form(...),
+    customer_reading: float = Form(...),
+    customer_note: Optional[str] = Form(None),
+    photo: Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """
+    Admin submits a reading on a tenant's behalf (e.g. the tenant can't use
+    the app). Mirrors submit_meter_reading() above almost exactly - same
+    validation, same photo handling, same "pending" starting status - so it
+    lands in the same review queue an ordinary tenant submission would.
+
+    The only differences: user_id is resolved from the meter's assigned
+    tenant (never the admin - everything downstream, including the tenant's
+    own "My Readings" list, keys off user_id), and collected_by records
+    which admin sent it in for audit purposes.
+    """
+    meter = db.query(Meter).filter(Meter.id == meter_id).first()
+    if not meter:
+        raise HTTPException(404, detail="Meter not found")
+    if not meter.is_active:
+        raise HTTPException(400, detail="This meter is no longer in use.")
+    if meter.shop_id is None:
+        raise HTTPException(400, detail="This meter isn't assigned to a shop yet.")
+
+    user_shop = (
+        db.query(UserShop)
+        .filter(UserShop.shop_id == meter.shop_id)
+        .order_by(UserShop.assigned_at.desc())
+        .first()
+    )
+    if not user_shop:
+        raise HTTPException(400, detail="This meter's shop has no tenant assigned yet.")
+    tenant_id = user_shop.user_id
+
+    # Same one-open-submission-per-meter rule as the tenant path.
+    existing_pending = (
+        db.query(MeterReading)
+        .filter(MeterReading.meter_id == meter.id, MeterReading.status == "pending")
+        .first()
+    )
+    if existing_pending:
+        raise HTTPException(
+            409,
+            detail="A reading for this meter is already waiting for review. "
+                   "Please approve or reject it before collecting another.",
+        )
+
+    cfg = settings_service.get_all(db)
+    previous = meter_service.previous_reading_value(db, meter)
+    current_value = Decimal(str(customer_reading))
+
+    if current_value < 0:
+        raise HTTPException(400, detail="Reading cannot be negative.")
+    if current_value < previous:
+        raise HTTPException(
+            400,
+            detail=f"The reading entered ({current_value}) is lower than the last "
+                   f"approved reading ({previous}). Please check the meter and try again.",
+        )
+
+    # ── Photo (same requirement rule as the tenant flow) ──
+    photo_key = photo_name = photo_mime = None
+    photo_size = None
+    photo_bytes = None
+
+    if photo is not None and photo.filename:
+        photo_bytes = await photo.read()
+        try:
+            ext, mime = photo_storage.validate(
+                photo_bytes,
+                photo.filename,
+                str(cfg.get("meter.photo_allowed_types")),
+                int(cfg.get("meter.photo_max_mb")),
+            )
+        except photo_storage.PhotoValidationError as exc:
+            raise HTTPException(400, detail=str(exc))
+        photo_key = photo_storage.build_key(meter.shop_id, meter.id, ext)
+        photo_name = photo_storage.safe_original_name(photo.filename)
+        photo_mime = mime
+        photo_size = len(photo_bytes)
+    elif cfg.get("meter.photo_required"):
+        raise HTTPException(400, detail="A photo of the meter is required.")
+
+    now = datetime.now(ZoneInfo(APP_TIMEZONE)).replace(tzinfo=None)
+    reading = MeterReading(
+        meter_id            = meter.id,
+        shop_id             = meter.shop_id,
+        user_id             = tenant_id,
+        collected_by        = current_user.id,
+        previous_reading    = previous,
+        customer_reading    = current_value,
+        customer_note       = (customer_note or "").strip() or None,
+        photo_path          = photo_key,
+        photo_original_name = photo_name,
+        photo_size_bytes    = photo_size,
+        photo_mime          = photo_mime,
+        reading_date        = now,
+        status              = "pending",
+    )
+    db.add(reading)
+    db.flush()
+
+    # Write the file only after the row is valid, so a rejected submission
+    # never leaves an orphaned photo on disk.
+    if photo_key:
+        try:
+            photo_storage.save(str(cfg.get("meter.photo_storage_dir")), photo_key, photo_bytes)
+        except photo_storage.PhotoStorageError as exc:
+            db.rollback()
+            logger.error("Meter photo save failed (admin-collected) for meter %s: %s", meter.id, exc)
+            raise HTTPException(500, detail=str(exc))
+
+    write_audit(db, current_user.id, "COLLECT", "meter_readings", reading.id, new_data={
+        "meter_id": meter.id, "customer_reading": float(current_value),
+        "previous_reading": float(previous), "has_photo": bool(photo_key),
+        "tenant_user_id": tenant_id,
+    })
+    db.commit()
+    db.refresh(reading)
+
+    return {
+        "success": True,
+        "message": "Reading saved — waiting for review in Meter Readings.",
+        "reading": _reading_to_dict(db, reading, include_admin_fields=True),
+    }
+
+
 @app.get("/api/meter-readings", tags=["Meter"])
 def list_meter_readings(
     status_filter: Optional[str] = Query(None, alias="status",
