@@ -18,6 +18,16 @@ How it works:
 Environment variables still win where they exist (e.g. DB credentials, JWT
 secret) - those are deployment concerns and deliberately NOT editable from the
 frontend. This module is only for business/UX configuration.
+
+Deliberate exception: the Razorpay key ID/secret ARE stored here (type
+"secret"), admin-editable from Settings, rather than requiring a server-side
+.env file. This trades a small amount of theoretical risk (an admin account
+being able to read/rotate the live payment key) for a much simpler ops story
+on deployments that replace files wholesale (Jenkins, etc.) where hand-editing
+a .env on the box every release is impractical. A "secret"-typed value is
+never echoed back by GET /api/settings (see app.py's get_settings()) - only
+whether one is currently set - and a blank submission on PUT never clears an
+existing one (see set_many() below).
 """
 
 import threading
@@ -32,7 +42,10 @@ logger = get_logger("app")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DEFAULTS
-# type is one of: str | int | float | bool
+# type is one of: str | int | float | bool | secret
+# "secret" behaves exactly like "str" for storage/coercion - the only
+# difference is at the API layer: never echoed back once set, and a blank
+# submission leaves the stored value untouched instead of clearing it.
 # ══════════════════════════════════════════════════════════════════════════════
 
 DEFAULTS: Dict[str, Dict[str, Any]] = {
@@ -145,9 +158,23 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
     "payment.razorpay_enabled": {
         "value": False, "type": "bool", "category": "Online payments",
         "label": "Allow tenants to pay bills online",
-        "help": "When on, tenants see a 'Pay online' button on unpaid bills "
-                "(Razorpay). Requires RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to "
-                "be set in the server's .env file, or this stays off regardless.",
+        "help": "When on, tenants see a 'Pay online' / 'Pay bill' button on unpaid "
+                "bills (Razorpay). Also requires a Key ID and Key Secret below (or "
+                "in the server's .env as a fallback), or this stays off regardless.",
+    },
+    "payment.razorpay_key_id": {
+        "value": "", "type": "str", "category": "Online payments",
+        "label": "Razorpay Key ID",
+        "help": "From your Razorpay dashboard -> Settings -> API Keys. Safe to "
+                "expose to the browser (the checkout widget needs it) - it is not "
+                "the secret.",
+    },
+    "payment.razorpay_key_secret": {
+        "value": "", "type": "secret", "category": "Online payments",
+        "label": "Razorpay Key Secret",
+        "help": "From the same page as the Key ID. Never shown again once saved - "
+                "leave this blank when saving other settings to keep it unchanged, "
+                "or type a new value to replace it.",
     },
 }
 
@@ -257,6 +284,12 @@ def set_many(db: Session, updates: Dict[str, Any], actor_id: Optional[int] = Non
     normalised: Dict[str, Any] = {}
     for key, raw in updates.items():
         spec = DEFAULTS[key]
+        # A blank "secret" means "leave it as-is". GET /api/settings never
+        # echoes the real value back, so the admin's form always starts
+        # blank - submitting the rest of the form unchanged must not wipe
+        # out a secret that was never re-typed.
+        if spec["type"] == "secret" and (raw is None or str(raw).strip() == ""):
+            continue
         try:
             normalised[key] = _coerce(raw, spec["type"])
         except (TypeError, ValueError):

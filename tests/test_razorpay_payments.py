@@ -467,3 +467,116 @@ def test_verify_total_balance_no_bills_at_all_is_a_500_not_silent_loss(client, t
     assert res.status_code == 500
     assert "pay_ORPHAN" in res.json()["detail"]
     assert db.query(Payment).filter(Payment.razorpay_payment_id == "pay_ORPHAN").count() == 0
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DB-CONFIGURED KEYS (Settings, not .env)
+#
+# payment.razorpay_key_id / payment.razorpay_key_secret let an admin paste
+# the Razorpay keys into Settings instead of editing a server-side .env -
+# important for deployments where files get wholesale-replaced on every
+# release (Jenkins etc.) and hand-editing .env on the box isn't practical.
+# ══════════════════════════════════════════════════════════════════════════════
+
+import app as app_module
+
+
+def _set_db_keys(db, key_id="rzp_test_DBKEY", key_secret="db_secret_value"):
+    settings_service.set_many(db, {
+        "payment.razorpay_key_id": key_id,
+        "payment.razorpay_key_secret": key_secret,
+    })
+    db.commit()
+    settings_service.invalidate_cache()
+
+
+def test_payment_works_from_db_keys_alone_no_env_needed(client, tenant_auth, bill, db, mock_order_create, monkeypatch):
+    """Blank out the env fallback entirely - DB-configured keys must still work."""
+    monkeypatch.setattr(app_module, "RAZORPAY_KEY_ID_ENV", "")
+    monkeypatch.setattr(app_module, "RAZORPAY_KEY_SECRET_ENV", "")
+    _enable_razorpay(db)
+    _set_db_keys(db)
+
+    res = client.post("/api/tenant/payments/razorpay/create-order",
+                       json={"bill_id": bill.id}, headers=tenant_auth)
+    assert res.status_code == 200, res.text
+    assert res.json()["key_id"] == "rzp_test_DBKEY"
+
+
+def test_no_env_and_no_db_keys_stays_off(client, tenant_auth, bill, db, mock_order_create, monkeypatch):
+    monkeypatch.setattr(app_module, "RAZORPAY_KEY_ID_ENV", "")
+    monkeypatch.setattr(app_module, "RAZORPAY_KEY_SECRET_ENV", "")
+    _enable_razorpay(db)   # switch is on, but genuinely no keys anywhere
+
+    res = client.get("/api/settings/public")
+    assert res.json()["razorpay_enabled"] is False
+
+    res = client.post("/api/tenant/payments/razorpay/create-order",
+                       json={"bill_id": bill.id}, headers=tenant_auth)
+    assert res.status_code == 503
+
+
+def test_db_key_id_takes_priority_over_env(client, tenant_auth, bill, db, mock_order_create, monkeypatch):
+    monkeypatch.setattr(app_module, "RAZORPAY_KEY_ID_ENV", "rzp_test_FROM_ENV")
+    monkeypatch.setattr(app_module, "RAZORPAY_KEY_SECRET_ENV", "env_secret")
+    _enable_razorpay(db)
+    _set_db_keys(db, key_id="rzp_test_FROM_DB")
+
+    res = client.post("/api/tenant/payments/razorpay/create-order",
+                       json={"bill_id": bill.id}, headers=tenant_auth)
+    assert res.status_code == 200, res.text
+    assert res.json()["key_id"] == "rzp_test_FROM_DB"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SECRET MASKING (GET/PUT /api/settings)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def test_get_settings_never_echoes_secret_value(client, admin_auth, db):
+    _set_db_keys(db, key_secret="super-secret-value")
+    res = client.get("/api/settings", headers=admin_auth)
+    assert res.status_code == 200
+    assert "super-secret-value" not in res.text
+
+    item = next(s for s in res.json()["settings"] if s["key"] == "payment.razorpay_key_secret")
+    assert item["value"] == ""
+    assert item["is_set"] is True
+
+
+def test_get_settings_is_set_false_when_never_configured(client, admin_auth, db):
+    res = client.get("/api/settings", headers=admin_auth)
+    item = next(s for s in res.json()["settings"] if s["key"] == "payment.razorpay_key_secret")
+    assert item["is_set"] is False
+
+
+def test_put_settings_blank_secret_does_not_clear_existing(client, admin_auth, db):
+    _set_db_keys(db, key_secret="keep-me")
+
+    res = client.put("/api/settings", headers=admin_auth, json={
+        "values": {"payment.razorpay_key_secret": "", "app.name": "New Name"},
+    })
+    assert res.status_code == 200, res.text
+    assert "payment.razorpay_key_secret" not in res.json()["changed"]
+
+    settings_service.invalidate_cache()
+    assert settings_service.get_all(db)["payment.razorpay_key_secret"] == "keep-me"
+    assert settings_service.get_all(db)["app.name"] == "New Name"
+
+
+def test_put_settings_new_secret_value_replaces_old(client, admin_auth, db):
+    _set_db_keys(db, key_secret="old-value")
+
+    res = client.put("/api/settings", headers=admin_auth, json={
+        "values": {"payment.razorpay_key_secret": "new-value"},
+    })
+    assert res.status_code == 200, res.text
+    assert "payment.razorpay_key_secret" in res.json()["changed"]
+
+    settings_service.invalidate_cache()
+    assert settings_service.get_all(db)["payment.razorpay_key_secret"] == "new-value"
+
+
+def test_tenant_cannot_read_or_write_settings_with_secrets(client, tenant_auth):
+    assert client.get("/api/settings", headers=tenant_auth).status_code == 403
+    assert client.put("/api/settings", headers=tenant_auth,
+                       json={"values": {"payment.razorpay_key_secret": "x"}}).status_code == 403

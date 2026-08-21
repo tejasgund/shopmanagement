@@ -108,12 +108,16 @@ security = HTTPBearer()
 
 # ──────────────────────────────────────────────
 # Razorpay settings
-# Deliberately env-only, never admin-editable (same tier as JWT_SECRET) -
-# see settings_service.py's own docstring on why secrets don't live there.
-# No default: an empty secret must fail closed, not silently sign with "".
+# The admin-editable values in Settings (payment.razorpay_key_id/_secret) are
+# the primary source - see settings_service.py's docstring for why this pair
+# is a deliberate exception to "secrets live in env only". These two env vars
+# are kept ONLY as a fallback for deployments that still prefer .env (or
+# haven't set the DB values yet); see _razorpay_credentials() below, which is
+# what every request actually calls. No default: an unset secret must fail
+# closed, never silently sign with "".
 # ──────────────────────────────────────────────
-RAZORPAY_KEY_ID     = os.getenv("RAZORPAY_KEY_ID", "")
-RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "")
+RAZORPAY_KEY_ID_ENV     = os.getenv("RAZORPAY_KEY_ID", "")
+RAZORPAY_KEY_SECRET_ENV = os.getenv("RAZORPAY_KEY_SECRET", "")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -508,16 +512,30 @@ def _decimal_to_float(value) -> float:
     return float(value) if isinstance(value, Decimal) else (value or 0.0)
 
 
+def _razorpay_credentials(cfg: dict) -> tuple:
+    """
+    (key_id, key_secret), preferring the admin-editable Settings values
+    (payment.razorpay_key_id/_secret) and falling back to the RAZORPAY_KEY_ID/
+    RAZORPAY_KEY_SECRET env vars only where the DB value is blank - lets a
+    deployment migrate from .env to Settings whenever it's convenient, not
+    all at once.
+    """
+    key_id = str(cfg.get("payment.razorpay_key_id") or "").strip() or RAZORPAY_KEY_ID_ENV
+    key_secret = str(cfg.get("payment.razorpay_key_secret") or "").strip() or RAZORPAY_KEY_SECRET_ENV
+    return key_id, key_secret
+
+
 def _razorpay_public_config(cfg: dict) -> tuple:
     """
     (enabled, key_id) as the frontend should see them. Single source of
     truth for both /api/settings/public and the /api/tenant/home bundle, so
     the two can't quietly disagree about whether "Pay online" should show.
-    Needs the admin's switch on AND real keys deployed - a half-configured
-    server looks "off" to tenants, never errors on them.
+    Needs the admin's switch on AND real keys configured (Settings or env) -
+    a half-configured server looks "off" to tenants, never errors on them.
     """
-    ready = bool(cfg.get("payment.razorpay_enabled")) and bool(RAZORPAY_KEY_ID) and bool(RAZORPAY_KEY_SECRET)
-    return ready, (RAZORPAY_KEY_ID if ready else None)
+    key_id, key_secret = _razorpay_credentials(cfg)
+    ready = bool(cfg.get("payment.razorpay_enabled")) and bool(key_id) and bool(key_secret)
+    return ready, (key_id if ready else None)
 
 
 def _shop_owner_map(db: Session, shop_ids: Optional[List[int]] = None) -> dict:
@@ -2902,12 +2920,14 @@ def _tenant_payment_dict(p: Payment) -> dict:
 #      _allocate_razorpay_payment.
 # ────────────────────────────────────────────────────────────────────────
 
-def _razorpay_client() -> "razorpay.Client":
-    if not RAZORPAY_KEY_ID or not RAZORPAY_KEY_SECRET:
+def _razorpay_client(cfg: dict) -> "razorpay.Client":
+    key_id, key_secret = _razorpay_credentials(cfg)
+    if not key_id or not key_secret:
         # Distinct from "feature turned off" - this is a deployment gap the
-        # admin needs to fix in .env, not a business decision.
+        # admin needs to fix (Settings -> Online payments, or the server's
+        # .env), not a business decision.
         raise HTTPException(503, detail="Online payments are not configured on this server.")
-    return razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
+    return razorpay.Client(auth=(key_id, key_secret))
 
 
 def _tenant_total_pending(db: Session, user_id: int) -> Decimal:
@@ -2993,7 +3013,8 @@ def create_razorpay_order(
     razorpay_orders so verify() has something authoritative to check
     against later.
     """
-    if not settings_service.get_all(db).get("payment.razorpay_enabled"):
+    cfg = settings_service.get_all(db)
+    if not cfg.get("payment.razorpay_enabled"):
         raise HTTPException(403, detail="Online payments are currently turned off.")
 
     bill = None
@@ -3026,7 +3047,7 @@ def create_razorpay_order(
     if amount_paise < 100:
         raise HTTPException(400, detail="Minimum payable amount is Rs 1 (100 paise).")
 
-    client = _razorpay_client()
+    client = _razorpay_client(cfg)
     try:
         order = client.order.create({
             "amount": amount_paise,
@@ -3063,9 +3084,10 @@ def create_razorpay_order(
     })
     db.commit()
 
+    key_id, _ = _razorpay_credentials(cfg)
     return RazorpayCreateOrderResponse(
         order_id=order["id"], amount=amount_paise, currency="INR",
-        key_id=RAZORPAY_KEY_ID, bill_id=(bill.id if bill else None),
+        key_id=key_id, bill_id=(bill.id if bill else None),
     )
 
 
@@ -3095,7 +3117,8 @@ def verify_razorpay_payment(
         # Already verified (or already failed) - never process the same order twice.
         raise HTTPException(409, detail="This payment has already been processed.")
 
-    client = _razorpay_client()
+    cfg = settings_service.get_all(db)
+    client = _razorpay_client(cfg)
     try:
         client.utility.verify_payment_signature({
             "razorpay_order_id":   body.razorpay_order_id,
@@ -5715,11 +5738,24 @@ def public_settings(db: Session = Depends(get_db)):
 
 @app.get("/api/settings", tags=["Settings"])
 def get_settings(db: Session = Depends(get_db), _: User = Depends(require_admin)):
-    """Every setting with its current value, type, help text and factory default."""
+    """
+    Every setting with its current value, type, help text and factory default.
+
+    "secret"-type settings (e.g. the Razorpay Key Secret) never have their
+    real value sent to the browser here - only whether one is currently set
+    (`is_set`) - so opening Settings, or a browser network trace, can't leak
+    it. The admin re-types the value only when they actually want to change
+    it; a blank field means "leave it as-is" (see settings_service.set_many).
+    """
     values = settings_service.get_all(db)
     schema = settings_service.describe()
     for item in schema:
-        item["value"] = values.get(item["key"], item["default"])
+        real_value = values.get(item["key"], item["default"])
+        if item["type"] == "secret":
+            item["is_set"] = bool(real_value)
+            item["value"] = ""
+        else:
+            item["value"] = real_value
     return {
         "categories": sorted({item["category"] for item in schema}),
         "settings": schema,
