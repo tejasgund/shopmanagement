@@ -21,6 +21,13 @@ from decimal import Decimal
 from typing import List, Optional
 from zoneinfo import ZoneInfo
 
+# Load .env before anything below reads os.getenv() - only fills in variables
+# that aren't already set, so Docker/systemd env injection still wins in
+# production. This is what finally makes the python-dotenv dependency do
+# something; previously .env only worked via `docker run --env-file`.
+from dotenv import load_dotenv
+load_dotenv()
+
 import bcrypt
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -47,7 +54,7 @@ APP_TIMEZONE = "Asia/Kolkata"
 # Import ORM models from create_tables so we have a single schema source-of-truth
 from create_tables import (
     AppSetting, AuditLog, Bill, Complex, DepositPayment, Meter, MeterReading,
-    MeterTariff, Payment, Shop, User, UserShop,
+    MeterTariff, Payment, RazorpayOrder, Shop, User, UserShop,
 )
 
 # Submeter reading feature: business rules, photo storage and runtime settings
@@ -56,6 +63,9 @@ import meter_service
 import photo_storage
 import settings_service
 from meter_service import MeterError
+
+# Razorpay Standard Checkout (online tenant payments)
+import razorpay
 
 # ──────────────────────────────────────────────
 # Logger
@@ -95,6 +105,15 @@ JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "1440"))  # 24 hours
 
 security = HTTPBearer()
+
+# ──────────────────────────────────────────────
+# Razorpay settings
+# Deliberately env-only, never admin-editable (same tier as JWT_SECRET) -
+# see settings_service.py's own docstring on why secrets don't live there.
+# No default: an empty secret must fail closed, not silently sign with "".
+# ──────────────────────────────────────────────
+RAZORPAY_KEY_ID     = os.getenv("RAZORPAY_KEY_ID", "")
+RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -455,6 +474,28 @@ class DepositPaymentResponse(BaseModel):
         from_attributes = True
 
 
+# ── Razorpay (online tenant payments) ─────────
+class RazorpayCreateOrderRequest(BaseModel):
+    bill_id: int
+    # Rupees. Omit to pay the full pending balance. Server always caps this
+    # at the bill's actual pending amount - this is a ceiling, not a promise.
+    amount: Optional[float] = Field(None, gt=0)
+
+
+class RazorpayCreateOrderResponse(BaseModel):
+    order_id: str
+    amount:   int    # paise - what checkout.js needs
+    currency: str
+    key_id:   str
+    bill_id:  int
+
+
+class RazorpayVerifyRequest(BaseModel):
+    razorpay_order_id:   str = Field(..., min_length=1)
+    razorpay_payment_id: str = Field(..., min_length=1)
+    razorpay_signature:  str = Field(..., min_length=1)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # UTILITY
 # ══════════════════════════════════════════════════════════════════════════════
@@ -462,6 +503,18 @@ class DepositPaymentResponse(BaseModel):
 def _decimal_to_float(value) -> float:
     """Convert Decimal to float for Pydantic serialisation."""
     return float(value) if isinstance(value, Decimal) else (value or 0.0)
+
+
+def _razorpay_public_config(cfg: dict) -> tuple:
+    """
+    (enabled, key_id) as the frontend should see them. Single source of
+    truth for both /api/settings/public and the /api/tenant/home bundle, so
+    the two can't quietly disagree about whether "Pay online" should show.
+    Needs the admin's switch on AND real keys deployed - a half-configured
+    server looks "off" to tenants, never errors on them.
+    """
+    ready = bool(cfg.get("payment.razorpay_enabled")) and bool(RAZORPAY_KEY_ID) and bool(RAZORPAY_KEY_SECRET)
+    return ready, (RAZORPAY_KEY_ID if ready else None)
 
 
 def _shop_owner_map(db: Session, shop_ids: Optional[List[int]] = None) -> dict:
@@ -2825,7 +2878,203 @@ def _tenant_payment_dict(p: Payment) -> dict:
         "remarks":        p.remarks,
         "created_at":     p.created_at,
         "payment_group":  getattr(p, "payment_group", None),
+        "razorpay_payment_id": p.razorpay_payment_id,
     }
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Razorpay Standard Checkout - tenant pays a bill online
+#
+#   1. Tenant taps "Pay online" on a bill -> create-order (this decides and
+#      locks in the amount server-side).
+#   2. Browser opens the Razorpay modal with that order_id.
+#   3. On success, Razorpay hands the browser razorpay_payment_id/order_id/
+#      signature -> verify (this is the ONLY place a Payment row gets
+#      created from this flow; nothing is ever marked paid off signature-less
+#      client claims).
+# ────────────────────────────────────────────────────────────────────────
+
+def _razorpay_client() -> "razorpay.Client":
+    if not RAZORPAY_KEY_ID or not RAZORPAY_KEY_SECRET:
+        # Distinct from "feature turned off" - this is a deployment gap the
+        # admin needs to fix in .env, not a business decision.
+        raise HTTPException(503, detail="Online payments are not configured on this server.")
+    return razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
+
+
+@app.post("/api/tenant/payments/razorpay/create-order",
+          response_model=RazorpayCreateOrderResponse, tags=["Tenant"])
+def create_razorpay_order(
+    body:         RazorpayCreateOrderRequest,
+    db:           Session = Depends(get_db),
+    current_user: User    = Depends(require_tenant),
+):
+    """
+    Step 1 of Razorpay Standard Checkout. The amount actually charged is
+    decided HERE - from the bill's own pending_amount, capped, never trusted
+    from the client again - and stored in razorpay_orders so verify() has
+    something authoritative to check against later.
+    """
+    if not settings_service.get_all(db).get("payment.razorpay_enabled"):
+        raise HTTPException(403, detail="Online payments are currently turned off.")
+
+    bill = db.query(Bill).filter(Bill.id == body.bill_id).first()
+    if not bill:
+        raise HTTPException(404, detail="Bill not found")
+    if bill.user_id != current_user.id:
+        raise HTTPException(403, detail="This bill does not belong to you.")
+
+    pending = Decimal(str(_decimal_to_float(bill.pending_amount))).quantize(Decimal("0.01"))
+    if pending <= 0:
+        raise HTTPException(400, detail="This bill is already fully paid.")
+
+    if body.amount is None:
+        charge = pending
+    else:
+        charge = Decimal(str(body.amount)).quantize(Decimal("0.01"))
+        if charge <= 0:
+            raise HTTPException(400, detail="Amount must be greater than zero.")
+        if charge > pending:
+            raise HTTPException(
+                400, detail=f"Amount cannot exceed the pending balance of {float(pending)}.",
+            )
+
+    amount_paise = int(charge * 100)
+    if amount_paise < 100:
+        raise HTTPException(400, detail="Minimum payable amount is Rs 1 (100 paise).")
+
+    client = _razorpay_client()
+    try:
+        order = client.order.create({
+            "amount": amount_paise,
+            "currency": "INR",
+            "receipt": f"bill-{bill.id}-{int(datetime.now(timezone.utc).timestamp())}",
+            "notes": {"bill_id": str(bill.id), "user_id": str(current_user.id)},
+        })
+    except razorpay.errors.BadRequestError as exc:
+        msg = str(exc)
+        if "auth" in msg.lower() or "key" in msg.lower():
+            raise HTTPException(401, detail="Payment gateway authentication failed. Contact the office.")
+        raise HTTPException(400, detail=f"Payment gateway rejected the request: {msg}")
+    except (razorpay.errors.ServerError, razorpay.errors.GatewayError) as exc:
+        logger.error("Razorpay order creation failed for bill %s: %s", bill.id, exc)
+        raise HTTPException(500, detail="Could not reach the payment gateway. Please try again.")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Unexpected error creating Razorpay order for bill %s: %s", bill.id, exc)
+        raise HTTPException(500, detail="Could not start the payment. Please try again.")
+
+    order_row = RazorpayOrder(
+        razorpay_order_id=order["id"], bill_id=bill.id, user_id=current_user.id,
+        amount=charge, currency="INR", status="created",
+    )
+    db.add(order_row)
+    db.flush()
+    write_audit(db, current_user.id, "CREATE", "razorpay_orders", order_row.id, new_data={
+        "bill_id": bill.id, "amount": float(charge), "razorpay_order_id": order["id"],
+    })
+    db.commit()
+
+    return RazorpayCreateOrderResponse(
+        order_id=order["id"], amount=amount_paise, currency="INR",
+        key_id=RAZORPAY_KEY_ID, bill_id=bill.id,
+    )
+
+
+@app.post("/api/tenant/payments/razorpay/verify", tags=["Tenant"])
+def verify_razorpay_payment(
+    body:         RazorpayVerifyRequest,
+    db:           Session = Depends(get_db),
+    current_user: User    = Depends(require_tenant),
+):
+    """
+    Step 3 of Razorpay Standard Checkout. Verifies the HMAC-SHA256 signature
+    (order_id + "|" + payment_id, signed with KEY_SECRET) via the SDK's own
+    utility - a Payment row is only ever created after this succeeds. The
+    bill is row-locked for the write so a duplicated/retried verify call
+    can't double-record the same order.
+    """
+    order_row = (
+        db.query(RazorpayOrder)
+        .filter(RazorpayOrder.razorpay_order_id == body.razorpay_order_id)
+        .first()
+    )
+    if not order_row:
+        raise HTTPException(404, detail="Order not found.")
+    if order_row.user_id != current_user.id:
+        raise HTTPException(403, detail="This order does not belong to you.")
+    if order_row.status != "created":
+        # Already verified (or already failed) - never process the same order twice.
+        raise HTTPException(409, detail="This payment has already been processed.")
+
+    client = _razorpay_client()
+    try:
+        client.utility.verify_payment_signature({
+            "razorpay_order_id":   body.razorpay_order_id,
+            "razorpay_payment_id": body.razorpay_payment_id,
+            "razorpay_signature":  body.razorpay_signature,
+        })
+    except razorpay.errors.SignatureVerificationError:
+        order_row.status = "failed"
+        db.commit()
+        raise HTTPException(
+            400, detail="Payment could not be verified. If money was deducted, contact the office.",
+        )
+
+    bill = db.query(Bill).filter(Bill.id == order_row.bill_id).with_for_update().first()
+    if not bill:
+        db.rollback()
+        raise HTTPException(404, detail="Bill not found")
+
+    try:
+        pay = Payment(
+            bill_id=bill.id,
+            amount=order_row.amount,
+            payment_method="Razorpay",
+            remarks=f"Razorpay payment {body.razorpay_payment_id}",
+            payment_date=datetime.now(timezone.utc),
+            razorpay_order_id=body.razorpay_order_id,
+            razorpay_payment_id=body.razorpay_payment_id,
+        )
+        db.add(pay)
+        db.flush()
+        db.refresh(bill)
+        _reconcile_bill(bill)
+
+        order_row.status = "paid"
+        order_row.payment_id = pay.id
+
+        write_audit(db, current_user.id, "CREATE", "payments", pay.id, new_data={
+            "bill_id": bill.id, "amount": float(order_row.amount), "payment_method": "Razorpay",
+            "razorpay_order_id": body.razorpay_order_id, "razorpay_payment_id": body.razorpay_payment_id,
+        })
+        db.commit()
+        db.refresh(pay)
+    except Exception as exc:
+        db.rollback()
+        logger.error(
+            "Verified Razorpay payment %s (order %s) could not be recorded: %s",
+            body.razorpay_payment_id, body.razorpay_order_id, exc,
+        )
+        raise HTTPException(
+            500,
+            detail="Payment was verified but could not be recorded. Contact the office with your "
+                   f"payment ID ({body.razorpay_payment_id}) so it can be applied manually.",
+        )
+
+    return {
+        "success": True,
+        "message": "Payment verified and recorded.",
+        "payment": PaymentResponse.model_validate(pay),
+        "bill": {
+            "id": bill.id,
+            "status": bill.status,
+            "paid_amount": _decimal_to_float(bill.paid_amount),
+            "pending_amount": _decimal_to_float(bill.pending_amount),
+        },
+    }
+
 
 @app.get("/api/tenant/deposit-payments", tags=["Tenant"])
 def tenant_deposit_payments(
@@ -4843,6 +5092,7 @@ def tenant_home(
 
     # ── Branding / payment-methods line ──
     cfg = settings_service.get_all(db)
+    razorpay_enabled, razorpay_key_id = _razorpay_public_config(cfg)
 
     return {
         "profile": {
@@ -4868,6 +5118,8 @@ def tenant_home(
             "currency_symbol": cfg.get("app.currency_symbol"),
             "support_contact": cfg.get("app.support_contact"),
             "payment_methods": cfg.get("app.payment_methods"),
+            "razorpay_enabled": razorpay_enabled,
+            "razorpay_key_id": razorpay_key_id,
         },
     }
 
@@ -5346,6 +5598,7 @@ def public_settings(db: Session = Depends(get_db)):
     already visible on screen is exposed here.
     """
     cfg = settings_service.get_all(db)
+    razorpay_enabled, razorpay_key_id = _razorpay_public_config(cfg)
     return {
         "app_name": cfg.get("app.name"),
         "tagline": cfg.get("app.tagline"),
@@ -5356,6 +5609,8 @@ def public_settings(db: Session = Depends(get_db)):
             "shop": cfg.get("label.shop_singular"),
             "complex": cfg.get("label.complex_singular"),
         },
+        "razorpay_enabled": razorpay_enabled,
+        "razorpay_key_id": razorpay_key_id,
     }
 
 

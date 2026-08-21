@@ -196,8 +196,42 @@ class Payment(Base):
     remarks        = Column(Text, nullable=True)
     created_at     = Column(DateTime, nullable=False, default=now_utc)
 
+    # Set only when this payment came through Razorpay (payment_method =
+    # "Razorpay") rather than being recorded manually by an admin. NULL for
+    # every payment recorded the old way - nothing else changes for those.
+    razorpay_order_id   = Column(String(64), nullable=True, index=True)
+    razorpay_payment_id = Column(String(64), nullable=True, index=True)
+
     # Relationships
     bill = relationship("Bill", back_populates="payments")
+
+
+# ──────────────────────────────────────────────
+# razorpay_orders
+# One row per order created for a tenant's "Pay online" click - NOT a
+# payment record. Exists so the verify step can check the amount and
+# ownership it itself decided at create-order time, rather than trusting
+# whatever the browser echoes back, and so a given order can't be replayed
+# into a second Payment if verify is somehow called twice.
+# ──────────────────────────────────────────────
+class RazorpayOrder(Base):
+    __tablename__ = "razorpay_orders"
+
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    razorpay_order_id = Column(String(64), nullable=False, unique=True, index=True)
+    bill_id          = Column(Integer, ForeignKey("bills.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id          = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    amount           = Column(Numeric(12, 2), nullable=False)   # rupees, matches Payment.amount
+    currency         = Column(String(8), nullable=False, default="INR")
+    status           = Column(Enum("created", "paid", "failed", name="razorpay_order_status"),
+                              nullable=False, default="created", index=True)
+    payment_id       = Column(Integer, ForeignKey("payments.id", ondelete="SET NULL"), nullable=True)
+    created_at       = Column(DateTime, nullable=False, default=now_utc)
+    updated_at       = Column(DateTime, nullable=False, default=now_utc, onupdate=now_utc)
+
+    bill = relationship("Bill")
+    user = relationship("User")
+    payment = relationship("Payment")
 
 
 # ──────────────────────────────────────────────

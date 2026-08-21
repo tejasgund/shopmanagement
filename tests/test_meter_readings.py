@@ -765,5 +765,10 @@ def test_public_settings_do_not_leak_internal_config(client):
     """The unauthenticated endpoint must expose only display values."""
     body = client.get("/api/settings/public").json()
     assert set(body.keys()) == {"app_name", "tagline", "currency_symbol",
-                                "support_contact", "labels"}
+                                "support_contact", "labels",
+                                "razorpay_enabled", "razorpay_key_id"}
     assert "meter.photo_storage_dir" not in str(body)
+    # razorpay_key_id is the PUBLIC key - fine to expose (see checkout.js
+    # integration) - but the secret must never appear here under any name.
+    assert "razorpay_key_secret" not in str(body).lower()
+    assert "key_secret" not in str(body).lower()

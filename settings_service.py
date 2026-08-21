@@ -138,6 +138,17 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
         "help": "When off, approving a reading records the verified value but does "
                 "not raise a bill (useful if you bill electricity outside the app).",
     },
+
+    # ── Online payments (Razorpay) ────────────────────────────────────────
+    # The keys themselves (RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET) are env-only,
+    # never here - this is just the on/off switch and the tenant-facing copy.
+    "payment.razorpay_enabled": {
+        "value": False, "type": "bool", "category": "Online payments",
+        "label": "Allow tenants to pay bills online",
+        "help": "When on, tenants see a 'Pay online' button on unpaid bills "
+                "(Razorpay). Requires RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to "
+                "be set in the server's .env file, or this stays off regardless.",
+    },
 }
 
 
