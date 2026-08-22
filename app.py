@@ -1354,6 +1354,11 @@ def tenant_home(
             "currency_symbol": cfg.get("app.currency_symbol"),
             "support_contact": cfg.get("app.support_contact"),
             "payment_methods": cfg.get("app.payment_methods"),
+            "labels": {
+                "tenant": cfg.get("label.tenant_singular"),
+                "shop": cfg.get("label.shop_singular"),
+                "complex": cfg.get("label.complex_singular"),
+            },
             "razorpay_enabled": razorpay_enabled,
             "razorpay_key_id": razorpay_key_id,
         },
