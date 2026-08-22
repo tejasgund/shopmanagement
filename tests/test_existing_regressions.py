@@ -10,6 +10,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from create_tables import Bill, Payment, Shop, User, UserShop
+import settings_service
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -86,6 +87,74 @@ def test_rent_bill_amount_comes_from_the_shop_not_the_request(client, admin_auth
     })
     assert resp.status_code in (200, 201), resp.text
     assert resp.json()["amount"] == 10000.0           # the shop's rent
+
+
+def test_due_date_defaults_to_bill_date_plus_configured_due_days(
+    client, admin_auth, tenant, shop, db
+):
+    """
+    A bill submitted without a due date gets one computed from the admin's
+    "Default bill due period (days)" setting (bill.due_days): due date =
+    bill date + that many days.
+
+    Regression guard. This calculation was silently lost when create_bill was
+    moved out of app.py into routers/bills.py - the extracted copy just passed
+    the request's due_date straight through, so every bill created without an
+    explicit due date got NULL and the setting appeared to do nothing however
+    it was changed. Nothing covered it, so nothing caught it.
+    """
+    settings_service.set_many(db, {"bill.due_days": 10})
+    db.commit()
+    settings_service.invalidate_cache()
+
+    resp = client.post("/api/bill", headers=admin_auth, json={
+        "user_id": tenant.id, "shop_id": shop.id, "bill_type": "Rent",
+        "bill_date": datetime(2026, 6, 1).isoformat(),
+        "due_date": None,                              # what the UI sends when left blank
+    })
+    assert resp.status_code in (200, 201), resp.text
+    assert resp.json()["due_date"].startswith("2026-06-11")   # 1 June + 10 days
+
+
+def test_changing_the_due_days_setting_changes_the_next_bills_due_date(
+    client, admin_auth, tenant, shop, db
+):
+    """The setting is read per request, not frozen at import time."""
+    settings_service.set_many(db, {"bill.due_days": 7})
+    db.commit()
+    settings_service.invalidate_cache()
+    first = client.post("/api/bill", headers=admin_auth, json={
+        "user_id": tenant.id, "shop_id": shop.id, "bill_type": "Rent",
+        "bill_date": datetime(2026, 6, 1).isoformat(),
+    })
+    assert first.json()["due_date"].startswith("2026-06-08")
+
+    settings_service.set_many(db, {"bill.due_days": 45})
+    db.commit()
+    settings_service.invalidate_cache()
+    second = client.post("/api/bill", headers=admin_auth, json={
+        "user_id": tenant.id, "shop_id": shop.id, "bill_type": "Electricity",
+        "amount": 500,
+        "bill_date": datetime(2026, 6, 1).isoformat(),
+    })
+    assert second.json()["due_date"].startswith("2026-07-16")  # 1 June + 45 days
+
+
+def test_an_explicit_due_date_still_overrides_the_setting(
+    client, admin_auth, tenant, shop, db
+):
+    """The setting is only a default - an admin can always set a date by hand."""
+    settings_service.set_many(db, {"bill.due_days": 10})
+    db.commit()
+    settings_service.invalidate_cache()
+
+    resp = client.post("/api/bill", headers=admin_auth, json={
+        "user_id": tenant.id, "shop_id": shop.id, "bill_type": "Rent",
+        "bill_date": datetime(2026, 6, 1).isoformat(),
+        "due_date": datetime(2026, 12, 25).isoformat(),
+    })
+    assert resp.status_code in (200, 201), resp.text
+    assert resp.json()["due_date"].startswith("2026-12-25")
 
 
 def test_bill_create_and_payment_reconciliation(client, admin_auth, tenant, shop, db):
