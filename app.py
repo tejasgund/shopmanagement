@@ -786,21 +786,31 @@ def list_complexes(db: Session = Depends(get_db), _: User = Depends(require_admi
 def all_complexes_summary(db: Session = Depends(get_db), _: User = Depends(require_admin)):
     """Summary statistics for ALL complexes. Used on the main Admin Dashboard. Admin only."""
     complexes = db.query(Complex).order_by(Complex.id).all()
+
+    # Two bulk queries instead of two PER complex (this used to be N+1 - one
+    # extra shops query and one extra bills query for every single complex).
+    # Same numbers as before, computed once and grouped in Python instead.
+    shops_by_complex = {}
+    for s in db.query(Shop).all():
+        shops_by_complex.setdefault(s.complex_id, []).append(s)
+
+    pending_rent_by_complex = {}
+    for b, complex_id in (
+        db.query(Bill, Shop.complex_id)
+        .join(Shop, Shop.id == Bill.shop_id)
+        .filter(Bill.bill_type == "Rent", Bill.status != "paid")
+        .all()
+    ):
+        pending_rent_by_complex.setdefault(complex_id, []).append(b)
+
     results = []
     for c in complexes:
-        shops = db.query(Shop).filter(Shop.complex_id == c.id).all()
+        shops = shops_by_complex.get(c.id, [])
         total_shops = len(shops)
         occupied = [s for s in shops if s.status == "occupied"]
         available_count = sum(1 for s in shops if s.status == "available")
-        total_monthly_rent = 0.0
-        for s in occupied:
-            total_monthly_rent += _decimal_to_float(s.shop_rent)  # <-- DIRECT USE
-        total_pending_rent = (
-            db.query(Bill)
-            .join(Shop, Shop.id == Bill.shop_id)
-            .filter(Shop.complex_id == c.id, Bill.bill_type == "Rent", Bill.status != "paid")
-            .all()
-        )
+        total_monthly_rent = sum(_decimal_to_float(s.shop_rent) for s in occupied)
+        total_pending_rent = pending_rent_by_complex.get(c.id, [])
         results.append({
             "complex_id": c.id,
             "complex_name": c.name,
