@@ -2,13 +2,18 @@
 routers/deposit_payments.py - Deposit Payment CRUD (Admin only).
 
 Extracted verbatim from app.py (step 19 of the router/service split).
+
+GET /api/deposit-payments (plural, paginated) was added later, in the
+pagination pass - additive alongside the original GET /api/deposit-payment
+(singular, unbounded), same page/limit/total convention already used by
+GET /api/bills and GET /api/payments next to their unpaginated siblings.
 """
 
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from db_config import get_db
@@ -97,6 +102,74 @@ def list_deposit_payments(
         }
         for dp, u, s in rows
     ]
+
+
+@router.get("/api/deposit-payments", tags=["Deposit Payment"])
+def list_deposit_payments_paginated(
+    page:       int            = Query(1,  ge=1),
+    limit:      int            = Query(20, ge=1, le=200),
+    user_id:    Optional[int]  = None,
+    shop_id:    Optional[int]  = None,
+    complex_id: Optional[int]  = None,
+    start_date: Optional[datetime] = None,
+    end_date:   Optional[datetime] = None,
+    search:     Optional[str]  = None,
+    db:         Session        = Depends(get_db),
+    _:          User           = Depends(require_admin),
+):
+    """
+    Paginated deposit-payments list enriched with tenant and shop info.
+    Additive alongside GET /api/deposit-payment (which returns everything,
+    unbounded) - same page/limit/total convention as GET /api/bills and
+    GET /api/payments. Admin only.
+    """
+    q = (
+        db.query(DepositPayment, User, Shop)
+        .join(User, User.id == DepositPayment.user_id)
+        .join(Shop, Shop.id == DepositPayment.shop_id)
+    )
+
+    if user_id is not None:    q = q.filter(DepositPayment.user_id == user_id)
+    if shop_id is not None:    q = q.filter(DepositPayment.shop_id == shop_id)
+    if complex_id is not None: q = q.filter(Shop.complex_id == complex_id)
+    if start_date is not None: q = q.filter(DepositPayment.payment_date >= start_date)
+    if end_date is not None:   q = q.filter(DepositPayment.payment_date <= end_date)
+    if search:
+        term = f"%{search.strip()}%"
+        q = q.filter(
+            User.name.ilike(term)
+            | User.mobile.ilike(term)
+            | Shop.shop_number.ilike(term)
+            | DepositPayment.remarks.ilike(term)
+        )
+
+    total  = q.count()
+    offset = (page - 1) * limit
+    rows   = (
+        q.order_by(DepositPayment.payment_date.desc(), DepositPayment.id.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    complexes = {c.id: c.name for c in db.query(Complex).all()}
+
+    return {
+        "success": True,
+        "page":    page,
+        "limit":   limit,
+        "total":   total,
+        "data": [
+            {
+                "id": dp.id, "user_id": dp.user_id, "user_name": u.name,
+                "shop_id": dp.shop_id, "shop_number": s.shop_number,
+                "complex_id": s.complex_id, "complex_name": complexes.get(s.complex_id),
+                "amount": _decimal_to_float(dp.amount), "payment_date": dp.payment_date,
+                "remarks": dp.remarks, "created_at": dp.created_at,
+            }
+            for dp, u, s in rows
+        ],
+    }
 
 
 @router.get("/api/deposit-payment/{dp_id}", tags=["Deposit Payment"])

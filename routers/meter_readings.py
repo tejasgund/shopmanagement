@@ -239,6 +239,61 @@ def list_meter_readings(
     return _readings_to_dicts(db, q.all(), include_admin_fields=True)
 
 
+# NOTE: this concrete path MUST be registered before "/api/meter-readings/{id}"
+# so FastAPI doesn't try to parse "paginated" as an integer id (same reason
+# /api/complex/summary is registered before /api/complex/{id}).
+@router.get("/api/meter-readings/paginated", tags=["Meter"])
+def list_meter_readings_paginated(
+    page:       int            = Query(1,  ge=1),
+    limit:      int            = Query(20, ge=1, le=200),
+    status_filter: Optional[str] = Query(None, alias="status",
+                                         pattern="^(pending|approved|rejected)$"),
+    meter_id:   Optional[int] = None,
+    shop_id:    Optional[int] = None,
+    user_id:    Optional[int] = None,
+    complex_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """
+    Paginated version of the review queue. Additive alongside
+    GET /api/meter-readings (which returns everything, unbounded, and stays
+    exactly as-is) - same page/limit/total convention as GET /api/bills and
+    GET /api/payments. Same filters and default ordering as the unpaginated
+    endpoint (oldest pending first when status=pending, newest first
+    otherwise). Admin only.
+    """
+    q = db.query(MeterReading)
+    if status_filter:
+        q = q.filter(MeterReading.status == status_filter)
+    if meter_id is not None:
+        q = q.filter(MeterReading.meter_id == meter_id)
+    if shop_id is not None:
+        q = q.filter(MeterReading.shop_id == shop_id)
+    if user_id is not None:
+        q = q.filter(MeterReading.user_id == user_id)
+    if complex_id is not None:
+        q = q.join(Shop, Shop.id == MeterReading.shop_id).filter(Shop.complex_id == complex_id)
+
+    total = q.count()
+
+    if status_filter == "pending":
+        q = q.order_by(MeterReading.reading_date.asc(), MeterReading.id.asc())
+    else:
+        q = q.order_by(MeterReading.reading_date.desc(), MeterReading.id.desc())
+
+    offset = (page - 1) * limit
+    rows = q.offset(offset).limit(limit).all()
+
+    return {
+        "success": True,
+        "page":  page,
+        "limit": limit,
+        "total": total,
+        "data":  _readings_to_dicts(db, rows, include_admin_fields=True),
+    }
+
+
 @router.get("/api/meter-readings/{id}", tags=["Meter"])
 def get_meter_reading(id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     """
