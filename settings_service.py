@@ -70,6 +70,13 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
         "label": "Support contact",
         "help": "Phone or email shown to tenants who need help signing in.",
     },
+    "app.payment_methods": {
+        "value": "Cash, UPI or bank transfer at the office.", "type": "str", "category": "Branding",
+        "label": "How to pay (tenant portal)",
+        "help": "Shown on the tenant portal's 'How to pay' screen. Methods only - "
+                "never put an account number or UPI ID here, since this is sent to "
+                "every tenant's browser.",
+    },
     "label.tenant_singular": {
         "value": "Tenant", "type": "str", "category": "Branding",
         "label": "Word for a tenant",

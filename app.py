@@ -1382,8 +1382,8 @@ def public_settings(db: Session = Depends(get_db)):
     """
     The handful of settings the sign-in page and both portals need before a
     user is authenticated (app name, tagline, currency symbol, support
-    contact). Deliberately a small allow-list - no configuration that isn't
-    already visible on screen is exposed here.
+    contact, how-to-pay text). Deliberately a small allow-list - no
+    configuration that isn't already visible on screen is exposed here.
     """
     cfg = settings_service.get_all(db)
     razorpay_enabled, razorpay_key_id = _razorpay_public_config(cfg)
@@ -1392,6 +1392,7 @@ def public_settings(db: Session = Depends(get_db)):
         "tagline": cfg.get("app.tagline"),
         "currency_symbol": cfg.get("app.currency_symbol"),
         "support_contact": cfg.get("app.support_contact"),
+        "payment_methods": cfg.get("app.payment_methods"),
         "labels": {
             "tenant": cfg.get("label.tenant_singular"),
             "shop": cfg.get("label.shop_singular"),
