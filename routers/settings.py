@@ -1,15 +1,10 @@
 """
-routers/settings.py - GET/PUT /api/settings, POST /api/settings/reset
-(Admin only).
+routers/settings.py - GET /api/settings/public (unauthenticated), GET/PUT
+/api/settings, POST /api/settings/reset (Admin only).
 
-Extracted verbatim from app.py (step 13 of the router/service split).
-
-NOTE: GET /api/settings/public deliberately stays in app.py, not here - it
-calls _razorpay_public_config(), which reads the RAZORPAY_KEY_ID_ENV/
-RAZORPAY_KEY_SECRET_ENV module globals that several tests monkeypatch
-directly via app_module (see the same reasoning documented next to
-_razorpay_credentials/_razorpay_webhook_secret/_razorpay_public_config in
-app.py). Moving that one route here would silently break that patching.
+Extracted verbatim from app.py (step 13 of the router/service split;
+public_settings joined it in step 24, once razorpay_service.py gave
+_razorpay_public_config() a stable home outside app.py).
 """
 
 from typing import List, Optional
@@ -21,10 +16,36 @@ from db_config import get_db
 from create_tables import AppSetting, User
 from auth_service import require_admin
 from audit_service import write_audit
+from razorpay_service import _razorpay_public_config
 from schemas import SettingsUpdateRequest
 import settings_service
 
 router = APIRouter(tags=["Settings"])
+
+
+@router.get("/api/settings/public", tags=["Settings"])
+def public_settings(db: Session = Depends(get_db)):
+    """
+    The handful of settings the sign-in page and both portals need before a
+    user is authenticated (app name, tagline, currency symbol, support
+    contact). Deliberately a small allow-list - no configuration that isn't
+    already visible on screen is exposed here.
+    """
+    cfg = settings_service.get_all(db)
+    razorpay_enabled, razorpay_key_id = _razorpay_public_config(cfg)
+    return {
+        "app_name": cfg.get("app.name"),
+        "tagline": cfg.get("app.tagline"),
+        "currency_symbol": cfg.get("app.currency_symbol"),
+        "support_contact": cfg.get("app.support_contact"),
+        "labels": {
+            "tenant": cfg.get("label.tenant_singular"),
+            "shop": cfg.get("label.shop_singular"),
+            "complex": cfg.get("label.complex_singular"),
+        },
+        "razorpay_enabled": razorpay_enabled,
+        "razorpay_key_id": razorpay_key_id,
+    }
 
 
 @router.get("/api/settings", tags=["Settings"])

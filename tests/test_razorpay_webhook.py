@@ -87,9 +87,9 @@ def test_webhook_bad_signature_rejected(client, tenant_auth, bill, db, mock_orde
 def test_webhook_missing_secret_returns_503(client, tenant_auth, bill, db, mock_order_create, monkeypatch):
     """Enabled online payments but never set a webhook secret -> fail closed,
     same spirit as _razorpay_client's 'not configured' 503 for the key pair."""
-    import app as app_module
+    import razorpay_service
     _enable_razorpay(db)   # note: no webhook secret set
-    monkeypatch.setattr(app_module, "RAZORPAY_WEBHOOK_SECRET_ENV", "")
+    monkeypatch.setattr(razorpay_service, "RAZORPAY_WEBHOOK_SECRET_ENV", "")
     order = _create_order(client, tenant_auth, bill.id)
 
     res = client.post(WEBHOOK_URL, json=_payload("payment.captured", order["order_id"]),
@@ -212,8 +212,8 @@ def test_webhook_captured_no_pending_bills_leaves_order_created_for_manual_recon
              paid_amount=0, pending_amount=500, status="pending")
     db.add(b); db.commit(); db.refresh(b)
 
-    import app as app_module
-    solo_auth = {"Authorization": f"Bearer {app_module.create_access_token({'sub': str(t.id)})}"}
+    import auth_service
+    solo_auth = {"Authorization": f"Bearer {auth_service.create_access_token({'sub': str(t.id)})}"}
     order = _create_order(client, solo_auth, bill_id=None)
 
     db.delete(b)

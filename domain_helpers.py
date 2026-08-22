@@ -4,14 +4,10 @@ decimal formatting, shop-owner lookups, bill reconciliation, and the tenant
 financial-summary builder shared by the admin and tenant portals.
 
 Extracted verbatim from app.py's UTILITY section (step 4 of the router/
-service split). Deliberately does NOT include _razorpay_credentials /
-_razorpay_webhook_secret / _razorpay_public_config, even though those also
-lived in the same UTILITY section - those three read module-level
-RAZORPAY_KEY_ID_ENV / RAZORPAY_KEY_SECRET_ENV / RAZORPAY_WEBHOOK_SECRET_ENV
-constants that tests monkeypatch directly on the `app` module
-(monkeypatch.setattr(app_module, "RAZORPAY_KEY_ID_ENV", ...)); moving them
-here would silently break that patching (it would patch this module's copy,
-not the one app.py's functions actually read), so they stay in app.py.
+service split). _razorpay_credentials / _razorpay_webhook_secret /
+_razorpay_public_config, which also lived in the same UTILITY section, moved
+instead to razorpay_service.py (step 22) alongside the rest of the Razorpay
+integration - see that module's docstring.
 """
 
 from decimal import Decimal

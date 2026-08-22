@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient          # noqa: E402
 from sqlalchemy.orm import Session                 # noqa: E402
 
 import app as app_module                           # noqa: E402
+import auth_service                                 # noqa: E402
 import settings_service                            # noqa: E402
 from create_tables import (                        # noqa: E402
     Base, Meter, MeterTariff, Shop, User, UserShop, hash_password,
@@ -157,7 +158,7 @@ def tariff(db) -> MeterTariff:
 # ── Auth helpers ──────────────────────────────────────────────────────────
 
 def auth_header(user: User) -> dict:
-    return {"Authorization": f"Bearer {app_module.create_access_token({'sub': str(user.id)})}"}
+    return {"Authorization": f"Bearer {auth_service.create_access_token({'sub': str(user.id)})}"}
 
 
 @pytest.fixture

@@ -449,8 +449,8 @@ def test_verify_total_balance_no_bills_at_all_is_a_500_not_silent_loss(client, t
              paid_amount=0, pending_amount=500, status="pending")
     db.add(b); db.commit(); db.refresh(b)
 
-    import app as app_module
-    solo_auth = {"Authorization": f"Bearer {app_module.create_access_token({'sub': str(t.id)})}"}
+    import auth_service
+    solo_auth = {"Authorization": f"Bearer {auth_service.create_access_token({'sub': str(t.id)})}"}
     monkeypatch.setattr(razorpay.utility.utility.Utility, "verify_payment_signature", lambda self, p: True)
 
     order = _create_order(client, solo_auth, bill_id=None)
@@ -478,7 +478,7 @@ def test_verify_total_balance_no_bills_at_all_is_a_500_not_silent_loss(client, t
 # release (Jenkins etc.) and hand-editing .env on the box isn't practical.
 # ══════════════════════════════════════════════════════════════════════════════
 
-import app as app_module
+import razorpay_service
 
 
 def _set_db_keys(db, key_id="rzp_test_DBKEY", key_secret="db_secret_value"):
@@ -492,8 +492,8 @@ def _set_db_keys(db, key_id="rzp_test_DBKEY", key_secret="db_secret_value"):
 
 def test_payment_works_from_db_keys_alone_no_env_needed(client, tenant_auth, bill, db, mock_order_create, monkeypatch):
     """Blank out the env fallback entirely - DB-configured keys must still work."""
-    monkeypatch.setattr(app_module, "RAZORPAY_KEY_ID_ENV", "")
-    monkeypatch.setattr(app_module, "RAZORPAY_KEY_SECRET_ENV", "")
+    monkeypatch.setattr(razorpay_service, "RAZORPAY_KEY_ID_ENV", "")
+    monkeypatch.setattr(razorpay_service, "RAZORPAY_KEY_SECRET_ENV", "")
     _enable_razorpay(db)
     _set_db_keys(db)
 
@@ -504,8 +504,8 @@ def test_payment_works_from_db_keys_alone_no_env_needed(client, tenant_auth, bil
 
 
 def test_no_env_and_no_db_keys_stays_off(client, tenant_auth, bill, db, mock_order_create, monkeypatch):
-    monkeypatch.setattr(app_module, "RAZORPAY_KEY_ID_ENV", "")
-    monkeypatch.setattr(app_module, "RAZORPAY_KEY_SECRET_ENV", "")
+    monkeypatch.setattr(razorpay_service, "RAZORPAY_KEY_ID_ENV", "")
+    monkeypatch.setattr(razorpay_service, "RAZORPAY_KEY_SECRET_ENV", "")
     _enable_razorpay(db)   # switch is on, but genuinely no keys anywhere
 
     res = client.get("/api/settings/public")
@@ -517,8 +517,8 @@ def test_no_env_and_no_db_keys_stays_off(client, tenant_auth, bill, db, mock_ord
 
 
 def test_db_key_id_takes_priority_over_env(client, tenant_auth, bill, db, mock_order_create, monkeypatch):
-    monkeypatch.setattr(app_module, "RAZORPAY_KEY_ID_ENV", "rzp_test_FROM_ENV")
-    monkeypatch.setattr(app_module, "RAZORPAY_KEY_SECRET_ENV", "env_secret")
+    monkeypatch.setattr(razorpay_service, "RAZORPAY_KEY_ID_ENV", "rzp_test_FROM_ENV")
+    monkeypatch.setattr(razorpay_service, "RAZORPAY_KEY_SECRET_ENV", "env_secret")
     _enable_razorpay(db)
     _set_db_keys(db, key_id="rzp_test_FROM_DB")
 
