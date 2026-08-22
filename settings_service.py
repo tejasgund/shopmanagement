@@ -158,6 +158,12 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
         "help": "When off, approving a reading records the verified value but does "
                 "not raise a bill (useful if you bill electricity outside the app).",
     },
+    "bill.due_days": {
+        "value": 30, "type": "int", "category": "Billing",
+        "label": "Default bill due period (days)",
+        "help": "Due date for newly created bills = bill date + this many days. "
+                "Admins can override the due date for any individual bill.",
+    },
 
     # ── Online payments (Razorpay) ────────────────────────────────────────
     # The keys themselves (RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET) are env-only,
@@ -340,6 +346,8 @@ def _validate(values: Dict[str, Any]) -> None:
         raise ValueError("Max photo size must be between 1 and 50 MB")
     if "meter.bill_due_days" in values and not (0 <= values["meter.bill_due_days"] <= 365):
         raise ValueError("Payment window must be between 0 and 365 days")
+    if "bill.due_days" in values and not (0 <= values["bill.due_days"] <= 365):
+        raise ValueError("Bill due period must be between 0 and 365 days")
     if "meter.high_consumption_units" in values and values["meter.high_consumption_units"] < 0:
         raise ValueError("High consumption warning cannot be negative")
     if "meter.high_consumption_multiplier" in values and values["meter.high_consumption_multiplier"] < 0:
