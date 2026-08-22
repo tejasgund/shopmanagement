@@ -20,7 +20,7 @@ from create_tables import Meter, MeterReading, Shop, User, UserShop
 from auth_service import get_current_user, require_admin
 from audit_service import write_audit
 from domain_helpers import _decimal_to_float
-from meter_helpers import _meter_error, _reading_to_dict
+from meter_helpers import _meter_error, _reading_to_dict, _readings_to_dicts
 from app_config import APP_TIMEZONE
 from log import get_logger
 from schemas import ApproveReadingRequest, RejectReadingRequest, VerifyReadingRequest
@@ -236,7 +236,7 @@ def list_meter_readings(
     else:
         q = q.order_by(MeterReading.reading_date.desc(), MeterReading.id.desc())
 
-    return [_reading_to_dict(db, r, include_admin_fields=True) for r in q.all()]
+    return _readings_to_dicts(db, q.all(), include_admin_fields=True)
 
 
 @router.get("/api/meter-readings/{id}", tags=["Meter"])

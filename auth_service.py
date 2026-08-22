@@ -69,6 +69,7 @@ def get_current_user(
     """Dependency – returns the authenticated User ORM object."""
     payload = decode_token(credentials.credentials)
     user_id = payload.get("sub")
+
     if user_id is None:
         raise HTTPException(status_code=401, detail="Token missing subject")
 

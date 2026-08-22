@@ -11,11 +11,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from db_config import get_db
-from create_tables import Bill, Complex, Meter, MeterReading, Shop, User, UserShop
+from create_tables import Complex, Meter, MeterReading, Shop, User, UserShop
 from auth_service import require_admin
 from audit_service import write_audit
 from domain_helpers import _decimal_to_float
-from meter_helpers import _reading_to_dict
+from meter_helpers import _readings_to_dicts
 from schemas import AssignMeterShopRequest, MeterCreate, MeterUpdate
 import meter_service
 
@@ -377,26 +377,24 @@ def meter_history(id: int, db: Session = Depends(get_db), _: User = Depends(requ
         .all()
     )
 
-    entries, approved = [], []
-    for r in rows:
-        entry = _reading_to_dict(db, r, include_admin_fields=True)
+    # Bulk equivalent of calling _reading_to_dict() + a Bill lookup once per
+    # row (this used to be up to 6 queries per reading). _readings_to_dicts
+    # already fetches the bill for entry["bill"], so "amount" is read from
+    # there instead of querying Bill again.
+    entries = _readings_to_dicts(db, rows, include_admin_fields=True)
+    approved = [r for r in rows if r.status == "approved"]
+
+    for entry, r in zip(entries, rows):
         entry["units"] = _decimal_to_float(r.calculated_units) if r.calculated_units is not None else None
-        entry["amount"] = None
-        if r.bill_id:
-            bill = db.query(Bill).filter(Bill.id == r.bill_id).first()
-            if bill:
-                entry["amount"] = _decimal_to_float(bill.amount)
-        entries.append(entry)
-        if r.status == "approved":
-            approved.append(r)
+        entry["amount"] = entry["bill"]["amount"] if entry.get("bill") else None
 
     total_units = sum(_decimal_to_float(r.calculated_units) for r in approved if r.calculated_units)
-    total_billed = 0.0
-    for r in approved:
-        if r.bill_id:
-            bill = db.query(Bill).filter(Bill.id == r.bill_id).first()
-            if bill:
-                total_billed += _decimal_to_float(bill.amount)
+    total_billed = sum(
+        (entry["amount"]
+         for entry, r in zip(entries, rows)
+         if r.status == "approved" and entry["amount"] is not None),
+        0.0,
+    )
 
     average_units = round(total_units / len(approved), 2) if approved else None
 

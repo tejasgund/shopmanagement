@@ -17,7 +17,7 @@ from db_config import get_db
 from create_tables import Meter, MeterReading, Shop, User
 from auth_service import require_tenant
 from audit_service import write_audit
-from meter_helpers import _tenant_shop_ids, _reading_to_dict
+from meter_helpers import _tenant_shop_ids, _reading_to_dict, _readings_to_dicts
 from app_config import APP_TIMEZONE
 from log import get_logger
 import meter_service
@@ -211,7 +211,7 @@ def tenant_meter_readings(
     if meter_id is not None:
         q = q.filter(MeterReading.meter_id == meter_id)
     rows = q.order_by(MeterReading.reading_date.desc(), MeterReading.id.desc()).all()
-    return [_reading_to_dict(db, r) for r in rows]
+    return _readings_to_dicts(db, rows)
 
 
 @router.get("/api/tenant/meter-readings/{id}", tags=["Tenant"])
@@ -294,5 +294,5 @@ def tenant_meter_readings_paginated(
             "shop_id": meter.shop_id,
             "shop_number": shop.shop_number if shop else None,
         },
-        "data": [_reading_to_dict(db, r) for r in rows],
+        "data": _readings_to_dicts(db, rows),
     }
