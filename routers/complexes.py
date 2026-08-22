@@ -5,16 +5,15 @@ Extracted verbatim from app.py (step 14 of the router/service split).
 """
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from typing import List
 
 from db_config import get_db
-from create_tables import Bill, Complex, Shop, User, UserShop
+from create_tables import Bill, Complex, DepositPayment, Shop, User
 from auth_service import require_admin
 from audit_service import write_audit
-from domain_helpers import (
-    _decimal_to_float, _shop_owner_map, _deposit_paid_for_shop, _pending_rent_for_user,
-)
+from domain_helpers import _decimal_to_float, _shop_owner_map
 from schemas import ComplexCreate, ComplexResponse, ComplexUpdate
 
 router = APIRouter(tags=["Complex"])
@@ -108,15 +107,29 @@ def complex_summary(id: int, db: Session = Depends(get_db), _: User = Depends(re
 
     owner_map = _shop_owner_map(db, shop_ids) if shop_ids else {}
 
+    # Bulk-fetch deposit-paid sums per (user, shop) instead of one query per
+    # occupied shop (this used to be N+1, same as the old all_complexes_summary
+    # and report_user_wise). Same numbers as before, grouped in Python.
+    deposit_paid_map = {}
+    if shop_ids:
+        for uid, sid, total in (
+            db.query(DepositPayment.user_id, DepositPayment.shop_id, func.sum(DepositPayment.amount))
+            .filter(DepositPayment.shop_id.in_(shop_ids))
+            .group_by(DepositPayment.user_id, DepositPayment.shop_id)
+            .all()
+        ):
+            deposit_paid_map[(uid, sid)] = _decimal_to_float(total)
+
     total_monthly_rent = 0.0
     total_deposit_required = 0.0
     tenants_by_user = {}
 
     for s in shops:
-        us = db.query(UserShop).filter(UserShop.shop_id == s.id).order_by(UserShop.assigned_at.desc()).first()
         deposit_required = _decimal_to_float(s.shop_deposit)
         total_deposit_required += deposit_required if s.status == "occupied" else 0.0
-        if s.status != "occupied" or not us:
+        # owner_map only contains shops that have a UserShop row, so this is
+        # equivalent to the old per-shop UserShop existence check.
+        if s.status != "occupied" or s.id not in owner_map:
             continue
         rent = _decimal_to_float(s.shop_rent)  # <-- DIRECT USE
         total_monthly_rent += rent
@@ -132,8 +145,23 @@ def complex_summary(id: int, db: Session = Depends(get_db), _: User = Depends(re
         entry["shops"].append(s.shop_number)
         entry["monthly_rent"] += rent
         entry["deposit_required"] += deposit_required
-        entry["deposit_paid"] += _deposit_paid_for_shop(db, owner.id, s.id)
-        entry["pending_rent"] = _pending_rent_for_user(db, owner.id)  # per-user total, same each time it's set
+        entry["deposit_paid"] += deposit_paid_map.get((owner.id, s.id), 0.0)
+
+    # Bulk-fetch pending rent per user (global figure, same
+    # _pending_rent_for_user semantics - it was a plain assignment, not an
+    # accumulation, so computing it once after the loop is equivalent).
+    owner_ids = list(tenants_by_user.keys())
+    pending_rent_map = {}
+    if owner_ids:
+        for uid, total in (
+            db.query(Bill.user_id, func.sum(Bill.pending_amount))
+            .filter(Bill.user_id.in_(owner_ids), Bill.bill_type == "Rent", Bill.status != "paid")
+            .group_by(Bill.user_id)
+            .all()
+        ):
+            pending_rent_map[uid] = _decimal_to_float(total)
+    for uid, entry in tenants_by_user.items():
+        entry["pending_rent"] = pending_rent_map.get(uid, 0.0)
 
     total_pending_rent = sum(
         _decimal_to_float(b.pending_amount)

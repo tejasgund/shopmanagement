@@ -4,25 +4,27 @@ routers/reports.py - GET /api/reports/* + GET /api/finance/overview (Admin only)
 Extracted verbatim from app.py (step 5 of the router/service split, after
 schemas.py, auth_service.py/audit_service.py, routers/audit_log.py, and
 domain_helpers.py). Every helper this module needs (_decimal_to_float,
-_shop_owner_map, _current_user_shops, _deposit_paid_for_shop,
-_pending_rent_for_user) already lives in domain_helpers.py, so this router
-has no dependency on app.py itself.
+_shop_owner_map) already lives in domain_helpers.py, so this router has no
+dependency on app.py itself.
+
+Bug/perf audit note: report_deposit and finance_overview used to call
+_deposit_paid_for_shop / _pending_rent_for_user once per row (N+1 queries
+against DepositPayment/Bill). Both now bulk-fetch and group in Python
+instead, matching the pattern already used in report_user_wise and
+routers/complexes.py's all_complexes_summary. Same numbers as before.
 """
 
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import text
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from db_config import get_db
 from create_tables import Bill, Complex, DepositPayment, Payment, Shop, User, UserShop
 from auth_service import require_admin
-from domain_helpers import (
-    _decimal_to_float, _shop_owner_map, _current_user_shops,
-    _deposit_paid_for_shop, _pending_rent_for_user,
-)
+from domain_helpers import _decimal_to_float, _shop_owner_map
 
 router = APIRouter(tags=["Reports"])
 
@@ -200,20 +202,35 @@ def report_deposit(
     rows = q.order_by(UserShop.user_id).all()
     complexes = {c.id: c.name for c in db.query(Complex).all()}
 
+    # Bulk-fetch deposit payments for every (user, shop) pair in `rows` instead
+    # of two extra queries per row (sum + latest) - same numbers as before,
+    # computed once and grouped in Python instead.
+    shop_ids = [s.id for _, _, s in rows]
+    user_ids = [u.id for _, u, _ in rows]
+    deposit_rows = (
+        db.query(DepositPayment)
+        .filter(DepositPayment.shop_id.in_(shop_ids), DepositPayment.user_id.in_(user_ids))
+        .order_by(DepositPayment.payment_date.desc())
+        .all()
+    ) if shop_ids else []
+
+    paid_map = {}
+    last_dp_map = {}
+    for dp in deposit_rows:
+        key = (dp.user_id, dp.shop_id)
+        paid_map[key] = paid_map.get(key, 0.0) + _decimal_to_float(dp.amount)
+        if key not in last_dp_map:  # first occurrence in desc-sorted list = latest
+            last_dp_map[key] = dp
+
     records = []
     full_count = partial_count = none_count = 0
     total_required = total_paid = 0.0
 
     for us, u, s in rows:
         required = _decimal_to_float(s.shop_deposit)
-        paid = _deposit_paid_for_shop(db, u.id, s.id)
+        paid = paid_map.get((u.id, s.id), 0.0)
         remaining = max(0.0, required - paid)
-        last_dp = (
-            db.query(DepositPayment)
-            .filter(DepositPayment.user_id == u.id, DepositPayment.shop_id == s.id)
-            .order_by(DepositPayment.payment_date.desc())
-            .first()
-        )
+        last_dp = last_dp_map.get((u.id, s.id))
         if paid >= required and required > 0:
             dep_status = "full"
             full_count += 1
@@ -329,6 +346,7 @@ def report_user_wise(
 ):
     """User-wise financial report. Admin only."""
     users = db.query(User).filter(User.role == "tenant").order_by(User.id).all()
+    user_ids = [u.id for u in users]
     complexes = {c.id: c.name for c in db.query(Complex).all()}
 
     # Prefetched once instead of once per user/shop below (this used to be
@@ -341,9 +359,49 @@ def report_user_wise(
         key = (dp.user_id, dp.shop_id)
         deposits_by_user_shop[key] = deposits_by_user_shop.get(key, 0.0) + _decimal_to_float(dp.amount)
 
+    # Bulk-fetch UserShop rows for every tenant instead of one
+    # _current_user_shops() query per tenant.
+    user_shops_by_user = {}
+    if user_ids:
+        for us in db.query(UserShop).filter(UserShop.user_id.in_(user_ids)).all():
+            user_shops_by_user.setdefault(us.user_id, []).append(us)
+
+    # Bulk-fetch bills (with the same date/month/year filters) for every
+    # tenant instead of one bill_q query per tenant.
+    bills_by_user = {}
+    if user_ids:
+        bulk_bill_q = db.query(Bill).filter(Bill.user_id.in_(user_ids))
+        if start_date is not None:
+            bulk_bill_q = bulk_bill_q.filter(Bill.bill_date >= start_date)
+        if end_date is not None:
+            bulk_bill_q = bulk_bill_q.filter(Bill.bill_date <= end_date)
+        if month is not None:
+            bulk_bill_q = bulk_bill_q.filter(text("MONTH(bills.bill_date) = :m")).params(m=month)
+        if year is not None:
+            bulk_bill_q = bulk_bill_q.filter(text("YEAR(bills.bill_date) = :y")).params(y=year)
+        for b in bulk_bill_q.all():
+            bills_by_user.setdefault(b.user_id, []).append(b)
+
+    # Bulk-fetch payment count + most recent payment (unfiltered by date,
+    # same scope as the old per-tenant queries) instead of two queries per
+    # tenant.
+    payment_count_by_user = {}
+    last_payment_by_user = {}
+    if user_ids:
+        for p, buid in (
+            db.query(Payment, Bill.user_id)
+            .join(Bill, Bill.id == Payment.bill_id)
+            .filter(Bill.user_id.in_(user_ids))
+            .order_by(Payment.payment_date.desc())
+            .all()
+        ):
+            payment_count_by_user[buid] = payment_count_by_user.get(buid, 0) + 1
+            if buid not in last_payment_by_user:  # first occurrence in desc-sorted list = latest
+                last_payment_by_user[buid] = p
+
     results = []
     for u in users:
-        user_shops = _current_user_shops(db, u.id)
+        user_shops = user_shops_by_user.get(u.id, [])
         if complex_id is not None:
             shop_ids_in_complex = {s.id for s in shops_by_id.values() if s.complex_id == complex_id}
             user_shops = [us for us in user_shops if us.shop_id in shop_ids_in_complex]
@@ -365,16 +423,7 @@ def report_user_wise(
             deposit_required += _decimal_to_float(shop.shop_deposit)
             deposit_paid += deposits_by_user_shop.get((u.id, shop.id), 0.0)
 
-        bill_q = db.query(Bill).filter(Bill.user_id == u.id)
-        if start_date is not None:
-            bill_q = bill_q.filter(Bill.bill_date >= start_date)
-        if end_date is not None:
-            bill_q = bill_q.filter(Bill.bill_date <= end_date)
-        if month is not None:
-            bill_q = bill_q.filter(text("MONTH(bills.bill_date) = :m")).params(m=month)
-        if year is not None:
-            bill_q = bill_q.filter(text("YEAR(bills.bill_date) = :y")).params(y=year)
-        bills = bill_q.all()
+        bills = bills_by_user.get(u.id, [])
 
         if not bills and not shops_list:
             continue
@@ -383,11 +432,8 @@ def report_user_wise(
         total_collected = sum(_decimal_to_float(b.paid_amount) for b in bills)
         total_pending = sum(_decimal_to_float(b.pending_amount) for b in bills)
 
-        last_payment = (
-            db.query(Payment).join(Bill, Bill.id == Payment.bill_id)
-            .filter(Bill.user_id == u.id).order_by(Payment.payment_date.desc()).first()
-        )
-        payment_count = db.query(Payment).join(Bill, Bill.id == Payment.bill_id).filter(Bill.user_id == u.id).count()
+        last_payment = last_payment_by_user.get(u.id)
+        payment_count = payment_count_by_user.get(u.id, 0)
 
         results.append({
             "user_id": u.id, "user_name": u.name, "mobile": u.mobile,
@@ -708,13 +754,27 @@ def finance_overview(
         us_q = us_q.filter(Shop.complex_id == complex_id)
     us_rows = us_q.all()
 
+    # Bulk-fetch deposit-paid sums per (user, shop) instead of one query per
+    # row - same numbers as before, computed once and grouped in Python.
+    us_shop_ids = [s.id for _, _, s in us_rows]
+    us_user_ids = [u.id for _, u, _ in us_rows]
+    deposit_paid_map = {}
+    if us_shop_ids:
+        for uid, sid, total in (
+            db.query(DepositPayment.user_id, DepositPayment.shop_id, func.sum(DepositPayment.amount))
+            .filter(DepositPayment.shop_id.in_(us_shop_ids), DepositPayment.user_id.in_(us_user_ids))
+            .group_by(DepositPayment.user_id, DepositPayment.shop_id)
+            .all()
+        ):
+            deposit_paid_map[(uid, sid)] = _decimal_to_float(total)
+
     complexes = {c.id: c.name for c in db.query(Complex).all()}
     tenants_map = {}
     total_deposit_required = total_deposit_collected = 0.0
 
     for us, u, s in us_rows:
         deposit_required = _decimal_to_float(s.shop_deposit)
-        deposit_paid = _deposit_paid_for_shop(db, u.id, s.id)
+        deposit_paid = deposit_paid_map.get((u.id, s.id), 0.0)
         total_deposit_required += deposit_required
         total_deposit_collected += deposit_paid
 
@@ -730,17 +790,42 @@ def finance_overview(
         entry["deposit_required"] += deposit_required
         entry["deposit_paid"] += deposit_paid
 
+    # Bulk-fetch pending rent per user (global figure, same
+    # _pending_rent_for_user semantics) instead of one query per tenant.
+    pending_rent_map = {}
+    if tenants_map:
+        for uid, total in (
+            db.query(Bill.user_id, func.sum(Bill.pending_amount))
+            .filter(Bill.user_id.in_(list(tenants_map.keys())), Bill.bill_type == "Rent", Bill.status != "paid")
+            .group_by(Bill.user_id)
+            .all()
+        ):
+            pending_rent_map[uid] = _decimal_to_float(total)
+
+    # Bulk-fetch each tenant's most recent payment (global, across all their
+    # bills - same scope as the old per-tenant query) instead of one query
+    # per tenant.
+    last_payment_map = {}
+    tenant_ids = list(tenants_map.keys())
+    if tenant_ids:
+        for p, buid in (
+            db.query(Payment, Bill.user_id)
+            .join(Bill, Bill.id == Payment.bill_id)
+            .filter(Bill.user_id.in_(tenant_ids))
+            .order_by(Payment.payment_date.desc())
+            .all()
+        ):
+            if buid not in last_payment_map:  # first occurrence in desc-sorted list = latest
+                last_payment_map[buid] = p
+
     for uid, entry in tenants_map.items():
-        entry["rent_pending"] = round(_pending_rent_for_user(db, uid), 2)
+        entry["rent_pending"] = round(pending_rent_map.get(uid, 0.0), 2)
         entry["outstanding_balance"] = entry["rent_pending"]
         entry["deposit_remaining"] = round(entry["deposit_required"] - entry["deposit_paid"], 2)
         entry["monthly_rent"] = round(entry["monthly_rent"], 2)
         entry["deposit_required"] = round(entry["deposit_required"], 2)
         entry["deposit_paid"] = round(entry["deposit_paid"], 2)
-        last_payment = (
-            db.query(Payment).join(Bill, Bill.id == Payment.bill_id)
-            .filter(Bill.user_id == uid).order_by(Payment.payment_date.desc()).first()
-        )
+        last_payment = last_payment_map.get(uid)
         entry["last_payment_date"] = last_payment.payment_date if last_payment else None
 
     pay_q = db.query(Payment).join(Bill, Bill.id == Payment.bill_id)

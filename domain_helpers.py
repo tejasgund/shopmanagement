@@ -17,6 +17,7 @@ not the one app.py's functions actually read), so they stay in app.py.
 from decimal import Decimal
 from typing import List, Optional
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from create_tables import Bill, Complex, DepositPayment, Payment, Shop, User, UserShop
@@ -132,6 +133,18 @@ def _build_user_financial_summary(db: Session, user: User) -> dict:
     shops = {s.id: s for s in db.query(Shop).filter(Shop.id.in_(shop_ids)).all()} if shop_ids else {}
     complexes = {c.id: c for c in db.query(Complex).all()}
 
+    # Bulk-fetch deposit-paid sums per shop for this user instead of one
+    # query per shop - same numbers as before, computed once.
+    deposit_paid_by_shop = {}
+    if shop_ids:
+        for sid, total in (
+            db.query(DepositPayment.shop_id, func.sum(DepositPayment.amount))
+            .filter(DepositPayment.user_id == user.id, DepositPayment.shop_id.in_(shop_ids))
+            .group_by(DepositPayment.shop_id)
+            .all()
+        ):
+            deposit_paid_by_shop[sid] = _decimal_to_float(total)
+
     shops_summary_list = []
     total_monthly_rent = 0.0
     total_deposit_required = 0.0
@@ -143,7 +156,7 @@ def _build_user_financial_summary(db: Session, user: User) -> dict:
             continue
         rent = _decimal_to_float(shop.shop_rent)  # <-- DIRECT USE
         deposit_required = _decimal_to_float(shop.shop_deposit)
-        deposit_paid = _deposit_paid_for_shop(db, user.id, shop.id)
+        deposit_paid = deposit_paid_by_shop.get(shop.id, 0.0)
 
         total_monthly_rent += rent
         total_deposit_required += deposit_required
