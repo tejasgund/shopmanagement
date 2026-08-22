@@ -10,7 +10,7 @@ that calls it lives right next to it. This router only covers plain bill
 CRUD, which has no dependency on that subsystem.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import List, Optional
 
@@ -23,6 +23,7 @@ from auth_service import require_admin
 from audit_service import write_audit
 from domain_helpers import _decimal_to_float, _reconcile_bill
 from schemas import BillCreate, BillResponse, BillUpdate
+import settings_service
 
 router = APIRouter(tags=["Bill"])
 
@@ -43,6 +44,12 @@ def create_bill(
     Any other bill_type (e.g. "Electricity", "Maintenance", "Other"):
     `amount` is required and used as-is. `description` is optional and is
     commonly used to clarify what the charge is for.
+
+    Due Date Calculation:
+    If due_date is not provided, it is automatically calculated as:
+    due_date = bill_date + (admin-configured bill.due_days)
+    To override, provide an explicit due_date in the request.
+
     Admin only.
     """
     user = db.query(User).filter(User.id == body.user_id).first()
@@ -70,6 +77,18 @@ def create_bill(
         amount_value = body.amount
 
     amount = Decimal(str(amount_value))
+
+    # Determine bill_date: use provided value or default to now
+    bill_date_value = body.bill_date or datetime.now(timezone.utc)
+
+    # Automatically calculate due_date if not provided by admin
+    # Due Date = Bill Date + Admin-Configured Due Days
+    if body.due_date is None:
+        due_days = settings_service.get(db, "bill.due_days")
+        due_date_value = bill_date_value + timedelta(days=due_days)
+    else:
+        due_date_value = body.due_date
+
     bill = Bill(
         user_id        = body.user_id,
         shop_id        = body.shop_id,
@@ -78,8 +97,8 @@ def create_bill(
         amount         = amount,
         paid_amount    = Decimal("0"),
         pending_amount = amount,
-        due_date       = body.due_date,
-        bill_date=body.bill_date or datetime.now(timezone.utc),
+        due_date       = due_date_value,
+        bill_date      = bill_date_value,
         status         = "pending",
     )
     db.add(bill)
