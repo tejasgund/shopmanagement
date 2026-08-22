@@ -10,10 +10,13 @@ What it does:
     2. Creates ANY missing tables (brand-new models that don't exist yet in the DB)
     3. Adds ANY missing columns on tables that already exist but are missing
        fields defined on the ORM model (self-healing schema – safe to run repeatedly)
-    4. Adds indexes and foreign keys (handled by SQLAlchemy metadata, best-effort
+    4. Relaxes any column that used to be NOT NULL but whose model has since
+       been changed to nullable (e.g. to support a new optional use case) -
+       never the other direction, so this can't break existing rows
+    5. Adds indexes and foreign keys (handled by SQLAlchemy metadata, best-effort
        for ones added after the table already exists)
-    5. Inserts the default admin user (mobile: 8177809890)
-    6. Prints a summary to stdout
+    6. Inserts the default admin user (mobile: 8177809890)
+    7. Prints a summary to stdout
 
 Self-healing behaviour:
     Every time this script runs, it diffs Base.metadata against the live
@@ -22,9 +25,13 @@ Self-healing behaviour:
       - A model whose table exists but is missing one or more columns
         defined on the model -> ALTER TABLE ... ADD COLUMN for each missing
         column individually
-    This means if you add a new Column(...) to any model below, or add an
-    entirely new model class, simply re-running `python create_tables.py`
-    brings the live database up to date without any manual migration.
+      - A model whose table has a column that is NOT NULL in the database
+        but nullable=True on the model -> ALTER TABLE ... MODIFY COLUMN ...
+        NULL (one-way only: never tightens NULL -> NOT NULL automatically)
+    This means if you add a new Column(...) to any model below, add an
+    entirely new model class, or loosen an existing column's nullability,
+    simply re-running `python create_tables.py` brings the live database up
+    to date without any manual migration.
 """
 
 from datetime import datetime, timezone
@@ -468,8 +475,12 @@ def hash_password(plain: str) -> str:
 # Detects and fixes, on every run:
 #   (a) entirely missing tables   -> CREATE TABLE
 #   (b) missing columns on tables that DO exist -> ALTER TABLE ADD COLUMN
-#   (c) missing indexes defined on the model     -> CREATE INDEX (best effort)
-# Safe to run any number of times; every check is "if missing, then add".
+#   (c) a column that used to be NOT NULL but the model has since made
+#       optional -> ALTER TABLE MODIFY COLUMN ... NULL (never the reverse -
+#       tightening NULL -> NOT NULL is not attempted automatically, since it
+#       could break rows that already contain NULL)
+#   (d) missing indexes defined on the model     -> CREATE INDEX (best effort)
+# Safe to run any number of times; every check is "if missing/mismatched, then heal".
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _default_clause_for_column(column, dialect) -> str:
@@ -508,9 +519,9 @@ def sync_schema(connection) -> dict:
         if the index engine-specific syntax doesn't apply)
 
     Returns a summary dict: {"tables_created": [...], "columns_added": [...],
-    "indexes_added": [...], "errors": [...]}
+    "columns_relaxed": [...], "indexes_added": [...], "errors": [...]}
     """
-    summary = {"tables_created": [], "columns_added": [], "indexes_added": [], "errors": []}
+    summary = {"tables_created": [], "columns_added": [], "columns_relaxed": [], "indexes_added": [], "errors": []}
 
     inspector = sa_inspect(engine)
     existing_tables_before = set(inspector.get_table_names())
@@ -579,6 +590,37 @@ def sync_schema(connection) -> dict:
                 summary["errors"].append(f"{table.name}.{column.name}: {exc}")
                 logger.warning("Could not add column %s.%s: %s", table.name, column.name, exc)
 
+        # ── Step 2b: relax NOT NULL -> NULL on columns that already existed
+        # before the model loosened them (e.g. a column that used to always
+        # be required, later changed to optional for a new use case). We only
+        # ever go NOT NULL -> NULL here, never the reverse: a nullable column
+        # can hold every value a NOT NULL one already does, so this direction
+        # can never break existing rows. Tightening isn't attempted
+        # automatically since existing NULLs would then violate the column.
+        existing_col_info = {col["name"]: col for col in inspector.get_columns(table.name)}
+        for column in table.columns:
+            if not column.nullable:
+                continue  # model requires NOT NULL here - nothing to relax
+            db_col = existing_col_info.get(column.name)
+            if db_col is None or db_col.get("nullable", True):
+                continue  # brand new column (handled above) or already nullable
+
+            col_type = column.type.compile(dialect=engine.dialect)
+            alter_sql = (
+                f"ALTER TABLE `{table.name}` "
+                f"MODIFY COLUMN `{column.name}` {col_type} NULL;"
+            )
+            try:
+                connection.execute(text(alter_sql))
+                connection.commit()
+                summary["columns_relaxed"].append(f"{table.name}.{column.name}")
+                print(f"  ✔  Relaxed NOT NULL -> NULL: {table.name}.{column.name}")
+                logger.info("Relaxed NOT NULL -> NULL: %s.%s", table.name, column.name)
+            except Exception as exc:
+                connection.rollback()
+                summary["errors"].append(f"{table.name}.{column.name} (relax nullable): {exc}")
+                logger.warning("Could not relax nullable on %s.%s: %s", table.name, column.name, exc)
+
         # ── Step 3: best-effort check for missing simple/unique indexes ──
         try:
             existing_index_cols = set()
@@ -643,7 +685,8 @@ def main():
     with engine.connect() as conn:
         summary = sync_schema(conn)
 
-    if not any([summary["tables_created"], summary["columns_added"], summary["indexes_added"]]):
+    if not any([summary["tables_created"], summary["columns_added"],
+                summary["columns_relaxed"], summary["indexes_added"]]):
         print("✔  Schema already up to date – nothing to change.\n")
     else:
         print()
@@ -651,6 +694,8 @@ def main():
             print(f"✔  Tables created: {len(summary['tables_created'])} -> {summary['tables_created']}")
         if summary["columns_added"]:
             print(f"✔  Columns added:  {len(summary['columns_added'])} -> {summary['columns_added']}")
+        if summary["columns_relaxed"]:
+            print(f"✔  Columns relaxed to NULL: {len(summary['columns_relaxed'])} -> {summary['columns_relaxed']}")
         if summary["indexes_added"]:
             print(f"✔  Indexes added:  {len(summary['indexes_added'])} -> {summary['indexes_added']}")
         print()

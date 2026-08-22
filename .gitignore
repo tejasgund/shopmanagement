@@ -10,3 +10,4 @@ uploads/          # meter photos - evidence files, backed up separately, never i
 # Local env
 .env
 *.db
+
