@@ -71,6 +71,35 @@ def _reconcile_bill(bill: Bill):
         bill.status = "partial"
 
 
+def _tenant_payment_dict(p: Payment) -> dict:
+    """
+    One payment row as the tenant portal needs it.
+
+    created_at matters more than it looks: when a lump sum is split across
+    several bills by auto-allocate, every row it creates is written in the
+    same transaction, so they share a created_at to the second. The portal
+    uses that to show "you paid Rs 6,000" once instead of three fragments,
+    which is what tenants were ringing up about. payment_group is used in
+    preference when it exists (see the note in tenant-payments.js).
+
+    Shared by /api/tenant/payments (routers/tenant_portal.py) and
+    tenant_home (app.py) - moved here (step 20 of the router/service split)
+    so both can use the exact same shape without app.py importing from a
+    router.
+    """
+    return {
+        "id":             p.id,
+        "bill_id":        p.bill_id,
+        "amount":         _decimal_to_float(p.amount),
+        "payment_method": p.payment_method,
+        "payment_date":   p.payment_date,
+        "remarks":        p.remarks,
+        "created_at":     p.created_at,
+        "payment_group":  getattr(p, "payment_group", None),
+        "razorpay_payment_id": p.razorpay_payment_id,
+    }
+
+
 def _current_user_shops(db: Session, user_id: int) -> List[UserShop]:
     """All current UserShop assignment rows for a given user."""
     return db.query(UserShop).filter(UserShop.user_id == user_id).all()
