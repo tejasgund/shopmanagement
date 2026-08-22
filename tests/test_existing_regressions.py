@@ -335,3 +335,48 @@ def test_meter_bill_can_be_paid_through_the_existing_payment_flow(
 
     db.expire_all()
     assert db.get(Bill, bill_id).status == "paid"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SETTINGS CACHE FRESHNESS ACROSS WORKERS
+# ══════════════════════════════════════════════════════════════════════════════
+
+def test_settings_cache_expires_so_other_workers_pick_up_a_change(db, monkeypatch):
+    """
+    The API runs under `uvicorn --workers 2`. invalidate_cache() only reaches
+    the process that handled the write, so without an expiry the OTHER worker
+    serves its startup snapshot forever - an admin changes the Razorpay keys
+    or the bill due period and half of all requests keep using the old value.
+
+    Simulated here by writing to the database behind the cache's back (exactly
+    what the other worker sees) and checking the value is picked up once the
+    TTL lapses.
+    """
+    import time as _time
+    from create_tables import AppSetting
+
+    settings_service.set_many(db, {"bill.due_days": 10})
+    db.commit()
+    settings_service.invalidate_cache()
+    assert settings_service.get_all(db)["bill.due_days"] == 10
+
+    # Another worker writes the new value; this process is never told.
+    row = db.query(AppSetting).filter(AppSetting.key == "bill.due_days").first()
+    row.value = "45"
+    db.commit()
+
+    # Still the cached value - correct, the TTL hasn't lapsed.
+    assert settings_service.get_all(db)["bill.due_days"] == 10
+
+    monkeypatch.setattr(settings_service, "_CACHE_TTL_SECONDS", 0.0)
+    assert settings_service.get_all(db)["bill.due_days"] == 45, (
+        "a stale worker never picked up the change - the cache has no expiry"
+    )
+
+
+def test_settings_cache_still_updates_immediately_in_the_writing_process(db):
+    """The TTL must not have made same-process writes slower to take effect."""
+    settings_service.set_many(db, {"bill.due_days": 7})
+    db.commit()
+    settings_service.invalidate_cache()
+    assert settings_service.get_all(db)["bill.due_days"] == 7

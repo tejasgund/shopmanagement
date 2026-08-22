@@ -30,7 +30,9 @@ whether one is currently set - and a blank submission on PUT never clears an
 existing one (see set_many() below).
 """
 
+import os
 import threading
+import time
 from typing import Any, Dict, Optional
 
 from sqlalchemy.orm import Session
@@ -250,13 +252,27 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
 
 _cache: Optional[Dict[str, Any]] = None
 _cache_lock = threading.Lock()
+_cache_loaded_at = 0.0
+
+# The API runs under `uvicorn --workers 2`, and every worker is a separate
+# process with its own copy of this module - so invalidate_cache() below only
+# ever reaches the ONE worker that handled the write. Without an expiry the
+# other workers keep serving whatever they cached at startup indefinitely: an
+# admin changes the Razorpay keys (or the bill due period, or a meter setting)
+# and roughly half of all requests carry on using the old value, which reads
+# as the setting randomly not applying, or as intermittent gateway auth
+# failures. A short TTL bounds that to a few seconds and costs one small query
+# per worker per interval - far simpler than a cross-process signal, and the
+# writing worker still updates instantly via invalidate_cache().
+_CACHE_TTL_SECONDS = float(os.getenv("SETTINGS_CACHE_TTL_SECONDS", "10"))
 
 
 def invalidate_cache() -> None:
     """Drop the in-memory cache; next read reloads from the database."""
-    global _cache
+    global _cache, _cache_loaded_at
     with _cache_lock:
         _cache = None
+        _cache_loaded_at = 0.0
 
 
 def _coerce(raw: Any, type_name: str) -> Any:
@@ -298,11 +314,16 @@ def _load(db: Session) -> Dict[str, Any]:
 
 
 def get_all(db: Session) -> Dict[str, Any]:
-    """Every setting, resolved. Cached until something is written."""
-    global _cache
+    """
+    Every setting, resolved. Cached until something is written in THIS process
+    or the cache goes stale (see _CACHE_TTL_SECONDS for why the expiry exists).
+    """
+    global _cache, _cache_loaded_at
     with _cache_lock:
-        if _cache is None:
+        stale = (time.monotonic() - _cache_loaded_at) >= _CACHE_TTL_SECONDS
+        if _cache is None or stale:
             _cache = _load(db)
+            _cache_loaded_at = time.monotonic()
         return dict(_cache)
 
 

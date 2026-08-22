@@ -47,6 +47,7 @@ from log import get_logger
 from razorpay_service import (
     _RazorpayNoPendingBillsError, _finalize_paid_razorpay_order, _razorpay_client,
     _razorpay_credentials, _razorpay_webhook_secret, _tenant_total_pending,
+    credentials_fingerprint,
 )
 
 logger = get_logger("app")
@@ -116,7 +117,20 @@ def create_razorpay_order(
     except razorpay.errors.BadRequestError as exc:
         msg = str(exc)
         if "auth" in msg.lower() or "key" in msg.lower():
+            # Log what Razorpay actually objected to, and which credentials we
+            # sent. Without this the log carried only the generic sentence
+            # below, which says nothing about WHY the gateway refused them -
+            # leaving no way to tell a wrong key from a stale one. The tenant
+            # still sees the generic message; the detail is for the log only.
+            logger.error(
+                "Razorpay refused our credentials (tenant %s): %s | using %s",
+                current_user.id, msg, credentials_fingerprint(cfg),
+            )
             raise HTTPException(401, detail="Payment gateway authentication failed. Contact the office.")
+        logger.error(
+            "Razorpay rejected the create-order request (tenant %s): %s",
+            current_user.id, msg,
+        )
         raise HTTPException(400, detail=f"Payment gateway rejected the request: {msg}")
     except (razorpay.errors.ServerError, razorpay.errors.GatewayError) as exc:
         logger.error("Razorpay order creation failed for user %s: %s", current_user.id, exc)

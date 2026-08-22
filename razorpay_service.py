@@ -87,6 +87,36 @@ def _razorpay_public_config(cfg: dict) -> tuple:
     return ready, (key_id if ready else None)
 
 
+def credentials_fingerprint(cfg: dict) -> str:
+    """
+    A safe one-line description of WHICH credentials a request actually used,
+    for the log when the gateway refuses them.
+
+    The key id is already public - it is handed to checkout.js in the browser -
+    so it is written out in full. The secret never is: only whether one is set
+    and how long it is. That is enough to spot the usual causes (a blank or
+    truncated secret, a key and secret from different pairs) without putting
+    the secret itself into a log file someone may later paste elsewhere.
+
+    It also reports WHERE each half came from. _razorpay_credentials() prefers
+    the Settings value over the environment one, so a deployment that updated
+    .env while a stale value still sits in Settings keeps using the stale one -
+    silently, and that is not visible from any other log line.
+    """
+    settings_id = str(cfg.get("payment.razorpay_key_id") or "").strip()
+    settings_secret = str(cfg.get("payment.razorpay_key_secret") or "").strip()
+    key_id, key_secret = _razorpay_credentials(cfg)
+
+    id_source = "Settings" if settings_id else ("env" if RAZORPAY_KEY_ID_ENV else "nowhere")
+    secret_source = "Settings" if settings_secret else ("env" if RAZORPAY_KEY_SECRET_ENV else "nowhere")
+    secret_desc = f"set ({len(key_secret)} chars)" if key_secret else "NOT SET"
+
+    return (
+        f"key_id={key_id or '(none)'} [from {id_source}], "
+        f"key_secret={secret_desc} [from {secret_source}]"
+    )
+
+
 def _razorpay_client(cfg: dict) -> "razorpay.Client":
     key_id, key_secret = _razorpay_credentials(cfg)
     if not key_id or not key_secret:
