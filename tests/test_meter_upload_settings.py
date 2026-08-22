@@ -363,3 +363,76 @@ def test_report_status_filter_does_not_change_the_totals(
 def test_report_is_admin_only(client, tenant_auth):
     resp = client.get("/api/reports/missing-meter-readings", headers=tenant_auth)
     assert resp.status_code == 403
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# "Allow Gallery Upload"
+#
+# Whether the reading photo may be an existing image or must be taken with the
+# camera there and then. Enforced client-side only, by dropping the `capture`
+# attribute from the file input - the server cannot tell a photo taken seconds
+# ago from one picked out of the gallery, so what is asserted here is that the
+# flag reaches the clients correctly and that only an admin can change it.
+# ══════════════════════════════════════════════════════════════════════════════
+
+def test_gallery_upload_is_off_by_default(client, tenant_auth, meter, db):
+    """Camera-only is the behaviour that shipped; it must survive the upgrade."""
+    cfg = client.get("/api/tenant/home", headers=tenant_auth).json()["settings"]
+    assert cfg["meter_gallery_upload_enabled"] is False
+
+
+def test_enabling_gallery_upload_reaches_the_tenant_portal(
+    client, tenant_auth, meter, db
+):
+    _set(db, **{"meter.allow_gallery_upload": True})
+    cfg = client.get("/api/tenant/home", headers=tenant_auth).json()["settings"]
+    assert cfg["meter_gallery_upload_enabled"] is True
+
+
+def test_gallery_setting_is_visible_to_an_admin_on_the_settings_screen(
+    client, admin_auth, db
+):
+    """The admin form is generated from this payload, so it has to appear."""
+    rows = client.get("/api/settings", headers=admin_auth).json()["settings"]
+    row = next(r for r in rows if r["key"] == "meter.allow_gallery_upload")
+    assert row["type"] == "bool"
+    assert row["category"] == "Meter readings"
+    assert row["default"] is False
+
+
+def test_only_an_admin_can_change_the_gallery_setting(client, tenant_auth, admin_auth, db):
+    """"Only admins should have access to enable or disable this setting.\""""
+    assert client.put(
+        "/api/settings", headers=tenant_auth,
+        json={"values": {"meter.allow_gallery_upload": True}},
+    ).status_code == 403
+    assert client.get("/api/settings", headers=tenant_auth).status_code == 403
+
+    assert client.put(
+        "/api/settings", headers=admin_auth,
+        json={"values": {"meter.allow_gallery_upload": True}},
+    ).status_code == 200
+
+
+def test_gallery_setting_does_not_disturb_the_photo_switches_or_the_window(
+    client, tenant_auth, meter, db
+):
+    """It decides where a photo may come from, not whether one is allowed."""
+    _set(db, **{
+        "meter.allow_gallery_upload": True,
+        "meter.allow_tenant_photo_upload": False,
+    })
+    cfg = client.get("/api/tenant/home", headers=tenant_auth).json()["settings"]
+    assert cfg["meter_gallery_upload_enabled"] is True
+    assert cfg["meter_photo_upload_enabled"] is False   # still the deciding switch
+    assert cfg["meter_upload_open_today"] is True
+
+
+def test_submitting_a_reading_is_unaffected_by_the_gallery_setting(
+    client, tenant_auth, meter, db, photo_dir
+):
+    """Turning it on must not change what the API accepts - only what the app offers."""
+    _set(db, **{"meter.allow_gallery_upload": True})
+    resp = _submit_tenant(client, tenant_auth, meter.id, 12732, photo=True)
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["reading"]["has_photo"] is True

@@ -296,6 +296,11 @@ def tenant_home(
             "meter_photo_required": meter_service.photo_required(
                 cfg, meter_service.TENANT
             ),
+            # Off means the portal asks the phone for the camera specifically;
+            # on means it accepts an existing photo too. See
+            # meter.allow_gallery_upload in settings_service.py for why this
+            # can only ever be what the app offers, not an enforced rule.
+            "meter_gallery_upload_enabled": bool(cfg.get("meter.allow_gallery_upload")),
             "meter_upload_open_today": meter_service.tenant_upload_open_on(cfg, today),
             # The raw window rather than a ready-made sentence: the portal is
             # Marathi by default, so it builds its own wording from these.

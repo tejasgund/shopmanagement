@@ -139,6 +139,27 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
                 "can still submit the reading itself.",
     },
 
+    # Whether the photo may come from the device's existing photos rather than
+    # only from the camera at the moment of submission. Off by default so the
+    # camera-only behaviour that shipped before this setting is unchanged until
+    # an admin deliberately relaxes it. Applies to the tenant portal and the
+    # admin Collect form alike.
+    #
+    # This is a UI control, not a security boundary: it works by dropping the
+    # `capture` attribute from the file input, which is a hint browsers honour
+    # on phones. The server cannot tell a photo taken seconds ago from one
+    # picked out of the gallery - both arrive as the same JPEG - so this
+    # decides what the app OFFERS, and cannot police what a determined caller
+    # posts to the API directly.
+    "meter.allow_gallery_upload": {
+        "value": False, "type": "bool", "category": "Meter readings",
+        "label": "Allow gallery upload",
+        "help": "Off: the reading photo must be taken with the camera there and "
+                "then. On: an existing photo may be chosen from the device "
+                "instead, and the camera is still offered. Applies to tenants "
+                "and to admins collecting a reading.",
+    },
+
     # ── When tenants may submit ──────────────────────────────────────────
     # A day-of-month window that repeats every month, so it is set once rather
     # than re-edited each cycle. Admins are never restricted by it.
