@@ -40,9 +40,9 @@ RUN pip install --no-cache-dir --upgrade pip \
 #
 # NOTE: app.py was split into routers/ + several standalone service modules
 # (schemas.py, auth_service.py, audit_service.py, app_config.py,
-# domain_helpers.py, meter_helpers.py) - every one of these is imported by
-# app.py or by something under routers/, so all of them have to be copied in,
-# not just app.py itself.
+# domain_helpers.py, meter_helpers.py, razorpay_service.py) - every one of
+# these is imported by app.py or by something under routers/, so all of them
+# have to be copied in, not just app.py itself.
 # ──────────────────────────────────────────────
 COPY app.py .
 COPY db_config.py .
@@ -58,6 +58,7 @@ COPY audit_service.py .
 COPY app_config.py .
 COPY domain_helpers.py .
 COPY meter_helpers.py .
+COPY razorpay_service.py .
 COPY routers/ ./routers/
 COPY conf/ ./conf/
 
