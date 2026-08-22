@@ -118,6 +118,10 @@ security = HTTPBearer()
 # ──────────────────────────────────────────────
 RAZORPAY_KEY_ID_ENV     = os.getenv("RAZORPAY_KEY_ID", "")
 RAZORPAY_KEY_SECRET_ENV = os.getenv("RAZORPAY_KEY_SECRET", "")
+# Separate secret used only to verify /api/webhooks/razorpay calls really came
+# from Razorpay (HMAC over the raw request body) - not the same value as
+# RAZORPAY_KEY_SECRET above, which signs API calls we make outbound.
+RAZORPAY_WEBHOOK_SECRET_ENV = os.getenv("RAZORPAY_WEBHOOK_SECRET", "")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -523,6 +527,17 @@ def _razorpay_credentials(cfg: dict) -> tuple:
     key_id = str(cfg.get("payment.razorpay_key_id") or "").strip() or RAZORPAY_KEY_ID_ENV
     key_secret = str(cfg.get("payment.razorpay_key_secret") or "").strip() or RAZORPAY_KEY_SECRET_ENV
     return key_id, key_secret
+
+
+def _razorpay_webhook_secret(cfg: dict) -> str:
+    """
+    The secret configured on the Razorpay dashboard's Webhooks page for
+    /api/webhooks/razorpay - NOT the same value as the Key Secret (that one
+    signs requests we make outbound; this one lets us verify requests
+    Razorpay makes inbound). Same Settings-first, env-fallback pattern as
+    _razorpay_credentials.
+    """
+    return str(cfg.get("payment.razorpay_webhook_secret") or "").strip() or RAZORPAY_WEBHOOK_SECRET_ENV
 
 
 def _razorpay_public_config(cfg: dict) -> tuple:
@@ -3091,6 +3106,59 @@ def create_razorpay_order(
     )
 
 
+class _RazorpayNoPendingBillsError(Exception):
+    """Raised when a Razorpay order was proven paid but there is nothing left to apply it to."""
+
+
+def _finalize_paid_razorpay_order(
+    db: Session, order_row: "RazorpayOrder", razorpay_payment_id: str, actor_id: int,
+) -> list:
+    """
+    Shared core of "this order has now been proven paid - actually allocate
+    the money to bills and flip the order to 'paid'". Two independent paths
+    can reach here for the same order: the tenant's own browser calling
+    verify() right after checkout (HMAC-verified via the Key Secret), or
+    Razorpay's server-to-server webhook (HMAC-verified via the Webhook
+    Secret) reporting the same payment.captured event. Whichever gets here
+    first while order_row.status is still "created" wins; callers must check
+    that status themselves before calling this, and the caller that loses
+    the race simply never gets a "created" order to act on - so the same
+    payment can never be recorded twice no matter which path arrives first
+    or how many times either one retries.
+
+    Raises _RazorpayNoPendingBillsError if there's nowhere to apply the money
+    (e.g. every bill was settled some other way in between) - callers decide
+    how to surface that, since a webhook has no user to show an error to but
+    verify() does.
+    """
+    if order_row.bill_id is not None:
+        bills = db.query(Bill).filter(Bill.id == order_row.bill_id).with_for_update().all()
+    else:
+        bills = (
+            db.query(Bill)
+            .filter(Bill.user_id == order_row.user_id, Bill.status.in_(["pending", "partial"]))
+            .order_by(Bill.due_date.is_(None), Bill.due_date.asc(), Bill.bill_date.asc(), Bill.id.asc())
+            .with_for_update()
+            .all()
+        )
+
+    if not bills:
+        raise _RazorpayNoPendingBillsError("no pending bills to apply this payment to")
+
+    payments = _allocate_razorpay_payment(
+        db, bills, order_row.amount, order_row.razorpay_order_id, razorpay_payment_id, actor_id,
+    )
+    if not payments:
+        raise RuntimeError("allocation produced no payments")
+
+    order_row.status = "paid"
+    order_row.payment_id = payments[0].id
+    db.commit()
+    for p in payments:
+        db.refresh(p)
+    return payments
+
+
 @app.post("/api/tenant/payments/razorpay/verify", tags=["Tenant"])
 def verify_razorpay_payment(
     body:         RazorpayVerifyRequest,
@@ -3103,6 +3171,11 @@ def verify_razorpay_payment(
     utility - Payment rows are only ever created after this succeeds. Bills
     are row-locked for the write so a duplicated/retried verify call can't
     double-record the same order.
+
+    This only runs on the tenant's own device, so it's skipped entirely if
+    their browser closes or loses network right after paying - see the
+    /api/webhooks/razorpay route below, which independently catches that
+    case from Razorpay's side.
     """
     order_row = (
         db.query(RazorpayOrder)
@@ -3115,6 +3188,8 @@ def verify_razorpay_payment(
         raise HTTPException(403, detail="This order does not belong to you.")
     if order_row.status != "created":
         # Already verified (or already failed) - never process the same order twice.
+        # This is also what happens if the webhook already recorded this
+        # exact payment before the tenant's browser got back to us.
         raise HTTPException(409, detail="This payment has already been processed.")
 
     cfg = settings_service.get_all(db)
@@ -3132,18 +3207,9 @@ def verify_razorpay_payment(
             400, detail="Payment could not be verified. If money was deducted, contact the office.",
         )
 
-    if order_row.bill_id is not None:
-        bills = db.query(Bill).filter(Bill.id == order_row.bill_id).with_for_update().all()
-    else:
-        bills = (
-            db.query(Bill)
-            .filter(Bill.user_id == order_row.user_id, Bill.status.in_(["pending", "partial"]))
-            .order_by(Bill.due_date.is_(None), Bill.due_date.asc(), Bill.bill_date.asc(), Bill.id.asc())
-            .with_for_update()
-            .all()
-        )
-
-    if not bills:
+    try:
+        payments = _finalize_paid_razorpay_order(db, order_row, body.razorpay_payment_id, current_user.id)
+    except _RazorpayNoPendingBillsError:
         # Verified money with nowhere to apply it (e.g. every bill was
         # settled some other way between create-order and verify) - never
         # silently drop it. Leave the order "created" so it isn't wasted;
@@ -3154,19 +3220,6 @@ def verify_razorpay_payment(
             detail="Payment was verified but there were no pending bills to apply it to. Contact "
                    f"the office with your payment ID ({body.razorpay_payment_id}).",
         )
-
-    try:
-        payments = _allocate_razorpay_payment(
-            db, bills, order_row.amount, body.razorpay_order_id, body.razorpay_payment_id, current_user.id,
-        )
-        if not payments:
-            raise RuntimeError("allocation produced no payments")
-
-        order_row.status = "paid"
-        order_row.payment_id = payments[0].id
-        db.commit()
-        for p in payments:
-            db.refresh(p)
     except Exception as exc:
         db.rollback()
         logger.error(
@@ -3196,6 +3249,131 @@ def verify_razorpay_payment(
             for b in (bills_by_id[bid] for bid in dict.fromkeys(touched_bill_ids))
         ],
     }
+
+
+@app.post("/api/webhooks/razorpay", tags=["Tenant"])
+async def razorpay_webhook(request: Request, db: Session = Depends(get_db)):
+    """
+    Server-to-server webhook (configure this URL on the Razorpay dashboard
+    under Settings -> Webhooks, with events payment.captured and
+    payment.failed checked). This exists alongside verify_razorpay_payment()
+    above, not instead of it - the two cover different failure modes:
+
+      - verify() runs on the tenant's own device right after checkout, so it
+        can show them a result immediately, but only fires if their browser
+        is still open and online when Razorpay's checkout callback returns.
+      - This webhook comes from Razorpay's own servers, independent of the
+        tenant's device, so it also catches payments that were captured
+        successfully but where the browser was closed, the app crashed, or
+        the network dropped before verify() could run - money Razorpay
+        actually holds that would otherwise sit unrecorded until an admin
+        manually reconciled it with the payment ID.
+
+    Whichever of the two reaches a given order first "wins" (flips it from
+    "created" to "paid" via the shared _finalize_paid_razorpay_order); the
+    other finds the order already handled and is a no-op. That, plus Razorpay
+    retrying this webhook on anything but a 2xx response, is why every branch
+    below ends by returning 200 once the request's signature has checked out
+    - there is no tenant on the other end of this call to show an error to,
+    and repeated retries for something already handled (or already logged
+    for manual follow-up) would only add noise.
+
+    Unlike every other route in this file, there is deliberately no auth
+    dependency here - Razorpay can't send a bearer token. Trust instead comes
+    entirely from the HMAC-SHA256 signature Razorpay computes over the exact
+    raw request body using the webhook secret (Settings -> Online payments ->
+    Razorpay Webhook Secret), verified below BEFORE the body is parsed or
+    trusted for anything else.
+    """
+    raw_body = await request.body()
+    signature = request.headers.get("X-Razorpay-Signature", "")
+
+    cfg = settings_service.get_all(db)
+    webhook_secret = _razorpay_webhook_secret(cfg)
+    if not webhook_secret:
+        logger.error("Razorpay webhook received but no webhook secret is configured on this server.")
+        raise HTTPException(503, detail="Webhook is not configured on this server.")
+
+    client = _razorpay_client(cfg)
+    try:
+        client.utility.verify_webhook_signature(raw_body.decode("utf-8"), signature, webhook_secret)
+    except razorpay.errors.SignatureVerificationError:
+        logger.warning("Razorpay webhook signature verification failed - rejecting request.")
+        raise HTTPException(400, detail="Invalid webhook signature.")
+
+    try:
+        payload = json.loads(raw_body)
+    except ValueError:
+        raise HTTPException(400, detail="Malformed webhook payload.")
+
+    event = payload.get("event", "")
+
+    if event == "payment.captured":
+        payment_entity = payload.get("payload", {}).get("payment", {}).get("entity", {})
+        razorpay_order_id = payment_entity.get("order_id")
+        razorpay_payment_id = payment_entity.get("id")
+        if not razorpay_order_id or not razorpay_payment_id:
+            logger.warning("Razorpay webhook payment.captured missing order_id/payment_id: %s", payload)
+            return {"success": True}
+
+        order_row = (
+            db.query(RazorpayOrder)
+            .filter(RazorpayOrder.razorpay_order_id == razorpay_order_id)
+            .with_for_update()
+            .first()
+        )
+        if not order_row:
+            # Most likely: an order created by some other integration on the
+            # same Razorpay account, or a stale test event - not this app's
+            # concern, but still a validly-signed request, so ack it.
+            logger.warning(
+                "Razorpay webhook payment.captured for unknown order %s (payment %s)",
+                razorpay_order_id, razorpay_payment_id,
+            )
+            return {"success": True}
+
+        if order_row.status != "created":
+            # Already recorded - either verify() beat us to it, or Razorpay
+            # is retrying a webhook delivery we already handled. Normal, not
+            # an error.
+            return {"success": True}
+
+        try:
+            _finalize_paid_razorpay_order(db, order_row, razorpay_payment_id, order_row.user_id)
+            logger.info(
+                "Razorpay webhook recorded payment %s for order %s", razorpay_payment_id, razorpay_order_id,
+            )
+        except _RazorpayNoPendingBillsError:
+            db.rollback()
+            logger.warning(
+                "Razorpay webhook: payment %s (order %s) captured but no pending bills to apply it "
+                "to - left as 'created' for manual reconciliation.", razorpay_payment_id, razorpay_order_id,
+            )
+        except Exception as exc:
+            db.rollback()
+            logger.error(
+                "Razorpay webhook: payment %s (order %s) could not be recorded: %s",
+                razorpay_payment_id, razorpay_order_id, exc,
+            )
+
+    elif event == "payment.failed":
+        payment_entity = payload.get("payload", {}).get("payment", {}).get("entity", {})
+        razorpay_order_id = payment_entity.get("order_id")
+        if razorpay_order_id:
+            order_row = (
+                db.query(RazorpayOrder)
+                .filter(RazorpayOrder.razorpay_order_id == razorpay_order_id)
+                .first()
+            )
+            if order_row and order_row.status == "created":
+                order_row.status = "failed"
+                db.commit()
+
+    # Every other subscribed event (order.paid, refund.*, etc.) is
+    # acknowledged but otherwise ignored - nothing in this app reads them
+    # today. Always 2xx for a validly-signed request so Razorpay doesn't
+    # keep retrying indefinitely.
+    return {"success": True}
 
 
 @app.get("/api/tenant/deposit-payments", tags=["Tenant"])

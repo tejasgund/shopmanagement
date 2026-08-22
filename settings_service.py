@@ -176,6 +176,15 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
                 "leave this blank when saving other settings to keep it unchanged, "
                 "or type a new value to replace it.",
     },
+    "payment.razorpay_webhook_secret": {
+        "value": "", "type": "secret", "category": "Online payments",
+        "label": "Razorpay Webhook Secret",
+        "help": "From Razorpay dashboard -> Settings -> Webhooks -> (this webhook) "
+                "-> Secret. Different from the Key Secret above - this one is only "
+                "used to verify that /api/webhooks/razorpay calls really came from "
+                "Razorpay. Required for the webhook to work; leave blank when saving "
+                "other settings to keep it unchanged.",
+    },
 }
 
 
