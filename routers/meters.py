@@ -129,6 +129,113 @@ def _meter_to_dict(db: Session, m: Meter) -> dict:
     }
 
 
+def _meters_to_dicts(db: Session, meters: list) -> list:
+    """
+    Bulk equivalent of calling _meter_to_dict() once per meter.
+
+    _meter_to_dict does up to 7-8 queries for a single meter (shop, complex,
+    owner UserShop + User, latest approved reading, pending reading, approved
+    count, and meter_service.previous_reading_value() calling
+    latest_approved_reading() again). Called once per row, list_meters was
+    N+1 - this fixes it by doing each lookup once for the whole page and
+    grouping in Python, same as the other report/summary endpoints.
+
+    Every value below is computed the exact same way _meter_to_dict/
+    meter_service.previous_reading_value does (same filters, same
+    reading_date-desc/id-desc ordering, same meter_service._units() rounding
+    reused directly rather than reimplemented) so the numbers match exactly.
+    """
+    if not meters:
+        return []
+
+    meter_ids = [m.id for m in meters]
+    shop_ids = [m.shop_id for m in meters if m.shop_id is not None]
+
+    shops_by_id = {s.id: s for s in db.query(Shop).filter(Shop.id.in_(shop_ids)).all()} if shop_ids else {}
+    complex_ids = [s.complex_id for s in shops_by_id.values() if s.complex_id is not None]
+    complexes_by_id = (
+        {c.id: c for c in db.query(Complex).filter(Complex.id.in_(complex_ids)).all()}
+        if complex_ids else {}
+    )
+
+    # Current owner per shop. No order_by here, matching the old per-meter
+    # UserShop query - a shop only ever has one live UserShop row in normal
+    # operation (reassign/detach delete the old row), so which one "first"
+    # picks is not actually ambiguous in practice.
+    owner_user_id_by_shop = {}
+    if shop_ids:
+        for us in db.query(UserShop).filter(UserShop.shop_id.in_(shop_ids)).all():
+            owner_user_id_by_shop.setdefault(us.shop_id, us.user_id)
+    owner_ids = list(set(owner_user_id_by_shop.values()))
+    users_by_id = {u.id: u for u in db.query(User).filter(User.id.in_(owner_ids)).all()} if owner_ids else {}
+
+    # Every reading for these meters, sorted exactly like
+    # meter_service.latest_approved_reading (reading_date desc, id desc), so
+    # "first matching entry per meter" == what that function would return.
+    # A meter can have at most one pending reading at a time (enforced in
+    # submit_meter_reading), so "first pending" is unambiguous too.
+    readings_by_meter = {}
+    for r in (
+        db.query(MeterReading)
+        .filter(MeterReading.meter_id.in_(meter_ids))
+        .order_by(MeterReading.reading_date.desc(), MeterReading.id.desc())
+        .all()
+    ):
+        readings_by_meter.setdefault(r.meter_id, []).append(r)
+
+    results = []
+    for m in meters:
+        shop = shops_by_id.get(m.shop_id) if m.shop_id else None
+        complex_name = None
+        if shop and shop.complex_id:
+            cx = complexes_by_id.get(shop.complex_id)
+            complex_name = cx.name if cx else None
+        owner = None
+        if shop:
+            u = users_by_id.get(owner_user_id_by_shop.get(shop.id))
+            if u:
+                owner = {"id": u.id, "name": u.name, "mobile": u.mobile}
+
+        rows = readings_by_meter.get(m.id, [])
+        last = next((r for r in rows if r.status == "approved"), None)
+        pending = next((r for r in rows if r.status == "pending"), None)
+        reading_count = sum(1 for r in rows if r.status == "approved")
+
+        # Same as meter_service.previous_reading_value(db, m), reusing its
+        # exact rounding instead of reimplementing it.
+        if last is not None and last.approved_reading is not None:
+            current_reading = float(meter_service._units(last.approved_reading))
+        else:
+            current_reading = float(meter_service._units(m.initial_reading))
+
+        results.append({
+            "id": m.id,
+            "shop_id": m.shop_id,
+            "shop_number": shop.shop_number if shop else None,
+            "complex_id": shop.complex_id if shop else None,
+            "complex_name": complex_name,
+            "is_assigned": m.shop_id is not None,
+            "assigned_to": owner,
+            "meter_number": m.meter_number,
+            "meter_type": m.meter_type,
+            "initial_reading": _decimal_to_float(m.initial_reading),
+            "installation_date": m.installation_date,
+            "notes": m.notes,
+            "is_active": m.is_active,
+            "current_reading": current_reading,
+            "last_approved_reading": _decimal_to_float(last.approved_reading) if last else None,
+            "last_reading_date": last.reading_date if last else None,
+            "last_updated": last.approved_at if last else None,
+            "reading_count": reading_count,
+            "has_pending_reading": pending is not None,
+            "pending_reading_id": pending.id if pending else None,
+            "created_at": m.created_at,
+            # Kept for backward compatibility with the first version of this API.
+            "current_previous_reading": current_reading,
+        })
+    return results
+
+
 @router.get("/api/meters", tags=["Meter"])
 def list_meters(
     shop_id:    Optional[int]  = None,
@@ -150,7 +257,7 @@ def list_meters(
         q = q.filter(Meter.shop_id.is_(None))
     if complex_id is not None:
         q = q.join(Shop, Shop.id == Meter.shop_id).filter(Shop.complex_id == complex_id)
-    return [_meter_to_dict(db, m) for m in q.order_by(Meter.id.desc()).all()]
+    return _meters_to_dicts(db, q.order_by(Meter.id.desc()).all())
 
 
 @router.post("/api/meters/{id}/assign-shop", tags=["Meter"])
