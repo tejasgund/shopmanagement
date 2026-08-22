@@ -120,13 +120,13 @@ async def submit_meter_reading(
 
     cfg = settings_service.get_all(db)
 
-    # Submission window (day-of-month, repeats every cycle). Tenants only -
-    # collect_meter_reading in routers/meter_readings.py deliberately has no
-    # equivalent check, so an admin can always record a reading for a tenant
-    # who missed the window.
+    # Submission window (day-of-month, repeats every cycle). Skipped for
+    # admins - and skipped by ROLE, not by endpoint, because require_tenant
+    # admits admins here too. collect_meter_reading in
+    # routers/meter_readings.py is admin-only and so is never restricted.
     try:
-        meter_service.assert_tenant_upload_window(
-            cfg, datetime.now(ZoneInfo(APP_TIMEZONE)).date()
+        meter_service.assert_upload_window(
+            cfg, datetime.now(ZoneInfo(APP_TIMEZONE)).date(), current_user.role
         )
     except meter_service.MeterError as exc:
         raise _meter_error(exc)

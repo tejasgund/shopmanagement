@@ -142,8 +142,22 @@ def tenant_upload_window_message(cfg: dict) -> str:
     )
 
 
-def assert_tenant_upload_window(cfg: dict, when: date) -> None:
-    """Raise MeterError if a tenant is submitting outside the window."""
+def upload_window_applies_to(role: str) -> bool:
+    """
+    The submission window restricts tenants only.
+
+    Keyed on the caller's ROLE rather than on which endpoint they reached,
+    because require_tenant() admits admins as well - an admin who submits
+    through the tenant route must still never be turned away by a window that
+    exists to pace tenants.
+    """
+    return role != ADMIN
+
+
+def assert_upload_window(cfg: dict, when: date, role: str) -> None:
+    """Raise MeterError if this caller is submitting outside their window."""
+    if not upload_window_applies_to(role):
+        return
     if not tenant_upload_open_on(cfg, when):
         raise MeterError(tenant_upload_window_message(cfg), status_code=403)
 

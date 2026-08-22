@@ -12,7 +12,7 @@ from datetime import date
 import pytest
 
 from conftest import make_jpeg
-from create_tables import Meter, MeterReading
+from create_tables import Meter, MeterReading, UserShop
 import settings_service
 
 
@@ -436,3 +436,170 @@ def test_submitting_a_reading_is_unaffected_by_the_gallery_setting(
     resp = _submit_tenant(client, tenant_auth, meter.id, 12732, photo=True)
     assert resp.status_code == 201, resp.text
     assert resp.json()["reading"]["has_photo"] is True
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# BUG 1 (reported 2026-08-22): a configured window did nothing
+#
+# "Tenant Upload Window From 1 / To 10, today is 22, tenants can still upload."
+# Cause: meter.tenant_upload_any_day defaulted to ON and short-circuits the
+# window, so narrowing the range had no effect and nothing on screen said why.
+# ══════════════════════════════════════════════════════════════════════════════
+
+def test_configuring_a_window_restricts_tenants_without_any_other_step(
+    client, tenant_auth, meter, db, photo_dir
+):
+    """
+    The exact reported configuration. An admin sets From/To and nothing else -
+    no second switch to find - and the window is live immediately.
+    """
+    today = date.today().day
+    start, end = (today + 1, 28) if today <= 27 else (1, today - 1)
+    _set(db, **{
+        "meter.tenant_upload_from_day": start,
+        "meter.tenant_upload_to_day": end,
+        "meter.photo_required": False,
+    })
+
+    resp = _submit_tenant(client, tenant_auth, meter.id, 12732, photo=False)
+    assert resp.status_code == 403, (
+        f"day {today} is outside {start}-{end} but the submission was accepted: {resp.text}"
+    )
+    assert str(start) in resp.json()["detail"] and str(end) in resp.json()["detail"]
+    assert db.query(MeterReading).count() == 0
+
+
+def test_every_day_is_off_by_default_so_the_window_is_authoritative(db):
+    assert settings_service.get_all(db)["meter.tenant_upload_any_day"] is False
+
+
+def test_the_default_window_still_means_every_day(client, tenant_auth, meter, db, photo_dir):
+    """Off-by-default must not lock anyone out on a fresh install: 1-31 is every day."""
+    _set(db, **{"meter.photo_required": False})
+    cfg = settings_service.get_all(db)
+    assert cfg["meter.tenant_upload_from_day"] == 1 and cfg["meter.tenant_upload_to_day"] == 31
+    assert _submit_tenant(client, tenant_auth, meter.id, 12732, photo=False).status_code == 201
+
+
+def test_every_day_still_works_as_an_explicit_override(
+    client, tenant_auth, meter, db, photo_dir
+):
+    """Turning it on deliberately must still suspend the window."""
+    today = date.today().day
+    start, end = (today + 1, 28) if today <= 27 else (1, today - 1)
+    _set(db, **{
+        "meter.tenant_upload_any_day": True,
+        "meter.tenant_upload_from_day": start,
+        "meter.tenant_upload_to_day": end,
+        "meter.photo_required": False,
+    })
+    assert _submit_tenant(client, tenant_auth, meter.id, 12732, photo=False).status_code == 201
+
+
+def test_the_window_never_blocks_an_admin(
+    client, admin_auth, admin, meter, shop, db, photo_dir
+):
+    """
+    "Admin should always be able to submit regardless of the tenant window."
+
+    The exemption keys off the caller's ROLE, not off which URL was reached,
+    because require_tenant() admits admins too. Proving that needs an admin
+    who passes the ownership check first - otherwise the 403 that comes back
+    is "not one of your shops" and the window is never consulted at all, which
+    would make this test pass for the wrong reason.
+    """
+    db.add(UserShop(user_id=admin.id, shop_id=shop.id))
+    db.commit()
+
+    today = date.today().day
+    start, end = (today + 1, 28) if today <= 27 else (1, today - 1)
+    _set(db, **{
+        "meter.tenant_upload_from_day": start,
+        "meter.tenant_upload_to_day": end,
+        "meter.photo_required": False,
+    })
+
+    # Same request that returns 403 for a tenant (see the test above).
+    assert _submit_tenant(client, admin_auth, meter.id, 12732, photo=False).status_code == 201
+
+
+def test_the_admin_collect_route_is_never_windowed(
+    client, admin_auth, meter, db, photo_dir
+):
+    """The admin's own route has no window check at all - the normal path."""
+    today = date.today().day
+    start, end = (today + 1, 28) if today <= 27 else (1, today - 1)
+    _set(db, **{
+        "meter.tenant_upload_from_day": start,
+        "meter.tenant_upload_to_day": end,
+        "meter.photo_required": False,
+    })
+    assert _collect_admin(client, admin_auth, meter.id, 12732, photo=False).status_code == 201
+
+
+def test_a_tenant_outside_the_window_is_told_why_not_something_vague(
+    client, tenant_auth, meter, db, photo_dir
+):
+    """The refusal has to name the days, or the tenant has nothing to act on."""
+    _set(db, **{
+        "meter.tenant_upload_from_day": 1,
+        "meter.tenant_upload_to_day": 10,
+        "meter.photo_required": False,
+    })
+    if 1 <= date.today().day <= 10:
+        pytest.skip("today is inside the 1-10 window")
+    detail = _submit_tenant(client, tenant_auth, meter.id, 12732, photo=False).json()["detail"]
+    assert "1" in detail and "10" in detail and "day" in detail.lower()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# BUG 2 (reported 2026-08-22): gallery upload is a TENANT setting only
+# ══════════════════════════════════════════════════════════════════════════════
+
+def test_gallery_setting_is_reported_for_tenants(client, tenant_auth, meter, db):
+    _set(db, **{"meter.allow_gallery_upload": True})
+    cfg = client.get("/api/tenant/home", headers=tenant_auth).json()["settings"]
+    assert cfg["meter_gallery_upload_enabled"] is True
+
+    _set(db, **{"meter.allow_gallery_upload": False})
+    cfg = client.get("/api/tenant/home", headers=tenant_auth).json()["settings"]
+    assert cfg["meter_gallery_upload_enabled"] is False
+
+
+def test_admin_collect_is_unaffected_by_the_gallery_setting(
+    client, admin_auth, meter, db, photo_dir
+):
+    """
+    "Admins must always be able to upload using both camera and gallery,
+    regardless of the tenant gallery-upload setting." The admin form doesn't
+    read it at all, so the API must keep accepting an admin photo with the
+    setting off.
+    """
+    _set(db, **{"meter.allow_gallery_upload": False})
+    resp = _collect_admin(client, admin_auth, meter.id, 12732, photo=True)
+    assert resp.status_code == 201, resp.text
+    assert db.query(MeterReading).first().photo_path is not None
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# "the two settings work independently but are both enforced correctly"
+# ══════════════════════════════════════════════════════════════════════════════
+
+def test_window_and_gallery_are_independent(client, tenant_auth, meter, db, photo_dir):
+    """Gallery on must not open the window, and the window must not gate gallery."""
+    today = date.today().day
+    start, end = (today + 1, 28) if today <= 27 else (1, today - 1)
+    _set(db, **{
+        "meter.allow_gallery_upload": True,     # HOW they may upload
+        "meter.tenant_upload_from_day": start,  # WHEN they may upload
+        "meter.tenant_upload_to_day": end,
+        "meter.photo_required": False,
+    })
+    # Gallery being on does not buy a tenant a way past the window.
+    assert _submit_tenant(client, tenant_auth, meter.id, 12732, photo=False).status_code == 403
+
+    # Open the window; gallery stays on and submission now succeeds.
+    _set(db, **{"meter.tenant_upload_from_day": 1, "meter.tenant_upload_to_day": 31})
+    assert _submit_tenant(client, tenant_auth, meter.id, 12732, photo=False).status_code == 201
+    cfg = client.get("/api/tenant/home", headers=tenant_auth).json()["settings"]
+    assert cfg["meter_gallery_upload_enabled"] is True
