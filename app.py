@@ -5273,6 +5273,74 @@ def tenant_meter_reading_detail(
     return _reading_to_dict(db, reading)
 
 
+@app.get("/api/tenant/meters/{meter_id}/readings", tags=["Tenant"])
+def tenant_meter_readings_paginated(
+    meter_id: int,
+    page:   int            = Query(1,  ge=1),
+    limit:  int            = Query(20, ge=1, le=100),
+    status_filter: Optional[str] = Query(None, alias="status",
+                                         pattern="^(pending|approved|rejected)$"),
+    db:     Session        = Depends(get_db),
+    current_user: User     = Depends(require_tenant),
+):
+    """
+    One meter's own reading history, paginated - newest first.
+
+    This is additive: it exists alongside GET /api/tenant/meter-readings
+    (which returns everything across every meter the tenant has, unbounded)
+    and the /api/tenant/home bundle (whose "readings" list is capped at the
+    24 most recent across ALL of a tenant's meters combined, so a tenant
+    with several submeters can have one meter's history crowd out another's
+    there). Neither of those changes - existing callers keep working exactly
+    as before. This endpoint is for a UI that lets a tenant open ONE meter at
+    a time and page through JUST that meter's history, without pulling every
+    other meter's readings along with it and without the crowding problem
+    above.
+
+    Pagination follows the same page/limit/total convention already used by
+    GET /api/bills and GET /api/payments (see list_bills_paginated), just
+    scoped to one tenant's one meter instead of being admin-only.
+    """
+    meter = db.query(Meter).filter(Meter.id == meter_id).first()
+    # 404 either way (never 403) so this can't be used to probe which meter
+    # IDs exist on shops that aren't the caller's - same IDOR guard used by
+    # tenant_meter_reading_detail above.
+    if not meter or meter.shop_id is None or meter.shop_id not in _tenant_shop_ids(db, current_user.id):
+        raise HTTPException(404, detail="Meter not found")
+
+    q = db.query(MeterReading).filter(
+        MeterReading.meter_id == meter_id,
+        MeterReading.user_id == current_user.id,
+    )
+    if status_filter:
+        q = q.filter(MeterReading.status == status_filter)
+
+    total  = q.count()
+    offset = (page - 1) * limit
+    rows = (
+        q.order_by(MeterReading.reading_date.desc(), MeterReading.id.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    shop = db.query(Shop).filter(Shop.id == meter.shop_id).first()
+
+    return {
+        "success": True,
+        "page":  page,
+        "limit": limit,
+        "total": total,
+        "meter": {
+            "id": meter.id,
+            "meter_number": meter.meter_number,
+            "meter_type": meter.meter_type,
+            "shop_id": meter.shop_id,
+            "shop_number": shop.shop_number if shop else None,
+        },
+        "data": [_reading_to_dict(db, r) for r in rows],
+    }
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # ── ROUTE: Tenant home bundle
 # ══════════════════════════════════════════════════════════════════════════════
