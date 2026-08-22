@@ -117,6 +117,49 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
     },
 
     # ── Review thresholds (warnings only - the admin always decides) ─────
+    # ── Who may attach a photo ───────────────────────────────────────────
+    # These gate the EXISTING photo upload on the reading forms; they do not
+    # add a second upload path. When a role's switch is off, that role's photo
+    # field is hidden and a photo sent anyway is refused - but the reading
+    # itself is still accepted, and "Photo required on submission" above is
+    # ignored for that role (a required photo that cannot be attached would
+    # otherwise lock the role out of submitting entirely).
+    "meter.allow_admin_photo_upload": {
+        "value": True, "type": "bool", "category": "Meter readings",
+        "label": "Allow admin to upload meter reading image",
+        "help": "When off, the photo field is hidden on the admin's Collect reading "
+                "form. Admins can still record the reading itself.",
+    },
+    "meter.allow_tenant_photo_upload": {
+        "value": True, "type": "bool", "category": "Meter readings",
+        "label": "Allow tenant to upload meter reading image",
+        "help": "When off, the photo field is hidden in the tenant portal. Tenants "
+                "can still submit the reading itself.",
+    },
+
+    # ── When tenants may submit ──────────────────────────────────────────
+    # A day-of-month window that repeats every month, so it is set once rather
+    # than re-edited each cycle. Admins are never restricted by it.
+    "meter.tenant_upload_any_day": {
+        "value": True, "type": "bool", "category": "Meter readings",
+        "label": "Allow tenant reading upload every day",
+        "help": "When on, tenants may submit on any day and the window below is "
+                "ignored. Turn off to restrict submissions to the days set below.",
+    },
+    "meter.tenant_upload_from_day": {
+        "value": 1, "type": "int", "category": "Meter readings",
+        "label": "Tenant upload window - from day of month",
+        "help": "First day of each month tenants may submit on (1-31). Only applies "
+                "when 'every day' above is off. Admins are never restricted.",
+    },
+    "meter.tenant_upload_to_day": {
+        "value": 31, "type": "int", "category": "Meter readings",
+        "label": "Tenant upload window - to day of month",
+        "help": "Last day of each month tenants may submit on (1-31). In a shorter "
+                "month this is treated as that month's last day, so 31 always means "
+                "'to month end'. Only applies when 'every day' above is off.",
+    },
+
     "meter.high_consumption_units": {
         "value": 1000, "type": "int", "category": "Meter readings",
         "label": "High consumption warning (units)",
@@ -317,7 +360,7 @@ def set_many(db: Session, updates: Dict[str, Any], actor_id: Optional[int] = Non
         except (TypeError, ValueError):
             raise ValueError(f"'{key}' must be of type {spec['type']}")
 
-    _validate(normalised)
+    _validate(normalised, get_all(db))
 
     current = get_all(db)
     changed: Dict[str, Any] = {}
@@ -340,14 +383,41 @@ def set_many(db: Session, updates: Dict[str, Any], actor_id: Optional[int] = Non
     return changed
 
 
-def _validate(values: Dict[str, Any]) -> None:
-    """Guard rails on the values that could break the app if set nonsensically."""
+def _validate(values: Dict[str, Any], current: Optional[Dict[str, Any]] = None) -> None:
+    """
+    Guard rails on the values that could break the app if set nonsensically.
+
+    `current` is the config as it stands now. Rules that compare two settings
+    against each other need it: the admin may be saving only one half of a
+    pair, and the incoming half still has to make sense against the stored
+    other half rather than passing simply because it wasn't in this batch.
+    """
     if "meter.photo_max_mb" in values and not (1 <= values["meter.photo_max_mb"] <= 50):
         raise ValueError("Max photo size must be between 1 and 50 MB")
     if "meter.bill_due_days" in values and not (0 <= values["meter.bill_due_days"] <= 365):
         raise ValueError("Payment window must be between 0 and 365 days")
     if "bill.due_days" in values and not (0 <= values["bill.due_days"] <= 365):
         raise ValueError("Bill due period must be between 0 and 365 days")
+    # Day-of-month window. Checked against the merged view of current + incoming
+    # values, so saving just one of the two days is still validated against the
+    # other's stored value rather than passing because it wasn't in this batch.
+    if "meter.tenant_upload_from_day" in values or "meter.tenant_upload_to_day" in values:
+        for key in ("meter.tenant_upload_from_day", "meter.tenant_upload_to_day"):
+            if key in values and not (1 <= int(values[key]) <= 31):
+                raise ValueError("Tenant upload window days must be between 1 and 31")
+        merged = dict(current or {})
+        merged.update(values)
+        start = int(merged.get("meter.tenant_upload_from_day", DEFAULTS["meter.tenant_upload_from_day"]["value"]))
+        end   = int(merged.get("meter.tenant_upload_to_day",   DEFAULTS["meter.tenant_upload_to_day"]["value"]))
+        if start > end:
+            # Left unchecked this silently produces a window no day satisfies,
+            # locking every tenant out with nothing on screen to explain it.
+            raise ValueError(
+                f"Tenant upload window: the from day ({start}) cannot be after "
+                f"the to day ({end}). For a window that crosses month end, turn "
+                f"on 'Allow tenant reading upload every day' instead."
+            )
+
     if "meter.high_consumption_units" in values and values["meter.high_consumption_units"] < 0:
         raise ValueError("High consumption warning cannot be negative")
     if "meter.high_consumption_multiplier" in values and values["meter.high_consumption_multiplier"] < 0:

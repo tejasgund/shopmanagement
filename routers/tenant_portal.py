@@ -11,6 +11,9 @@ domain_helpers.py rather than here, shared as-is from before this file
 existed.
 """
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
@@ -18,6 +21,7 @@ from db_config import get_db
 from create_tables import Bill, Complex, DepositPayment, Meter, MeterReading, Payment, Shop, User, UserShop
 from auth_service import require_tenant
 from domain_helpers import _build_user_financial_summary, _decimal_to_float, _tenant_payment_dict
+from app_config import APP_TIMEZONE
 from meter_helpers import _reading_to_dict, _tenant_shop_ids
 from razorpay_service import _razorpay_public_config
 from schemas import UserResponse
@@ -253,6 +257,7 @@ def tenant_home(
     # ── Branding / payment-methods line ──
     cfg = settings_service.get_all(db)
     razorpay_enabled, razorpay_key_id = _razorpay_public_config(cfg)
+    today = datetime.now(ZoneInfo(APP_TIMEZONE)).date()
 
     return {
         "profile": {
@@ -280,5 +285,20 @@ def tenant_home(
             "payment_methods": cfg.get("app.payment_methods"),
             "razorpay_enabled": razorpay_enabled,
             "razorpay_key_id": razorpay_key_id,
+            # Meter reading rules the portal needs in order to show the right
+            # form: whether to offer the photo field at all, and whether
+            # today is inside the submission window. The API enforces both
+            # regardless - these only stop the portal offering something that
+            # would be refused on submit.
+            "meter_photo_upload_enabled": meter_service.photo_upload_allowed(
+                cfg, meter_service.TENANT
+            ),
+            "meter_photo_required": meter_service.photo_required(
+                cfg, meter_service.TENANT
+            ),
+            "meter_upload_open_today": meter_service.tenant_upload_open_on(cfg, today),
+            # The raw window rather than a ready-made sentence: the portal is
+            # Marathi by default, so it builds its own wording from these.
+            "meter_upload_window": meter_service.tenant_upload_window(cfg),
         },
     }

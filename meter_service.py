@@ -19,7 +19,8 @@ Flow:
     admin rejects                   ->  reason recorded, no bill, tenant can resubmit
 """
 
-from datetime import datetime, timedelta, timezone
+import calendar
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Optional
 
@@ -44,6 +45,107 @@ class MeterError(Exception):
         super().__init__(message)
         self.message = message
         self.status_code = status_code
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# WHO MAY ATTACH A PHOTO, AND WHEN A TENANT MAY SUBMIT
+#
+# These gate the EXISTING reading/photo flow rather than adding anything to it:
+# the upload path, storage and validation are untouched, and these rules only
+# decide whether the photo field is offered at all, and whether a tenant is
+# inside their submission window. Pure functions of the settings dict so both
+# the tenant and admin endpoints, and the tests, share one definition.
+# ══════════════════════════════════════════════════════════════════════════════
+
+TENANT = "tenant"
+ADMIN = "admin"
+
+_PHOTO_UPLOAD_SETTING = {
+    TENANT: "meter.allow_tenant_photo_upload",
+    ADMIN:  "meter.allow_admin_photo_upload",
+}
+
+
+def photo_upload_allowed(cfg: dict, actor: str) -> bool:
+    """
+    May `actor` ("tenant" / "admin") attach a photo to a reading right now?
+
+    Defaults to True for an unknown key so a deployment whose settings row
+    predates these switches keeps behaving exactly as it did before.
+    """
+    key = _PHOTO_UPLOAD_SETTING[actor]
+    value = cfg.get(key)
+    return True if value is None else bool(value)
+
+
+def photo_required(cfg: dict, actor: str) -> bool:
+    """
+    Must `actor` attach a photo?
+
+    "Photo required on submission" is deliberately ignored for a role whose
+    upload switch is off: requiring something the role has no way to provide
+    would block the reading itself, and the reading must always be
+    submittable.
+    """
+    return bool(cfg.get("meter.photo_required")) and photo_upload_allowed(cfg, actor)
+
+
+def _days_in_month(year: int, month: int) -> int:
+    return calendar.monthrange(year, month)[1]
+
+
+def tenant_upload_window(cfg: dict) -> dict:
+    """
+    The tenant submission window as {any_day, from_day, to_day}.
+
+    from_day/to_day are days of the MONTH, so the window repeats every cycle
+    instead of expiring like a fixed calendar range would.
+    """
+    any_day = cfg.get("meter.tenant_upload_any_day")
+    return {
+        "any_day":  True if any_day is None else bool(any_day),
+        "from_day": int(cfg.get("meter.tenant_upload_from_day") or 1),
+        "to_day":   int(cfg.get("meter.tenant_upload_to_day") or 31),
+    }
+
+
+def tenant_upload_open_on(cfg: dict, when: date) -> bool:
+    """
+    Is the tenant window open on `when`?
+
+    Both ends are clamped to the length of that month, so a to_day of 31 means
+    "to month end" in every month rather than shutting the window for the last
+    days of February, and a from_day past a short month's end still opens on
+    its final day instead of never.
+    """
+    window = tenant_upload_window(cfg)
+    if window["any_day"]:
+        return True
+
+    last = _days_in_month(when.year, when.month)
+    start = min(window["from_day"], last)
+    end = min(window["to_day"], last)
+    return start <= when.day <= end
+
+
+def tenant_upload_window_message(cfg: dict) -> str:
+    """One line an out-of-window tenant can act on, shared by API and portal."""
+    window = tenant_upload_window(cfg)
+    if window["any_day"]:
+        return ""
+    start, end = window["from_day"], window["to_day"]
+    if start == end:
+        return f"Meter readings can only be submitted on day {start} of each month."
+    return (
+        f"Meter readings can only be submitted between day {start} and day {end} "
+        f"of each month."
+    )
+
+
+def assert_tenant_upload_window(cfg: dict, when: date) -> None:
+    """Raise MeterError if a tenant is submitting outside the window."""
+    if not tenant_upload_open_on(cfg, when):
+        raise MeterError(tenant_upload_window_message(cfg), status_code=403)
 
 
 def _money(value) -> Decimal:

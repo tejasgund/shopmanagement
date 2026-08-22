@@ -15,6 +15,7 @@ routers/complexes.py's all_complexes_summary. Same numbers as before.
 """
 
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -22,7 +23,10 @@ from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from db_config import get_db
-from create_tables import Bill, Complex, DepositPayment, Payment, Shop, User, UserShop
+from create_tables import (
+    Bill, Complex, DepositPayment, Meter, MeterReading, Payment, Shop, User, UserShop,
+)
+from app_config import APP_TIMEZONE
 from auth_service import require_admin
 from domain_helpers import _decimal_to_float, _shop_owner_map
 
@@ -893,4 +897,148 @@ def finance_overview(
         "tenants": list(tenants_map.values()),
         "recent_payments": recent_payments,
         "recent_deposit_payments": recent_deposit_payments,
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ── MISSING METER READINGS
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/api/reports/missing-meter-readings", tags=["Reports"])
+def report_missing_meter_readings(
+    date:       Optional[str] = Query(None, description="YYYY-MM-DD. Defaults to today."),
+    scope:      str           = Query("month", pattern="^(day|month)$"),
+    complex_id: Optional[int] = None,
+    status:     Optional[str] = Query(None, pattern="^(submitted|not_submitted)$"),
+    db:         Session       = Depends(get_db),
+    _:          User          = Depends(require_admin),
+):
+    """
+    Who has and hasn't sent a meter reading for the chosen period.
+
+    scope="month" (default) asks "has this meter been read at all this month?",
+    which is how the reading cycle actually runs; scope="day" narrows it to the
+    exact date, for checking a single collection round.
+
+    A reading counts as submitted purely because it exists - a photo-less
+    reading is still a reading, so this stays meaningful when photo upload is
+    turned off, and a reading the admin later rejected still shows as
+    submitted (the tenant did send it) with its review state in
+    `reading_status` for context.
+
+    One row per assigned, active meter, since a tenant with two shops can
+    easily have sent one reading and not the other.
+    """
+    if date:
+        try:
+            target = datetime.strptime(date, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(400, detail="date must be in YYYY-MM-DD format")
+    else:
+        target = datetime.now(ZoneInfo(APP_TIMEZONE)).date()
+
+    if scope == "day":
+        period_start = datetime.combine(target, datetime.min.time())
+        period_end = period_start + timedelta(days=1)
+        period_label = target.isoformat()
+    else:
+        period_start = datetime(target.year, target.month, 1)
+        period_end = (
+            datetime(target.year + 1, 1, 1) if target.month == 12
+            else datetime(target.year, target.month + 1, 1)
+        )
+        period_label = target.strftime("%Y-%m")
+
+    # Only meters that are on a shop and in use: an unassigned or retired
+    # meter has nobody who could have been expected to read it.
+    meter_q = (
+        db.query(Meter, Shop)
+        .join(Shop, Shop.id == Meter.shop_id)
+        .filter(Meter.is_active == True)
+    )
+    if complex_id is not None:
+        meter_q = meter_q.filter(Shop.complex_id == complex_id)
+    meter_rows = meter_q.order_by(Shop.shop_number, Meter.meter_number).all()
+
+    if not meter_rows:
+        return {
+            "date": target.isoformat(), "scope": scope, "period": period_label,
+            "summary": {"total": 0, "submitted": 0, "not_submitted": 0},
+            "rows": [],
+        }
+
+    shop_ids = [s.id for _, s in meter_rows]
+    meter_ids = [m.id for m, _ in meter_rows]
+
+    # Current tenant per shop - same "most recently assigned wins" rule the
+    # rest of the app uses for a shop's owner.
+    owner_map = _shop_owner_map(db, shop_ids)
+    complexes = {c.id: c.name for c in db.query(Complex).all()}
+
+    # Earliest submission per meter inside the period. Ordered ascending so
+    # the first row seen per meter is the one reported, making "submitted at"
+    # the moment they first sent it rather than whichever row came back first.
+    first_reading_by_meter = {}
+    for r in (
+        db.query(MeterReading)
+        .filter(
+            MeterReading.meter_id.in_(meter_ids),
+            MeterReading.reading_date >= period_start,
+            MeterReading.reading_date < period_end,
+        )
+        .order_by(MeterReading.reading_date.asc(), MeterReading.id.asc())
+        .all()
+    ):
+        first_reading_by_meter.setdefault(r.meter_id, r)
+
+    rows = []
+    for meter, shop in meter_rows:
+        owner = owner_map.get(shop.id)
+        reading = first_reading_by_meter.get(meter.id)
+        submitted = reading is not None
+        rows.append({
+            "meter_id":      meter.id,
+            "meter_number":  meter.meter_number,
+            "meter_type":    meter.meter_type,
+            "shop_id":       shop.id,
+            "shop_number":   shop.shop_number,
+            "complex_id":    shop.complex_id,
+            "complex_name":  complexes.get(shop.complex_id),
+            "user_id":       owner.id if owner else None,
+            "tenant_name":   owner.name if owner else None,
+            "tenant_mobile": owner.mobile if owner else None,
+            "reading_date":  reading.reading_date if reading else None,
+            "submitted":     submitted,
+            "status":        "Submitted" if submitted else "Not Submitted",
+            "submitted_at":  reading.created_at if reading else None,
+            "reading_id":    reading.id if reading else None,
+            # Where the submission got to in review - context only; a rejected
+            # reading was still submitted.
+            "reading_status": reading.status if reading else None,
+            "customer_reading": (
+                _decimal_to_float(reading.customer_reading) if reading else None
+            ),
+            "has_photo":     bool(reading.photo_path) if reading else False,
+        })
+
+    submitted_count = sum(1 for r in rows if r["submitted"])
+    summary = {
+        "total": len(rows),
+        "submitted": submitted_count,
+        "not_submitted": len(rows) - submitted_count,
+    }
+
+    # Filter last so the summary always describes the whole period, not just
+    # the slice being looked at.
+    if status == "submitted":
+        rows = [r for r in rows if r["submitted"]]
+    elif status == "not_submitted":
+        rows = [r for r in rows if not r["submitted"]]
+
+    return {
+        "date": target.isoformat(),
+        "scope": scope,
+        "period": period_label,
+        "summary": summary,
+        "rows": rows,
     }

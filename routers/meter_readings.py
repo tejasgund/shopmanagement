@@ -138,9 +138,21 @@ async def collect_meter_reading(
         )
 
     # ── Photo (same requirement rule as the tenant flow) ──
+    # Gated by the ADMIN switch only - an admin can still attach a photo when
+    # tenant uploads are turned off, and vice versa. Deliberately no window
+    # check anywhere in this endpoint: the tenant submission window must never
+    # stop an admin recording a reading on someone's behalf.
+    photo_allowed = meter_service.photo_upload_allowed(cfg, meter_service.ADMIN)
     photo_key = photo_name = photo_mime = None
     photo_size = None
     photo_bytes = None
+
+    if photo is not None and photo.filename and not photo_allowed:
+        raise HTTPException(
+            400,
+            detail="Photo upload is currently turned off. Please record just the "
+                   "meter reading, without a photo.",
+        )
 
     if photo is not None and photo.filename:
         photo_bytes = await photo.read()
@@ -157,7 +169,7 @@ async def collect_meter_reading(
         photo_name = photo_storage.safe_original_name(photo.filename)
         photo_mime = mime
         photo_size = len(photo_bytes)
-    elif cfg.get("meter.photo_required"):
+    elif meter_service.photo_required(cfg, meter_service.ADMIN):
         raise HTTPException(400, detail="A photo of the meter is required.")
 
     now = datetime.now(ZoneInfo(APP_TIMEZONE)).replace(tzinfo=None)

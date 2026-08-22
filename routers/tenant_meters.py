@@ -17,7 +17,7 @@ from db_config import get_db
 from create_tables import Meter, MeterReading, Shop, User
 from auth_service import require_tenant
 from audit_service import write_audit
-from meter_helpers import _tenant_shop_ids, _reading_to_dict, _readings_to_dicts
+from meter_helpers import _meter_error, _tenant_shop_ids, _reading_to_dict, _readings_to_dicts
 from app_config import APP_TIMEZONE
 from log import get_logger
 import meter_service
@@ -119,6 +119,18 @@ async def submit_meter_reading(
         )
 
     cfg = settings_service.get_all(db)
+
+    # Submission window (day-of-month, repeats every cycle). Tenants only -
+    # collect_meter_reading in routers/meter_readings.py deliberately has no
+    # equivalent check, so an admin can always record a reading for a tenant
+    # who missed the window.
+    try:
+        meter_service.assert_tenant_upload_window(
+            cfg, datetime.now(ZoneInfo(APP_TIMEZONE)).date()
+        )
+    except meter_service.MeterError as exc:
+        raise _meter_error(exc)
+
     previous = meter_service.previous_reading_value(db, meter)
     current_value = Decimal(str(customer_reading))
 
@@ -132,9 +144,22 @@ async def submit_meter_reading(
         )
 
     # ── Photo ──
+    # The upload itself is unchanged; the switch only decides whether a photo
+    # is accepted at all. A photo arriving while it is off is refused rather
+    # than dropped - silently discarding one would leave the tenant believing
+    # their evidence was filed. The reading is still submittable without it,
+    # so meter_service.photo_required() reports False while the switch is off.
+    photo_allowed = meter_service.photo_upload_allowed(cfg, meter_service.TENANT)
     photo_key = photo_name = photo_mime = None
     photo_size = None
     photo_bytes = None
+
+    if photo is not None and photo.filename and not photo_allowed:
+        raise HTTPException(
+            400,
+            detail="Photo upload is currently turned off. Please send just the "
+                   "meter reading, without a photo.",
+        )
 
     if photo is not None and photo.filename:
         photo_bytes = await photo.read()
@@ -151,7 +176,7 @@ async def submit_meter_reading(
         photo_name = photo_storage.safe_original_name(photo.filename)
         photo_mime = mime
         photo_size = len(photo_bytes)
-    elif cfg.get("meter.photo_required"):
+    elif meter_service.photo_required(cfg, meter_service.TENANT):
         raise HTTPException(400, detail="A photo of the meter is required.")
 
     now = datetime.now(ZoneInfo(APP_TIMEZONE)).replace(tzinfo=None)
