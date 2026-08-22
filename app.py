@@ -98,13 +98,19 @@ app.add_middleware(
 app.middleware("http")(log_request_middleware)
 
 # ──────────────────────────────────────────────
-# JWT Settings
+# Routers extracted out of this file (router/service split, in progress -
+# each one is pulled out only after its own dependencies are also extracted,
+# so nothing here ever imports back from app.py).
 # ──────────────────────────────────────────────
-JWT_SECRET    = os.getenv("JWT_SECRET",    "CHANGE_ME_IN_PRODUCTION_SECRET_KEY")
-JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
-JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "1440"))  # 24 hours
+from routers import audit_log as _audit_log_router
+app.include_router(_audit_log_router.router)
 
-security = HTTPBearer()
+# JWT settings, token helpers and the auth dependencies (get_current_user /
+# require_admin / require_tenant) moved to auth_service.py (step 2 of the
+# router/service split) - imported just below, after the Razorpay settings
+# block that stays here. JWT_SECRET / JWT_ALGORITHM / JWT_EXPIRE_MINUTES /
+# security were only ever used inside that moved code, so nothing else in
+# this file needs them directly any more.
 
 # ──────────────────────────────────────────────
 # Razorpay settings
@@ -125,83 +131,18 @@ RAZORPAY_WEBHOOK_SECRET_ENV = os.getenv("RAZORPAY_WEBHOOK_SECRET", "")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# JWT HELPERS
+# JWT HELPERS / AUTH DEPENDENCIES / AUDIT HELPER
+# Moved to auth_service.py and audit_service.py (step 2 of the router/service
+# split). Re-imported here under their original names so every existing
+# reference in this file (and app.<name> in tests) keeps working unchanged.
 # ══════════════════════════════════════════════════════════════════════════════
 
-def create_access_token(data: dict) -> str:
-    """Encode a JWT token that expires after JWT_EXPIRE_MINUTES minutes."""
-    payload = data.copy()
-    payload["exp"] = datetime.now(timezone.utc) + timedelta(minutes=JWT_EXPIRE_MINUTES)
-    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
-
-
-def decode_token(token: str) -> dict:
-    """Decode and validate a JWT token. Raises HTTPException on failure."""
-    try:
-        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-    except JWTError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-        ) from exc
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# AUTH DEPENDENCIES
-# ══════════════════════════════════════════════════════════════════════════════
-
-def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db),
-) -> User:
-    """Dependency – returns the authenticated User ORM object."""
-    payload = decode_token(credentials.credentials)
-    user_id = payload.get("sub")
-    if user_id is None:
-        raise HTTPException(status_code=401, detail="Token missing subject")
-
-    user = db.query(User).filter(User.id == int(user_id), User.is_active == True).first()
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found or inactive")
-    return user
-
-
-def require_admin(current_user: User = Depends(get_current_user)) -> User:
-    """Dependency – raises 403 unless the caller is an admin."""
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
-    return current_user
-
-
-def require_tenant(current_user: User = Depends(get_current_user)) -> User:
-    """Dependency – any authenticated user may pass (admin or tenant)."""
-    return current_user
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# AUDIT HELPER
-# ══════════════════════════════════════════════════════════════════════════════
-
-def write_audit(
-    db: Session,
-    actor_id: int,
-    action: str,
-    table_name: str,
-    record_id: Optional[int] = None,
-    old_data: Optional[dict] = None,
-    new_data: Optional[dict] = None,
-):
-    """Persist one audit log entry."""
-    entry = AuditLog(
-        user_id    = actor_id,
-        action     = action,
-        table_name = table_name,
-        record_id  = record_id,
-        old_data   = json.dumps(old_data,  default=str) if old_data  else None,
-        new_data   = json.dumps(new_data,  default=str) if new_data  else None,
-    )
-    db.add(entry)
-    # caller commits
+from auth_service import (
+    JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRE_MINUTES, security,
+    create_access_token, decode_token,
+    get_current_user, require_admin, require_tenant,
+)
+from audit_service import write_audit
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -3162,159 +3103,11 @@ def tenant_financial_summary(
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ── ROUTES: Audit Log  (Admin only)
-# ══════════════════════════════════════════════════════════════════════════════
-
-def _parse_json_field(value):
-    """Safely parse a JSON string stored in the DB; return dict/list or None."""
-    if value is None:
-        return None
-    if isinstance(value, (dict, list)):
-        return value
-    try:
-        return json.loads(value)
-    except (json.JSONDecodeError, TypeError):
-        return value  # return raw if unparseable
-
-
-def _audit_log_to_dict(log: "AuditLog", user: Optional["User"]) -> dict:
-    return {
-        "id":         log.id,
-        "created_at": log.created_at,
-        "action":     log.action,
-        "table_name": log.table_name,
-        "record_id":  log.record_id,
-        "user": {
-            "id":     user.id     if user else log.user_id,
-            "name":   user.name   if user else "Unknown",
-            "mobile": user.mobile if user else "",
-            "role":   user.role   if user else "",
-        },
-        "old_data": _parse_json_field(log.old_data),
-        "new_data": _parse_json_field(log.new_data),
-    }
-
-
-@app.get("/api/audit-logs/filters", tags=["Audit Log"])
-def audit_log_filters(
-    db:    Session = Depends(get_db),
-    _:     User    = Depends(require_admin),
-):
-    """
-    Return distinct values for action and table_name that exist in the audit log.
-    Use this to populate filter dropdowns in the UI.  Admin only.
-
-    Response:
-        {
-          "actions":      ["CREATE", "UPDATE", "DELETE", ...],
-          "table_names":  ["bills", "payments", "users", ...]
-        }
-    """
-    actions     = [r[0] for r in db.query(AuditLog.action    ).distinct().order_by(AuditLog.action).all()     if r[0]]
-    table_names = [r[0] for r in db.query(AuditLog.table_name).distinct().order_by(AuditLog.table_name).all() if r[0]]
-    return {"success": True, "actions": actions, "table_names": table_names}
-
-
-@app.get("/api/audit-logs", tags=["Audit Log"])
-def list_audit_logs(
-    # ── Pagination ────────────────────────────────
-    page:       int            = Query(1,  ge=1),
-    limit:      int            = Query(20, ge=1, le=200),
-    # ── Filters ───────────────────────────────────
-    user_id:    Optional[int]  = None,
-    action:     Optional[str]  = None,
-    table_name: Optional[str]  = None,
-    start_date: Optional[datetime] = None,
-    end_date:   Optional[datetime] = None,
-    # ── Search ────────────────────────────────────
-    search:     Optional[str]  = Query(None, description="Search by user name, mobile, action, table_name, or record_id"),
-    # ── DB / Auth ─────────────────────────────────
-    db:         Session        = Depends(get_db),
-    _:          User           = Depends(require_admin),
-):
-    """
-    Paginated, filterable, searchable list of all audit log entries.
-    Results are sorted newest-first by default.  Admin only.
-
-    Query params:
-        page        – page number (default 1)
-        limit       – page size   (default 20, max 200)
-        user_id     – filter by acting user
-        action      – exact match on action  (CREATE / UPDATE / DELETE / LOGIN …)
-        table_name  – exact match on table   (bills / payments / users …)
-        start_date  – ISO-8601, inclusive lower bound on created_at
-        end_date    – ISO-8601, inclusive upper bound on created_at
-        search      – free-text search across user name, mobile, action,
-                      table_name, and record_id
-    """
-    # Build base query joining users so we can search / return actor info
-    q = (
-        db.query(AuditLog, User)
-        .outerjoin(User, User.id == AuditLog.user_id)
-    )
-
-    # ── Exact filters ─────────────────────────────
-    if user_id is not None:
-        q = q.filter(AuditLog.user_id == user_id)
-    if action:
-        q = q.filter(AuditLog.action == action.upper())
-    if table_name:
-        q = q.filter(AuditLog.table_name == table_name.lower())
-    if start_date:
-        q = q.filter(AuditLog.created_at >= start_date)
-    if end_date:
-        # include the whole end day even if no time component given
-        end_inclusive = end_date.replace(hour=23, minute=59, second=59) if end_date.hour == 0 else end_date
-        q = q.filter(AuditLog.created_at <= end_inclusive)
-
-    # ── Free-text search ──────────────────────────
-    if search:
-        term = f"%{search.strip()}%"
-        q = q.filter(
-            User.name.ilike(term)
-            | User.mobile.ilike(term)
-            | AuditLog.action.ilike(term)
-            | AuditLog.table_name.ilike(term)
-            | AuditLog.record_id.cast(text("CHAR")).ilike(term)
-        )
-
-    # ── Count before pagination ───────────────────
-    total = q.count()
-
-    # ── Sort + paginate ───────────────────────────
-    offset = (page - 1) * limit
-    rows   = q.order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).offset(offset).limit(limit).all()
-
-    return {
-        "success": True,
-        "page":    page,
-        "limit":   limit,
-        "total":   total,
-        "data":    [_audit_log_to_dict(log, user) for log, user in rows],
-    }
-
-
-@app.get("/api/audit-logs/{log_id}", tags=["Audit Log"])
-def get_audit_log(
-    log_id: int,
-    db:     Session = Depends(get_db),
-    _:      User    = Depends(require_admin),
-):
-    """
-    Return the full detail of a single audit log entry, including parsed
-    old_data / new_data JSON and full actor information.  Admin only.
-    """
-    row = (
-        db.query(AuditLog, User)
-        .outerjoin(User, User.id == AuditLog.user_id)
-        .filter(AuditLog.id == log_id)
-        .first()
-    )
-    if not row:
-        raise HTTPException(status_code=404, detail="Audit log entry not found")
-    log, user = row
-    return {"success": True, "data": _audit_log_to_dict(log, user)}
-
-
+# Moved to routers/audit_log.py (step 3 of the router/service split) and
+# wired in via app.include_router() near the bottom of this file, right
+# after `app = FastAPI(...)` is constructed. _parse_json_field/
+# _audit_log_to_dict moved with it - nothing outside this block ever called
+# them.
 # ══════════════════════════════════════════════════════════════════════════════
 # ── ROUTES: Bill Edit  (Admin only)
 # ══════════════════════════════════════════════════════════════════════════════
