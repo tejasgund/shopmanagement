@@ -25,8 +25,10 @@ python-multipart==0.0.12
 # Environment variables (loaded from .env at startup - see app.py)
 python-dotenv==1.0.1
 
-# Scheduling (in-process cron for automatic rent bill generation)
-APScheduler==3.10.4
+# Scheduling: none. Rent bill generation used to run on an in-process
+# APScheduler started by the FastAPI startup hook; it is now a cron job
+# (see scheduler/README.md), so the dependency is gone. Nothing in the
+# application schedules work any more.
 
 # Payments (Razorpay Standard Checkout for tenant online payments)
 razorpay==2.0.1

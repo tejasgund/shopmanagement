@@ -20,7 +20,9 @@ from sqlalchemy.orm import Session
 from db_config import get_db
 from create_tables import Bill, Complex, DepositPayment, Meter, MeterReading, Payment, Shop, User, UserShop
 from auth_service import require_tenant
-from domain_helpers import _build_user_financial_summary, _decimal_to_float, _tenant_payment_dict
+from domain_helpers import (
+    _build_user_financial_summary, _decimal_to_float, _tenant_payment_dict, bill_penalty_dict,
+)
 from app_config import APP_TIMEZONE
 from meter_helpers import _reading_to_dict, _tenant_shop_ids
 from razorpay_service import _razorpay_public_config
@@ -86,6 +88,8 @@ def tenant_bills(
             "bill_date":      b.bill_date,
             "due_date":       b.due_date,
             "status":         b.status,
+            # Why the amount owed is higher than the bill was raised for.
+            "penalty":        bill_penalty_dict(b),
         }
         for b in bills
     ]
@@ -192,6 +196,7 @@ def tenant_home(
             "paid_amount": _decimal_to_float(b.paid_amount),
             "pending_amount": _decimal_to_float(b.pending_amount),
             "bill_date": b.bill_date, "due_date": b.due_date, "status": b.status,
+            "penalty": bill_penalty_dict(b),
         }
         for b in bills
     ]

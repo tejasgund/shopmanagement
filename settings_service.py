@@ -240,6 +240,71 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
                 "Admins can override the due date for any individual bill.",
     },
 
+    # ══════════════════════════════════════════════════════════════════════
+    # Scheduler
+    #
+    # The cron entry only decides how OFTEN the master scheduler wakes up.
+    # These decide whether it does anything when it does, and are read fresh on
+    # every run - so turning something off here takes effect on the next tick
+    # with nothing to restart and no crontab to edit.
+    # ══════════════════════════════════════════════════════════════════════
+    "scheduler.enabled": {
+        "value": True, "type": "bool", "category": "Scheduler",
+        "label": "Master scheduler",
+        "help": "Off: cron still wakes the scheduler, but no task does any work - "
+                "every due task is recorded as SKIPPED rather than silently "
+                "ignored, so the dashboard shows exactly what did not run.",
+    },
+    "scheduler.rent_generation_enabled": {
+        "value": True, "type": "bool", "category": "Scheduler",
+        "label": "Automatic rent generation",
+        "help": "Generate each tenant's monthly Rent bill on their configured "
+                "bill day. Only runs when the master scheduler above is on.",
+    },
+    "scheduler.penalty_enabled": {
+        "value": False, "type": "bool", "category": "Scheduler",
+        "label": "Due-date penalty",
+        "help": "Add a daily late fee to overdue unpaid bills. Off by default - "
+                "turning it on starts charging tenants, so it is a deliberate "
+                "decision rather than something that happens on upgrade.",
+    },
+    "scheduler.penalty_percent_per_day": {
+        "value": 1.0, "type": "float", "category": "Scheduler",
+        "label": "Penalty per day (% of the original bill)",
+        "help": "1 = 1% of the ORIGINAL bill amount per chargeable day. A 10,000 "
+                "bill at 1% accrues 100 a day. The percentage is always of the "
+                "original, so a penalty never earns a penalty.",
+    },
+    "scheduler.penalty_grace_days": {
+        "value": 0, "type": "int", "category": "Scheduler",
+        "label": "Grace period (days)",
+        "help": "Days after the due date before any penalty starts. 0 charges "
+                "from the first day overdue; 5 means a bill due on the 10th "
+                "starts accruing on the 16th.",
+    },
+    "scheduler.penalty_max_amount": {
+        "value": 0, "type": "float", "category": "Scheduler",
+        "label": "Maximum penalty per bill",
+        "help": "Upper limit on the accrued penalty for a single bill. 0 means "
+                "no cap, and the penalty keeps growing until the bill is paid.",
+    },
+    "scheduler.backfill_days": {
+        "value": 30, "type": "int", "category": "Scheduler",
+        "label": "Look back for missed runs (days)",
+        "help": "How far back the scheduler looks for runs that never happened - "
+                "a server outage, a stopped cron. Anything found is registered "
+                "and processed rather than lost. Keep it comfortably longer than "
+                "the longest outage you would want recovered automatically.",
+    },
+    "scheduler.lookahead_days": {
+        "value": 7, "type": "int", "category": "Scheduler",
+        "label": "Register future runs (days ahead)",
+        "help": "How far ahead the future-task checker writes expected runs, so "
+                "the dashboard can show what is coming. Registering them in "
+                "advance is also what makes a missed run detectable: the row "
+                "already exists and simply never completed.",
+    },
+
     # ── Online payments (Razorpay) ────────────────────────────────────────
     # The keys themselves (RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET) are env-only,
     # never here - this is just the on/off switch and the tenant-facing copy.
@@ -452,6 +517,21 @@ def _validate(values: Dict[str, Any], current: Optional[Dict[str, Any]] = None) 
     # Day-of-month window. Checked against the merged view of current + incoming
     # values, so saving just one of the two days is still validated against the
     # other's stored value rather than passing because it wasn't in this batch.
+    if "scheduler.penalty_percent_per_day" in values and not (
+        0 <= float(values["scheduler.penalty_percent_per_day"]) <= 100
+    ):
+        raise ValueError("Penalty per day must be between 0 and 100 percent")
+    if "scheduler.penalty_grace_days" in values and not (
+        0 <= int(values["scheduler.penalty_grace_days"]) <= 365
+    ):
+        raise ValueError("Grace period must be between 0 and 365 days")
+    if "scheduler.penalty_max_amount" in values and float(values["scheduler.penalty_max_amount"]) < 0:
+        raise ValueError("Maximum penalty cannot be negative")
+    if "scheduler.backfill_days" in values and not (0 <= int(values["scheduler.backfill_days"]) <= 400):
+        raise ValueError("Look-back for missed runs must be between 0 and 400 days")
+    if "scheduler.lookahead_days" in values and not (0 <= int(values["scheduler.lookahead_days"]) <= 90):
+        raise ValueError("Future run registration must be between 0 and 90 days")
+
     if "meter.tenant_upload_from_day" in values or "meter.tenant_upload_to_day" in values:
         for key in ("meter.tenant_upload_from_day", "meter.tenant_upload_to_day"):
             if key in values and not (1 <= int(values[key]) <= 31):

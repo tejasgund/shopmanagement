@@ -53,19 +53,66 @@ def _shop_to_response(shop: Shop, owner_map: dict) -> ShopResponse:
     return data
 
 
+def bill_payable(bill: Bill) -> float:
+    """
+    What is actually owed on a bill: the original amount plus any late penalty.
+
+    `bill.amount` is deliberately never touched by the penalty task, so it
+    always answers "what was this bill for". This function answers the
+    different question "what must be paid", and is the only place the two are
+    added together.
+    """
+    return _decimal_to_float(bill.amount) + _decimal_to_float(bill.penalty_amount)
+
+
 def _reconcile_bill(bill: Bill):
-    """Recompute paid_amount, pending_amount, and status from linked payments."""
-    total_paid     = sum(_decimal_to_float(p.amount) for p in bill.payments)
-    bill_amount    = _decimal_to_float(bill.amount)
+    """
+    Recompute paid_amount, pending_amount, and status from linked payments.
+
+    The single place in the app that decides what a bill owes - which is why
+    adding the penalty here is enough for every payment route (cash,
+    auto-allocate, Razorpay) to charge it without any of them changing: they
+    all end up back in this function.
+    """
+    total_paid = sum(_decimal_to_float(p.amount) for p in bill.payments)
+    payable    = bill_payable(bill)
     bill.paid_amount    = Decimal(str(total_paid))
-    bill.pending_amount = Decimal(str(max(0.0, bill_amount - total_paid)))
+    bill.pending_amount = Decimal(str(max(0.0, payable - total_paid)))
 
     if total_paid <= 0:
         bill.status = "pending"
-    elif total_paid >= bill_amount:
+    elif total_paid >= payable:
         bill.status = "paid"
     else:
         bill.status = "partial"
+
+
+def bill_penalty_dict(bill: Bill) -> dict:
+    """
+    The penalty breakdown for one bill, in the shape both dashboards show.
+
+    Every figure the tenant needs to understand why the amount went up, in one
+    place so the admin screen and the tenant portal can never explain the same
+    bill differently. `days_overdue` is the plain calendar count since the due
+    date; `penalty_days` is what was actually charged for, which is lower when
+    a grace period applies.
+    """
+    original = _decimal_to_float(bill.amount)
+    penalty = _decimal_to_float(bill.penalty_amount)
+    days_overdue = 0
+    if bill.due_date and bill.status != "paid":
+        from datetime import datetime as _dt
+        days_overdue = max(0, (_dt.now().date() - bill.due_date.date()).days)
+
+    return {
+        "original_amount": round(original, 2),
+        "penalty_amount": round(penalty, 2),
+        "penalty_days": bill.penalty_days or 0,
+        "days_overdue": days_overdue,
+        "penalty_charged_through": bill.penalty_charged_through,
+        "total_payable": round(original + penalty, 2),
+        "has_penalty": penalty > 0,
+    }
 
 
 def _tenant_payment_dict(p: Payment) -> dict:

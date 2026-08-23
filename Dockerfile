@@ -40,9 +40,9 @@ RUN pip install --no-cache-dir --upgrade pip \
 #
 # NOTE: app.py was split into routers/ + several standalone service modules
 # (schemas.py, auth_service.py, audit_service.py, app_config.py,
-# domain_helpers.py, meter_helpers.py, razorpay_service.py) - every one of
-# these is imported by app.py or by something under routers/, so all of them
-# have to be copied in, not just app.py itself.
+# domain_helpers.py, meter_helpers.py, razorpay_service.py, rent_billing.py) -
+# every one of these is imported by app.py or by something under routers/, so
+# all of them have to be copied in, not just app.py itself.
 # ──────────────────────────────────────────────
 COPY app.py .
 COPY db_config.py .
@@ -59,8 +59,19 @@ COPY app_config.py .
 COPY domain_helpers.py .
 COPY meter_helpers.py .
 COPY razorpay_service.py .
+COPY rent_billing.py .
+COPY penalty_billing.py .
+COPY scheduler_service.py .
+COPY scheduler_master.py .
+COPY tasks/ ./tasks/
 COPY routers/ ./routers/
 COPY conf/ ./conf/
+
+# Scheduled jobs. Nothing in the image runs these - the container has no cron
+# daemon on purpose. They are shipped so the HOST crontab can invoke them:
+#   0 2 * * * docker exec <container> python -m scheduler.run_scheduler rent-bills
+# See scheduler/README.md and scheduler/crontab.example.
+COPY scheduler/ ./scheduler/
 
 # ──────────────────────────────────────────────
 # Create logs directory (log.py will also auto-create it,

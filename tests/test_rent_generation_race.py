@@ -1,11 +1,17 @@
 """
 Regression tests for the duplicate rent bill bug (2026-08-13).
 
-What happened: uvicorn runs with --workers 2, and the scheduler is started in
+What happened: uvicorn runs with --workers 2, and the scheduler was started in
 the FastAPI startup hook, so each worker had its own APScheduler firing the
 same cron. Both fired at 15:52:00, each on its own DB session. Neither could
 see the other's uncommitted row, so both read "no rent bill for August yet"
 and both inserted — shop 10 got bills 120 and 121.
+
+The scheduler has since moved out of the application entirely and is a cron
+job (see scheduler/), so that particular duplicate-worker trigger is gone.
+The lock these tests cover still very much matters: an overlapping cron run,
+a second host, or an admin pressing "generate rent bills" while the nightly
+run is in flight are all the same race arriving by a different route.
 
 These tests hold two simulated workers at a barrier just before they commit,
 which forces that exact ordering deterministically instead of relying on
@@ -18,7 +24,7 @@ from decimal import Decimal
 
 import pytest
 
-import app as app_module
+import rent_billing
 from create_tables import Bill, Shop, User, UserShop
 from db_config import SessionLocal
 
@@ -95,13 +101,13 @@ def test_unlocked_generation_can_double_bill(db, rent_tenant):
     insert a bill. If this ever stops being true the lock may be redundant —
     but until then it proves the lock is load-bearing.
     """
-    _, count = _run_two_workers(app_module.generate_rent_bills_for_date)
+    _, count = _run_two_workers(rent_billing.generate_rent_bills_for_date)
     assert count == 2, "expected the unguarded race to produce a duplicate"
 
 
 def test_locked_generation_creates_exactly_one_bill(db, rent_tenant):
     """The fix: two simultaneous runs produce one bill, not two."""
-    results, count = _run_two_workers(app_module.generate_rent_bills_for_date_locked)
+    results, count = _run_two_workers(rent_billing.generate_rent_bills_for_date_locked)
     assert count == 1, f"expected exactly one rent bill, got {count}"
 
     # One run created it; the other found it already there (or was locked out).
@@ -111,10 +117,10 @@ def test_locked_generation_creates_exactly_one_bill(db, rent_tenant):
 
 def test_locked_generation_is_still_idempotent_when_run_twice(db, rent_tenant):
     """Running it again later must not add a second bill for the same month."""
-    first = app_module.generate_rent_bills_for_date_locked(db, TARGET)
+    first = rent_billing.generate_rent_bills_for_date_locked(db, TARGET)
     assert len(first["created"]) == 1
 
-    second = app_module.generate_rent_bills_for_date_locked(db, TARGET)
+    second = rent_billing.generate_rent_bills_for_date_locked(db, TARGET)
     assert second["created"] == []
     assert second["skipped_existing"] == 1
 
@@ -145,25 +151,51 @@ def test_lock_is_released_after_a_failed_run(db, rent_tenant, monkeypatch):
     def boom(*args, **kwargs):
         raise RuntimeError("simulated failure")
 
-    monkeypatch.setattr(app_module, "generate_rent_bills_for_date", boom)
+    monkeypatch.setattr(rent_billing, "generate_rent_bills_for_date", boom)
     with pytest.raises(RuntimeError):
-        app_module.generate_rent_bills_for_date_locked(db, TARGET)
+        rent_billing.generate_rent_bills_for_date_locked(db, TARGET)
     monkeypatch.undo()
 
     # The lock is free again, so a normal run works.
-    result = app_module.generate_rent_bills_for_date_locked(db, TARGET)
+    result = rent_billing.generate_rent_bills_for_date_locked(db, TARGET)
     assert len(result["created"]) == 1
 
 
-def test_scheduler_can_be_switched_off_per_process(monkeypatch):
+def test_the_app_starts_no_background_scheduler():
     """
-    RUN_SCHEDULER=0 stops a worker starting its own scheduler, so one process
-    can own the cron instead of every worker duplicating it.
-    """
-    started = {"yes": False}
-    monkeypatch.setattr(app_module.scheduler, "start",
-                        lambda *a, **k: started.__setitem__("yes", True))
+    The application must not schedule anything itself any more.
 
-    monkeypatch.setenv("RUN_SCHEDULER", "0")
-    app_module._start_rent_bill_scheduler()
-    assert started["yes"] is False, "scheduler should not start when RUN_SCHEDULER=0"
+    This is the actual fix for the duplicate-bill bug: rather than every
+    uvicorn worker starting its own timer and relying on the lock to sort out
+    the resulting pile-up, nothing in-process schedules at all - cron does,
+    exactly once. Guarded by a test because re-adding an APScheduler here
+    would look harmless and quietly bring the whole failure mode back.
+    """
+    import app as app_module
+
+    assert not hasattr(app_module, "scheduler"), (
+        "app.py has a scheduler object again - background jobs belong in "
+        "scheduler/run_scheduler.py, driven by cron"
+    )
+    assert not hasattr(app_module, "_start_rent_bill_scheduler")
+
+    started = [
+        r for r in getattr(app_module.app.router, "on_startup", []) or []
+        if "schedul" in getattr(r, "__name__", "").lower()
+    ]
+    assert started == [], f"a startup hook still starts a scheduler: {started}"
+
+
+def test_the_cron_runner_and_the_api_share_one_implementation():
+    """
+    The nightly run and the admin's manual trigger must be the same code.
+
+    Duplicating the generation logic into scheduler/ would let the button and
+    the 2am run drift into disagreeing about what a rent bill is - the exact
+    class of bug that produced the due-date and window regressions earlier.
+    """
+    import app as app_module
+    from scheduler import run_scheduler
+
+    assert app_module.rent_billing is rent_billing
+    assert run_scheduler.JOBS["rent-bills"]["conf_section"] == "rent_bill_generation"

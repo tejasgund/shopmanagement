@@ -40,8 +40,8 @@ from sqlalchemy import or_
 
 import bcrypt
 from sqlalchemy import (
-    Column, Integer, String, Text, Numeric, DateTime,
-    Boolean, ForeignKey, Enum, Index, inspect as sa_inspect,
+    Column, Integer, String, Text, Numeric, DateTime, Date,
+    Boolean, ForeignKey, Enum, Index, UniqueConstraint, inspect as sa_inspect,
     text,
 )
 from sqlalchemy.orm import relationship
@@ -182,6 +182,21 @@ class Bill(Base):
     status          = Column(Enum("pending", "partial", "paid", name="bill_status"),
                              nullable=False, default="pending")
     created_at      = Column(DateTime, nullable=False, default=now_utc)
+
+    # ── Late-payment penalty ──────────────────────────────────────────────
+    # `amount` above is and stays the ORIGINAL bill: penalties never touch it,
+    # so "what was this bill for" is always answerable however long it has been
+    # overdue. What is owed = amount + penalty_amount, and that sum is what
+    # pending_amount holds (see domain_helpers._reconcile_bill, the one place
+    # that computes it).
+    penalty_amount  = Column(Numeric(12, 2), nullable=False, default=0)
+    # Chargeable days actually billed for - days past the due date MINUS the
+    # grace period, not the raw overdue count.
+    penalty_days    = Column(Integer, nullable=False, default=0)
+    # The last date the penalty has been calculated up to. Purely informational:
+    # the penalty is recomputed from scratch on every run rather than
+    # incremented, which is what makes running the task twice in a day a no-op.
+    penalty_charged_through = Column(Date, nullable=True)
 
     # Relationships
     user     = relationship("User",    back_populates="bills")
@@ -425,6 +440,64 @@ class MeterReading(Base):
 # ──────────────────────────────────────────────
 # app_settings  (runtime configuration, editable from the admin UI)
 # ──────────────────────────────────────────────
+class SchedulerTask(Base):
+    """
+    One row per expected run of one scheduled task - the scheduler's ledger.
+
+    The database, not the crontab, is the source of truth for what was supposed
+    to happen. A task is written here as PENDING the moment it is known to be
+    due (including retrospectively, for a day the server was down), and every
+    attempt updates the same row. That is what makes "nothing is silently
+    missed" true: a run that never happened still exists as a PENDING row with
+    a scheduled_for in the past, so it shows up as missed on the dashboard and
+    gets picked up on the next sweep instead of vanishing.
+
+    The unique constraint on (task_name, scheduled_for) is the duplicate
+    protection. Registering the same occurrence twice - two cron ticks racing,
+    a retry, a backfill overlapping a live run - is a no-op at the database
+    level rather than something every caller has to remember to check.
+    """
+
+    __tablename__ = "scheduler_tasks"
+
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    task_name    = Column(String(80), nullable=False, index=True)
+
+    # When this occurrence was due to run.
+    scheduled_for = Column(DateTime, nullable=False, index=True)
+    # The business date it covers. Usually scheduled_for's date, but kept
+    # separate because a backfilled run happening today is *for* an earlier day.
+    run_date      = Column(Date, nullable=False, index=True)
+
+    status = Column(
+        Enum("PENDING", "RUNNING", "COMPLETED", "FAILED", "SKIPPED",
+             name="scheduler_task_status"),
+        nullable=False, default="PENDING", index=True,
+    )
+
+    attempts     = Column(Integer, nullable=False, default=0)
+    started_at   = Column(DateTime, nullable=True)
+    finished_at  = Column(DateTime, nullable=True)
+    duration_ms  = Column(Integer, nullable=True)
+
+    records_processed = Column(Integer, nullable=False, default=0)
+    records_failed    = Column(Integer, nullable=False, default=0)
+
+    error_message = Column(Text, nullable=True)
+    # Whatever the task wants to show on the dashboard, as JSON.
+    result_json   = Column(Text, nullable=True)
+    # Why a run was skipped, so a SKIPPED row is never a mystery.
+    skip_reason   = Column(String(255), nullable=True)
+
+    created_at = Column(DateTime, nullable=False, default=now_utc)
+    updated_at = Column(DateTime, nullable=False, default=now_utc, onupdate=now_utc)
+
+    __table_args__ = (
+        UniqueConstraint("task_name", "scheduled_for", name="uq_scheduler_task_occurrence"),
+        Index("ix_scheduler_tasks_status_scheduled", "status", "scheduled_for"),
+    )
+
+
 class AppSetting(Base):
     """
     Key/value application configuration so an admin can change branding, upload
