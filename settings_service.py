@@ -370,6 +370,35 @@ def invalidate_cache() -> None:
         _cache_loaded_at = 0.0
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# APP OWNERSHIP
+#
+# Scheduler settings are stored in this same table - one settings mechanism,
+# one validation path, one audit trail - but they belong to the Scheduler app
+# and are deliberately NOT part of the main admin Settings screen. The split is
+# enforced at the API layer (see routers/settings.py and
+# routers/scheduler_admin.py) rather than merely hidden in the UI, so neither
+# app can reach into the other's configuration even by crafting a request.
+# ══════════════════════════════════════════════════════════════════════════════
+
+SCHEDULER_PREFIX = "scheduler."
+
+
+def is_scheduler_key(key: str) -> bool:
+    return str(key).startswith(SCHEDULER_PREFIX)
+
+
+def describe_for(app: str) -> list:
+    """
+    The settings schema belonging to one app: "scheduler" or "main".
+
+    Keeps the ownership rule in one place instead of every endpoint
+    re-deciding what it is allowed to show.
+    """
+    want_scheduler = app == "scheduler"
+    return [item for item in describe() if is_scheduler_key(item["key"]) == want_scheduler]
+
+
 def _coerce(raw: Any, type_name: str) -> Any:
     """Convert a stored string back into its declared Python type."""
     if raw is None:

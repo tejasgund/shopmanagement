@@ -352,3 +352,79 @@ def test_tenant_bills_explain_the_penalty(client, tenant_auth, db, overdue_bill)
     assert bill["penalty"]["penalty_amount"] == 500.0
     assert bill["penalty"]["total_payable"] == 10500.0
     assert bill["penalty"]["has_penalty"] is True
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# APP SEPARATION
+#
+# Scheduler settings belong to the Scheduler app. They share the settings
+# table - one mechanism, one audit trail - but the two apps cannot reach into
+# each other's configuration, and that is enforced by the API rather than by
+# each UI choosing to behave.
+# ══════════════════════════════════════════════════════════════════════════════
+
+def test_the_main_settings_screen_does_not_show_scheduler_settings(client, admin_auth):
+    rows = client.get("/api/settings", headers=admin_auth).json()["settings"]
+    leaked = [r["key"] for r in rows if r["key"].startswith("scheduler.")]
+    assert leaked == [], f"scheduler settings leaked into the main app: {leaked}"
+
+
+def test_the_main_settings_endpoint_refuses_to_write_scheduler_settings(client, admin_auth):
+    """Refused, not silently dropped - a dropped key looks like a save that worked."""
+    resp = client.put("/api/settings", headers=admin_auth,
+                      json={"values": {"scheduler.enabled": False}})
+    assert resp.status_code == 400
+    assert "Scheduler app" in resp.json()["detail"]
+
+
+def test_reset_all_settings_leaves_the_scheduler_alone(client, admin_auth, db):
+    """A reset in the main app must not wipe the scheduler's configuration."""
+    _set(db, **{"scheduler.penalty_percent_per_day": 2.5})
+
+    resp = client.post("/api/settings/reset", headers=admin_auth)
+    assert resp.status_code == 200
+    assert not any(k.startswith("scheduler.") for k in resp.json()["reset"])
+
+    settings_service.invalidate_cache()
+    assert settings_service.get_all(db)["scheduler.penalty_percent_per_day"] == 2.5
+
+
+def test_the_scheduler_app_serves_its_own_settings(client, admin_auth):
+    body = client.get("/api/scheduler/settings", headers=admin_auth).json()
+    keys = {r["key"] for r in body["settings"]}
+
+    assert keys >= {"scheduler.enabled", "scheduler.penalty_percent_per_day"}
+    assert all(k.startswith("scheduler.") for k in keys), "main app settings leaked in"
+
+
+def test_the_scheduler_app_cannot_change_the_main_applications_settings(client, admin_auth):
+    """The mirror image - the boundary is refused in both directions."""
+    resp = client.put("/api/scheduler/settings", headers=admin_auth,
+                      json={"values": {"app.name": "Hijacked"}})
+    assert resp.status_code == 400
+    assert "Only scheduler settings" in resp.json()["detail"]
+
+
+def test_scheduler_settings_save_and_take_effect(client, admin_auth, db):
+    resp = client.put("/api/scheduler/settings", headers=admin_auth,
+                      json={"values": {"scheduler.penalty_percent_per_day": 1.5,
+                                       "scheduler.penalty_grace_days": 3}})
+    assert resp.status_code == 200, resp.text
+
+    settings_service.invalidate_cache()
+    cfg = settings_service.get_all(db)
+    assert cfg["scheduler.penalty_percent_per_day"] == 1.5
+    assert cfg["scheduler.penalty_grace_days"] == 3
+
+
+def test_scheduler_settings_are_validated(client, admin_auth):
+    resp = client.put("/api/scheduler/settings", headers=admin_auth,
+                      json={"values": {"scheduler.penalty_percent_per_day": 500}})
+    assert resp.status_code == 400
+    assert "between 0 and 100" in resp.json()["detail"]
+
+
+def test_scheduler_settings_are_admin_only(client, tenant_auth):
+    assert client.get("/api/scheduler/settings", headers=tenant_auth).status_code == 403
+    assert client.put("/api/scheduler/settings", headers=tenant_auth,
+                      json={"values": {"scheduler.enabled": False}}).status_code == 403

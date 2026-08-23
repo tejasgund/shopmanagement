@@ -60,7 +60,9 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(require_admin)
     it; a blank field means "leave it as-is" (see settings_service.set_many).
     """
     values = settings_service.get_all(db)
-    schema = settings_service.describe()
+    # Scheduler settings are owned by the Scheduler app and are served by
+    # GET /api/scheduler/settings instead - see settings_service.describe_for.
+    schema = settings_service.describe_for("main")
     for item in schema:
         real_value = values.get(item["key"], item["default"])
         if item["type"] == "secret":
@@ -86,6 +88,17 @@ def update_settings(
     """
     if not payload.values:
         raise HTTPException(400, detail="No settings were provided")
+
+    # Refused rather than quietly filtered: a caller trying to set a scheduler
+    # key here has the wrong endpoint, and silently dropping it would look like
+    # a save that worked.
+    intruders = sorted(k for k in payload.values if settings_service.is_scheduler_key(k))
+    if intruders:
+        raise HTTPException(
+            400,
+            detail="Scheduler settings are managed in the Scheduler app, not here: "
+                   + ", ".join(intruders),
+        )
 
     try:
         changed = settings_service.set_many(db, payload.values, actor_id=actor.id)
@@ -115,6 +128,9 @@ def reset_settings(
     q = db.query(AppSetting)
     if keys:
         q = q.filter(AppSetting.key.in_(keys))
+    # "Reset all" belongs to this app only - it must never silently wipe the
+    # Scheduler app's configuration along with its own.
+    q = q.filter(~AppSetting.key.like(f"{settings_service.SCHEDULER_PREFIX}%"))
     rows = q.all()
     removed = [r.key for r in rows]
     for row in rows:

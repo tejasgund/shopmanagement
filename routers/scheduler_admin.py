@@ -6,8 +6,14 @@ hardcoded catalogue of tasks in this file and none in the frontend: the task
 names, labels and descriptions come from scheduler_service.TASKS, so a task
 added to that registry appears on the dashboard on its own.
 
-Read-only apart from two deliberate actions: retrying a finished task, and
-running a sweep on demand.
+Read-only apart from three deliberate actions: retrying a finished task,
+running a sweep on demand, and editing the Scheduler app's own settings.
+
+Those settings live here rather than on the main /api/settings screen. They
+share the same storage, validation and audit trail as every other setting -
+there is no second settings mechanism - but they belong to this app, and the
+main admin Settings endpoint refuses to read or write them. Enforced on both
+sides so the boundary holds regardless of which UI is calling.
 """
 
 
@@ -21,6 +27,7 @@ from db_config import get_db
 from create_tables import SchedulerTask, User
 from auth_service import require_admin
 from audit_service import write_audit
+from schemas import SettingsUpdateRequest
 import penalty_billing
 import scheduler_master
 import scheduler_service as svc
@@ -206,3 +213,65 @@ def scheduler_run_now(
                           "tasks_skipped": summary["tasks_skipped"]})
     db.commit()
     return summary
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SCHEDULER SETTINGS  (this app's own; the main Settings screen cannot see them)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/api/scheduler/settings", tags=["Scheduler"])
+def get_scheduler_settings(db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    """
+    The Scheduler app's settings, in the same shape as /api/settings so the
+    page can render them from the schema rather than hardcoding each field.
+    """
+    values = settings_service.get_all(db)
+    schema = settings_service.describe_for("scheduler")
+    for item in schema:
+        item["value"] = values.get(item["key"], item["default"])
+    return {
+        "categories": sorted({item["category"] for item in schema}),
+        "settings": schema,
+    }
+
+
+@router.put("/api/scheduler/settings", tags=["Scheduler"])
+def update_scheduler_settings(
+    payload: SettingsUpdateRequest,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_admin),
+):
+    """
+    Update the Scheduler app's settings.
+
+    The mirror image of the guard on /api/settings: this endpoint accepts ONLY
+    scheduler keys, so the Scheduler page cannot reach across and change the
+    main application's branding or billing configuration either. The boundary
+    is refused in both directions rather than trusted to the UI.
+    """
+    if not payload.values:
+        raise HTTPException(400, detail="No settings were provided")
+
+    intruders = sorted(k for k in payload.values if not settings_service.is_scheduler_key(k))
+    if intruders:
+        raise HTTPException(
+            400,
+            detail="Only scheduler settings can be changed here: " + ", ".join(intruders),
+        )
+
+    try:
+        changed = settings_service.set_many(db, payload.values, actor_id=actor.id)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(400, detail=str(exc))
+
+    if changed:
+        write_audit(db, actor.id, "UPDATE", "app_settings", None, new_data=changed)
+    db.commit()
+    settings_service.invalidate_cache()
+
+    return {
+        "success": True,
+        "message": f"{len(changed)} setting(s) updated" if changed else "No changes to save",
+        "changed": changed,
+    }
