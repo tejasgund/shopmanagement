@@ -1,5 +1,5 @@
 """
-scheduler_master.py - the coordinator.
+scheduler/master.py - the coordinator.
 
 Its entire job, and the limit of it:
 
@@ -10,7 +10,7 @@ Each task owns its own rules in its own module; this decides only WHICH of
 them get a turn and makes sure the outcome is written down.
 
 Failure isolation is the other reason it exists. Every task runs inside
-scheduler_service.execute(), which never raises - a task that blows up becomes
+scheduler.service.execute(), which never raises - a task that blows up becomes
 a FAILED row and the loop moves to the next one. One broken task cannot stop
 the rest of the night's work.
 """
@@ -20,7 +20,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from log import get_logger
-import scheduler_service as svc
+from scheduler import service as svc
 import settings_service
 
 logger = get_logger("app")

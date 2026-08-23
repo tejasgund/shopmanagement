@@ -40,15 +40,19 @@ RUN pip install --no-cache-dir --upgrade pip \
 #
 # NOTE: app.py was split into routers/ + several standalone service modules
 # (schemas.py, auth_service.py, audit_service.py, app_config.py,
-# domain_helpers.py, meter_helpers.py, razorpay_service.py, rent_billing.py) -
-# every one of these is imported by app.py or by something under routers/, so
-# all of them have to be copied in, not just app.py itself.
+# domain_helpers.py, meter_helpers.py, razorpay_service.py, rent_billing.py,
+# penalty_billing.py) - every one of these is imported by app.py or by
+# something under routers/, so all of them have to be copied in, not just
+# app.py itself.
+#
+# conf/ is deliberately gone: it held only the old in-app scheduler's
+# scheduler.conf, which the cron scheduler replaced with its own
+# scheduler/scheduler.conf.
 # ──────────────────────────────────────────────
 COPY app.py .
 COPY db_config.py .
 COPY log.py .
 COPY create_tables.py .
-COPY scheduler_config.py .
 COPY meter_service.py .
 COPY photo_storage.py .
 COPY settings_service.py .
@@ -61,11 +65,7 @@ COPY meter_helpers.py .
 COPY razorpay_service.py .
 COPY rent_billing.py .
 COPY penalty_billing.py .
-COPY scheduler_service.py .
-COPY scheduler_master.py .
-COPY tasks/ ./tasks/
 COPY routers/ ./routers/
-COPY conf/ ./conf/
 
 # Scheduled jobs. Nothing in the image runs these - the container has no cron
 # daemon on purpose. They are shipped so the HOST crontab can invoke them:

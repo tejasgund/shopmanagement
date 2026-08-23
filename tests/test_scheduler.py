@@ -12,9 +12,9 @@ import pytest
 
 from create_tables import Bill, SchedulerTask, Shop, User, UserShop, hash_password
 import penalty_billing
-import scheduler_master
-import scheduler_service as svc
 import settings_service
+from scheduler import master as scheduler_master
+from scheduler import service as svc
 
 
 def _set(db, **values):
@@ -230,7 +230,7 @@ def test_a_disabled_task_is_skipped_while_the_others_still_run(db, rent_tenant):
 def test_one_failing_task_does_not_stop_the_others(db, rent_tenant, monkeypatch):
     """Failure isolation, and the failure is kept with its error."""
     _set(db, **{"scheduler.enabled": True, "scheduler.penalty_enabled": True})
-    import tasks.due_date_penalty as ddp
+    import scheduler.tasks.due_date_penalty as ddp
 
     def boom(*_args, **_kwargs):
         raise RuntimeError("Database connection timeout")
@@ -252,7 +252,7 @@ def test_one_failing_task_does_not_stop_the_others(db, rent_tenant, monkeypatch)
 
 
 def test_a_failed_task_can_be_retried_and_keeps_its_attempt_count(db, rent_tenant, monkeypatch):
-    import tasks.due_date_penalty as ddp
+    import scheduler.tasks.due_date_penalty as ddp
     monkeypatch.setattr(ddp, "run", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
 
     day = svc.now_local().date() - timedelta(days=1)
@@ -288,7 +288,7 @@ def test_a_new_task_registers_itself_with_no_frontend_change(db, rent_tenant):
     svc.TASKS["demo_task"] = {
         "label": "Demo", "description": "d", "enable_setting": None,
         "run_at": datetime(2026, 1, 1, 3, 30).time(),
-        "runner": "tasks.future_task_checker:run",
+        "runner": "scheduler.tasks.future_task_checker:run",
     }
     try:
         scheduler_master.run_due_tasks(db)

@@ -58,9 +58,10 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 #   FAILED task still exits 0 - it is recorded in the ledger and
 #   retryable from the Scheduler dashboard, which is where failures
 #   belong rather than in cron mail.
-# * The on/off switches live in Admin -> Scheduler settings (in the
-#   database), NOT in scheduler.conf. Turning the master switch off
-#   leaves cron running while every task records itself as skipped.
+# * The on/off switches live in the Scheduler app's Settings tab (in
+#   the database), NOT in scheduler.conf - that file only says how to
+#   reach the database. Turning the master switch off leaves cron
+#   running while every due task records itself as skipped.
 # * Safe to run more than once a day — a tenant/shop already billed
 #   for the month is skipped, and concurrent runs are serialised by a
 #   database lock.

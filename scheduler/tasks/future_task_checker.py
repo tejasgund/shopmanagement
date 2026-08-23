@@ -2,7 +2,7 @@
 tasks/future_task_checker.py - registers what is coming, and finds what was missed.
 
 Contains no rent or penalty logic whatsoever: it only ever writes task rows.
-It works entirely from scheduler_service.TASKS, so a task added to that
+It works entirely from scheduler.service.TASKS, so a task added to that
 registry starts appearing in the upcoming list and the missed-run sweep with
 no change here, in the API, or in the dashboard - there is no second list of
 tasks anywhere to keep in step.
@@ -32,7 +32,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from create_tables import SchedulerTask
-import scheduler_service as svc
+from scheduler import service as svc
 
 
 def run(db: Session, run_date: date, cfg: dict) -> dict:

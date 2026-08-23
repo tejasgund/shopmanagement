@@ -3,7 +3,7 @@ routers/scheduler_admin.py - the Scheduler Monitoring dashboard API (admin only)
 
 Every list here is read straight from the scheduler_tasks table. There is no
 hardcoded catalogue of tasks in this file and none in the frontend: the task
-names, labels and descriptions come from scheduler_service.TASKS, so a task
+names, labels and descriptions come from scheduler.service.TASKS, so a task
 added to that registry appears on the dashboard on its own.
 
 Read-only apart from three deliberate actions: retrying a finished task,
@@ -29,9 +29,12 @@ from auth_service import require_admin
 from audit_service import write_audit
 from schemas import SettingsUpdateRequest
 import penalty_billing
-import scheduler_master
-import scheduler_service as svc
 import settings_service
+# Read-only use of the scheduler package: this endpoint shows the ledger, it
+# never schedules anything. The dependency runs one way only - the scheduler
+# knows nothing about routers/ - so the folder stays independently runnable.
+from scheduler import master as scheduler_master
+from scheduler import service as svc
 
 router = APIRouter(tags=["Scheduler"])
 

@@ -193,9 +193,13 @@ def test_the_cron_runner_and_the_api_share_one_implementation():
     Duplicating the generation logic into scheduler/ would let the button and
     the 2am run drift into disagreeing about what a rent bill is - the exact
     class of bug that produced the due-date and window regressions earlier.
+    The scheduler folder holds the scheduling machinery; the billing rules
+    stay in the application, and both callers import them.
     """
     import app as app_module
-    from scheduler import run_scheduler
+    from scheduler.tasks import rent_generation as rent_task
 
+    # The admin's manual endpoint and the scheduler's rent task reach the same
+    # module. There is no second copy of the generation rules in scheduler/.
     assert app_module.rent_billing is rent_billing
-    assert run_scheduler.JOBS["rent-bills"]["conf_section"] == "rent_bill_generation"
+    assert rent_task.rent_billing is rent_billing

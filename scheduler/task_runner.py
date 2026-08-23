@@ -8,6 +8,10 @@ copied four ways:
 
     connect -> read settings -> make sure the occurrence exists -> execute -> record
 
+Settings come from the DATABASE (the Scheduler app's Settings tab), not from
+scheduler.conf - that file only says how to reach the database. One switch,
+one place, whichever way the task was started.
+
 Execution goes through the same coordinator the master sweep uses, so a task
 run from its own script and the same task run by the master behave
 identically and land in the same ledger. The script decides WHICH task; it
@@ -28,8 +32,8 @@ def run_one(task_name: str, log, date_str: str = None) -> int:
     Exit codes match run_scheduler.py so all the scripts can be monitored the
     same way: 0 ran, 1 failed, 2 skipped (disabled), 3 bad usage.
     """
-    import scheduler_master
-    import scheduler_service as svc
+    from scheduler import master as scheduler_master
+    from scheduler import service as svc
     import settings_service
 
     engine, Session = scheduler_db.make_session_factory()

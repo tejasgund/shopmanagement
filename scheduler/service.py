@@ -1,5 +1,5 @@
 """
-scheduler_service.py - the scheduler's ledger and task registry.
+scheduler/service.py - the scheduler's ledger and task registry.
 
 Contains NO business logic. It knows which tasks exist, when each occurrence
 was due, and what happened to it; it does not know what a rent bill or a
@@ -61,21 +61,21 @@ TASKS = {
         "description": "Registers upcoming runs and detects ones that never happened.",
         "enable_setting": None,          # structural: runs whenever the scheduler is on
         "run_at": time(1, 55),
-        "runner": "tasks.future_task_checker:run",
+        "runner": "scheduler.tasks.future_task_checker:run",
     },
     "rent_generation": {
         "label": "Rent Generation",
         "description": "Creates each tenant's monthly Rent bill on their bill day.",
         "enable_setting": "scheduler.rent_generation_enabled",
         "run_at": time(2, 0),
-        "runner": "tasks.rent_generation:run",
+        "runner": "scheduler.tasks.rent_generation:run",
     },
     "due_date_penalty": {
         "label": "Due Date Penalty",
         "description": "Applies the daily late fee to overdue unpaid bills.",
         "enable_setting": "scheduler.penalty_enabled",
         "run_at": time(2, 5),
-        "runner": "tasks.due_date_penalty:run",
+        "runner": "scheduler.tasks.due_date_penalty:run",
     },
 }
 
