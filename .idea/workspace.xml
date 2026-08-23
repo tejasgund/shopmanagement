@@ -7,27 +7,7 @@
     <option name="selectedModelId" value="auto" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="73c5bf20-2700-466c-b351-cf15bd8b08df" name="Changes" comment="sorted out bills using bill date not and deu date">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Dockerfile" beforeDir="false" afterPath="$PROJECT_DIR$/Dockerfile" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/_race_demo.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/conf/scheduler.conf" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/routers/scheduler_admin.py" beforeDir="false" afterPath="$PROJECT_DIR$/routers/scheduler_admin.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/scheduler/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/scheduler/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/scheduler/crontab.example" beforeDir="false" afterPath="$PROJECT_DIR$/scheduler/crontab.example" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/scheduler/run_scheduler.py" beforeDir="false" afterPath="$PROJECT_DIR$/scheduler/run_scheduler.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/scheduler/scheduler.conf" beforeDir="false" afterPath="$PROJECT_DIR$/scheduler/scheduler.conf" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/scheduler/task_runner.py" beforeDir="false" afterPath="$PROJECT_DIR$/scheduler/task_runner.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/scheduler_config.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/scheduler_master.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/scheduler_service.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/tasks/__init__.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/tasks/due_date_penalty.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/tasks/future_task_checker.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/tasks/rent_generation.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_rent_generation_race.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_rent_generation_race.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_scheduler.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_scheduler.py" afterDir="false" />
-    </list>
+    <list default="true" id="73c5bf20-2700-466c-b351-cf15bd8b08df" name="Changes" comment="sorted out bills using bill date not and deu date" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
