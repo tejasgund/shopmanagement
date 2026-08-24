@@ -31,7 +31,7 @@ from datetime import date, timedelta
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from create_tables import SchedulerTask
+from models.schema import SchedulerTask
 from scheduler import service as svc
 
 

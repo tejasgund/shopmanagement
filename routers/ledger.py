@@ -10,10 +10,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import extract
 from sqlalchemy.orm import Session
 
-from db_config import get_db
-from create_tables import Bill, Complex, DepositPayment, Payment, Shop, User, UserShop
-from auth_service import require_admin, require_tenant
-from domain_helpers import _decimal_to_float
+from core.database import get_db
+from core.security import require_admin, require_tenant
+from models.schema import Bill, Complex, DepositPayment, Payment, Shop, User, UserShop
+from helpers.domain import _decimal_to_float
 
 router = APIRouter()
 

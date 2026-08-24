@@ -1,9 +1,9 @@
 """
-penalty_billing.py - the daily late-payment penalty on overdue bills.
+services/penalty_billing.py - the daily late-payment penalty on overdue bills.
 
-Sits beside rent_billing.py and follows the same shape: pure business logic,
+Sits beside services/rent_billing.py and follows the same shape: pure business logic,
 no FastAPI, no scheduler concepts, driven by whatever session it is handed.
-Contains no rent-generation logic, and rent_billing.py contains none of this.
+Contains no rent-generation logic, and services/rent_billing.py contains none of this.
 
 The penalty is always RECOMPUTED FROM SCRATCH for a bill, never incremented.
 That single decision is what makes the task idempotent: running it twice in a
@@ -23,11 +23,10 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from create_tables import Bill
-from domain_helpers import _decimal_to_float, _reconcile_bill
-from log import get_logger
-import settings_service
-
+from core.logger import get_logger
+from models.schema import Bill
+from services import settings as settings_service
+from helpers.domain import _decimal_to_float, _reconcile_bill
 logger = get_logger("app")
 
 # Penalty rows are themselves bills; charging a penalty on a penalty would

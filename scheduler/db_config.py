@@ -1,15 +1,15 @@
 """
 scheduler/db_config.py - database setup for the cron process.
 
-Separate from the application's db_config.py on purpose. This process is not
+Separate from the application's core/database.py on purpose. This process is not
 the API: it is short-lived, single-threaded, runs a handful of statements and
 exits, so it wants its own small engine rather than the API's connection
 pool. Keeping them apart also means the cron job can be pointed at a replica,
 a different credential, or a different host without touching the app.
 
 What it does NOT duplicate is the schema. The ORM models are imported from
-the application's create_tables.py, so there is exactly one definition of
-what a bill is - the same reason rent_billing.py is shared rather than
+the application's models/schema.py, so there is exactly one definition of
+what a bill is - the same reason services/rent_billing.py is shared rather than
 copied into this folder.
 """
 

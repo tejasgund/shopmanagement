@@ -34,8 +34,7 @@ def run_one(task_name: str, log, date_str: str = None) -> int:
     """
     from scheduler import master as scheduler_master
     from scheduler import service as svc
-    import settings_service
-
+    from services import settings as settings_service
     engine, Session = scheduler_db.make_session_factory()
     db = Session()
     try:

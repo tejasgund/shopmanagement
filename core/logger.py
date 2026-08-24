@@ -1,5 +1,5 @@
 """
-log.py - Centralized Logging Configuration
+core/logger.py - Centralized Logging Configuration
 Tenant Management System
 
 Features:
@@ -145,7 +145,7 @@ async def log_request_middleware(request, call_next):
         2026-06-22 10:00:00 | INFO | POST /api/login | Status 200 | 25ms
 
     Usage in app.py.backup:
-        from log import log_request_middleware
+        from core.logger import log_request_middleware
         app.middleware("http")(log_request_middleware)
     """
     logger = get_logger("app")

@@ -16,12 +16,12 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from db_config import get_db
-from create_tables import Complex, DepositPayment, Shop, User, UserShop
-from auth_service import require_admin
-from audit_service import write_audit
-from domain_helpers import _decimal_to_float, _deposit_paid_for_shop
-from schemas import DepositPaymentCreate, DepositPaymentResponse, DepositPaymentUpdate
+from core.database import get_db
+from core.security import require_admin
+from models.schema import Complex, DepositPayment, Shop, User, UserShop
+from schemas.api import DepositPaymentCreate, DepositPaymentResponse, DepositPaymentUpdate
+from services.audit import write_audit
+from helpers.domain import _decimal_to_float, _deposit_paid_for_shop
 
 router = APIRouter(tags=["Deposit Payment"])
 

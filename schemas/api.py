@@ -1,5 +1,5 @@
 """
-schemas.py - Pydantic request/response models for the Tenant Management System API.
+schemas/api.py - Pydantic request/response models for the Tenant Management System API.
 
 Extracted verbatim from app.py as step 1 of the router/service split (see the
 "Split app.py into routers/services" effort). This file contains ONLY data

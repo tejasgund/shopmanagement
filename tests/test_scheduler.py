@@ -10,9 +10,9 @@ from datetime import date, datetime, timedelta
 
 import pytest
 
-from create_tables import Bill, SchedulerTask, Shop, User, UserShop, hash_password
-import penalty_billing
-import settings_service
+from models.schema import Bill, SchedulerTask, Shop, User, UserShop, hash_password
+from services import penalty_billing
+from services import settings as settings_service
 from scheduler import master as scheduler_master
 from scheduler import service as svc
 

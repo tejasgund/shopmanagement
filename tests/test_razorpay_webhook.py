@@ -22,9 +22,8 @@ import razorpay
 import razorpay.errors
 import pytest
 
-from create_tables import Bill, Payment, RazorpayOrder
-import settings_service
-
+from models.schema import Bill, Payment, RazorpayOrder
+from services import settings as settings_service
 from test_razorpay_payments import _enable_razorpay, bill, mock_order_create, _create_order
 
 
@@ -87,7 +86,7 @@ def test_webhook_bad_signature_rejected(client, tenant_auth, bill, db, mock_orde
 def test_webhook_missing_secret_returns_503(client, tenant_auth, bill, db, mock_order_create, monkeypatch):
     """Enabled online payments but never set a webhook secret -> fail closed,
     same spirit as _razorpay_client's 'not configured' 503 for the key pair."""
-    import razorpay_service
+    from services import razorpay as razorpay_service
     _enable_razorpay(db)   # note: no webhook secret set
     monkeypatch.setattr(razorpay_service, "RAZORPAY_WEBHOOK_SECRET_ENV", "")
     order = _create_order(client, tenant_auth, bill.id)
@@ -201,7 +200,7 @@ def test_webhook_captured_no_pending_bills_leaves_order_created_for_manual_recon
     must not crash the webhook either. The order stays 'created' so an admin
     can reconcile it manually with the payment ID from the logs."""
     _enable_razorpay_webhook(db)
-    from create_tables import User, Shop, UserShop
+    from models.schema import User, Shop, UserShop
     t = User(name="Webhook Solo Tenant", mobile="9000088888", email="wsolo@test.com",
              password_hash="x", role="tenant", is_active=True)
     db.add(t); db.commit(); db.refresh(t)
@@ -212,7 +211,7 @@ def test_webhook_captured_no_pending_bills_leaves_order_created_for_manual_recon
              paid_amount=0, pending_amount=500, status="pending")
     db.add(b); db.commit(); db.refresh(b)
 
-    import auth_service
+    from core import security as auth_service
     solo_auth = {"Authorization": f"Bearer {auth_service.create_access_token({'sub': str(t.id)})}"}
     order = _create_order(client, solo_auth, bill_id=None)
 

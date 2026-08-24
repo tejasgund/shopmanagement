@@ -13,17 +13,16 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 
-from db_config import get_db
-from create_tables import Meter, MeterReading, Shop, User
-from auth_service import require_tenant
-from audit_service import write_audit
-from meter_helpers import _meter_error, _tenant_shop_ids, _reading_to_dict, _readings_to_dicts
-from app_config import APP_TIMEZONE
-from log import get_logger
-import meter_service
-import photo_storage
-import settings_service
-
+from core.config import APP_TIMEZONE
+from core.database import get_db
+from core.logger import get_logger
+from core.security import require_tenant
+from models.schema import Meter, MeterReading, Shop, User
+from services import meter as meter_service
+from services import photo_storage
+from services import settings as settings_service
+from services.audit import write_audit
+from helpers.meter import _meter_error, _tenant_shop_ids, _reading_to_dict, _readings_to_dicts
 logger = get_logger("app")
 
 router = APIRouter(tags=["Tenant"])
@@ -120,13 +119,13 @@ async def submit_meter_reading(
 
     cfg = settings_service.get_all(db)
 
-    # Submission window (day-of-month, repeats every cycle). Tenants only -
-    # collect_meter_reading in routers/meter_readings.py deliberately has no
-    # equivalent check, so an admin can always record a reading for a tenant
-    # who missed the window.
+    # Submission window (day-of-month, repeats every cycle). Skipped for
+    # admins - and skipped by ROLE, not by endpoint, because require_tenant
+    # admits admins here too. collect_meter_reading in
+    # routers/meter_readings.py is admin-only and so is never restricted.
     try:
-        meter_service.assert_tenant_upload_window(
-            cfg, datetime.now(ZoneInfo(APP_TIMEZONE)).date()
+        meter_service.assert_upload_window(
+            cfg, datetime.now(ZoneInfo(APP_TIMEZONE)).date(), current_user.role
         )
     except meter_service.MeterError as exc:
         raise _meter_error(exc)

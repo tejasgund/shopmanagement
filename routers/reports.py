@@ -2,9 +2,9 @@
 routers/reports.py - GET /api/reports/* + GET /api/finance/overview (Admin only).
 
 Extracted verbatim from app.py (step 5 of the router/service split, after
-schemas.py, auth_service.py/audit_service.py, routers/audit_log.py, and
-domain_helpers.py). Every helper this module needs (_decimal_to_float,
-_shop_owner_map) already lives in domain_helpers.py, so this router has no
+schemas/api.py, core/security.py/audit_service.py, routers/audit_log.py, and
+helpers/domain.py). Every helper this module needs (_decimal_to_float,
+_shop_owner_map) already lives in helpers/domain.py, so this router has no
 dependency on app.py itself.
 
 Bug/perf audit note: report_deposit and finance_overview used to call
@@ -22,13 +22,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
-from db_config import get_db
-from create_tables import (
+from core.config import APP_TIMEZONE
+from core.database import get_db
+from core.security import require_admin
+from models.schema import (
     Bill, Complex, DepositPayment, Meter, MeterReading, Payment, Shop, User, UserShop,
 )
-from app_config import APP_TIMEZONE
-from auth_service import require_admin
-from domain_helpers import _decimal_to_float, _shop_owner_map
+from helpers.domain import _decimal_to_float, _shop_owner_map
 
 router = APIRouter(tags=["Reports"])
 

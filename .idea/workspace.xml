@@ -8,7 +8,76 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="73c5bf20-2700-466c-b351-cf15bd8b08df" name="Changes" comment="sorted out bills using bill date not and deu date">
+      <change beforePath="$PROJECT_DIR$/.__delete_probe" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Dockerfile" beforeDir="false" afterPath="$PROJECT_DIR$/Dockerfile" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/METER_READINGS.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/app.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app_config.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/audit_service.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/auth_service.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/create_tables.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/db_config.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/domain_helpers.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/log.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/meter_helpers.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/meter_service.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/penalty_billing.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/photo_storage.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/razorpay_service.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/rent_billing.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/root.css" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/routers/audit_log.py" beforeDir="false" afterPath="$PROJECT_DIR$/routers/audit_log.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/routers/auth.py" beforeDir="false" afterPath="$PROJECT_DIR$/routers/auth.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/routers/bills.py" beforeDir="false" afterPath="$PROJECT_DIR$/routers/bills.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/routers/complexes.py" beforeDir="false" afterPath="$PROJECT_DIR$/routers/complexes.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/routers/dashboard.py" beforeDir="false" afterPath="$PROJECT_DIR$/routers/dashboard.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/routers/deposit_payments.py" beforeDir="false" afterPath="$PROJECT_DIR$/routers/deposit_payments.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/routers/ledger.py" beforeDir="false" afterPath="$PROJECT_DIR$/routers/ledger.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/routers/meter_readings.py" beforeDir="false" afterPath="$PROJECT_DIR$/routers/meter_readings.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/routers/meter_tariffs.py" beforeDir="false" afterPath="$PROJECT_DIR$/routers/meter_tariffs.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/routers/meters.py" beforeDir="false" afterPath="$PROJECT_DIR$/routers/meters.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/routers/payments.py" beforeDir="false" afterPath="$PROJECT_DIR$/routers/payments.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/routers/razorpay.py" beforeDir="false" afterPath="$PROJECT_DIR$/routers/razorpay.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/routers/reports.py" beforeDir="false" afterPath="$PROJECT_DIR$/routers/reports.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/routers/scheduler_admin.py" beforeDir="false" afterPath="$PROJECT_DIR$/routers/scheduler_admin.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/routers/search.py" beforeDir="false" afterPath="$PROJECT_DIR$/routers/search.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/routers/settings.py" beforeDir="false" afterPath="$PROJECT_DIR$/routers/settings.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/routers/shops.py" beforeDir="false" afterPath="$PROJECT_DIR$/routers/shops.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/routers/tenant_meters.py" beforeDir="false" afterPath="$PROJECT_DIR$/routers/tenant_meters.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/routers/tenant_portal.py" beforeDir="false" afterPath="$PROJECT_DIR$/routers/tenant_portal.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/routers/users.py" beforeDir="false" afterPath="$PROJECT_DIR$/routers/users.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/scheduler/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/scheduler/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/scheduler/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/scheduler/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/scheduler/config.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/scheduler/crontab.example" beforeDir="false" afterPath="$PROJECT_DIR$/scheduler/crontab.example" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/scheduler/db_config.py" beforeDir="false" afterPath="$PROJECT_DIR$/scheduler/db_config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/scheduler/master.py" beforeDir="false" afterPath="$PROJECT_DIR$/scheduler/master.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/scheduler/run_due_date_penalty.py" beforeDir="false" afterPath="$PROJECT_DIR$/scheduler/run_due_date_penalty.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/scheduler/run_future_task_checker.py" beforeDir="false" afterPath="$PROJECT_DIR$/scheduler/run_future_task_checker.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/scheduler/run_rent_generation.py" beforeDir="false" afterPath="$PROJECT_DIR$/scheduler/run_rent_generation.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/scheduler/run_scheduler.py" beforeDir="false" afterPath="$PROJECT_DIR$/scheduler/run_scheduler.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/scheduler/scheduler.conf" beforeDir="false" afterPath="$PROJECT_DIR$/scheduler/scheduler.conf" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/scheduler/service.py" beforeDir="false" afterPath="$PROJECT_DIR$/scheduler/service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/scheduler/task_runner.py" beforeDir="false" afterPath="$PROJECT_DIR$/scheduler/task_runner.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/scheduler/tasks/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/scheduler/tasks/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/scheduler/tasks/due_date_penalty.py" beforeDir="false" afterPath="$PROJECT_DIR$/scheduler/tasks/due_date_penalty.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/scheduler/tasks/future_task_checker.py" beforeDir="false" afterPath="$PROJECT_DIR$/scheduler/tasks/future_task_checker.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/scheduler/tasks/rent_generation.py" beforeDir="false" afterPath="$PROJECT_DIR$/scheduler/tasks/rent_generation.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/schemas.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/settings_service.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/conftest.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/conftest.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_collect_smoke.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_collect_smoke.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_existing_regressions.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_existing_regressions.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_meter_readings.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_meter_readings.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_meter_upload_settings.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_meter_upload_settings.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_razorpay_payments.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_razorpay_payments.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_razorpay_webhook.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_razorpay_webhook.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_rent_generation_race.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_rent_generation_race.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_scheduler.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_scheduler.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_schema_sync.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_schema_sync.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_submeter_management.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_submeter_management.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_tenant_meter_reading_pagination.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_tenant_meter_reading_pagination.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -115,22 +184,22 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;DefaultHtmlFileTemplate&quot;: &quot;HTML File&quot;,
-    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
-    &quot;Python.MetaNodes.executor&quot;: &quot;Run&quot;,
-    &quot;Python.dbconfig.executor&quot;: &quot;Run&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
-    &quot;copilot.chat.legacySessionMetadata.migrated&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;master&quot;,
-    &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;C:/Users/vicky/PycharmProjects/shopmanagement&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;com.github.copilot.settings.customization.CustomizationConfigurable&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "DefaultHtmlFileTemplate": "HTML File",
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "Python.MetaNodes.executor": "Run",
+    "Python.dbconfig.executor": "Run",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "copilot.chat.legacySessionMetadata.migrated": "true",
+    "git-widget-placeholder": "qa",
+    "ignore.virus.scanning.warn.message": "true",
+    "last_opened_file_path": "C:/Users/vicky/PycharmProjects/shopmanagement",
+    "settings.editor.selected.configurable": "com.github.copilot.settings.customization.CustomizationConfigurable"
   }
-}</component>
+}]]></component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
       <recent name="C:\Users\vicky\PycharmProjects\shopmanagement" />

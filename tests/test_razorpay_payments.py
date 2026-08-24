@@ -18,10 +18,8 @@ import razorpay
 import razorpay.errors
 import pytest
 
-from create_tables import Bill, Payment, RazorpayOrder
-import settings_service
-
-
+from models.schema import Bill, Payment, RazorpayOrder
+from services import settings as settings_service
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 def _enable_razorpay(db):
@@ -437,7 +435,7 @@ def test_verify_total_balance_no_bills_at_all_is_a_500_not_silent_loss(client, t
     be near-impossible in practice) - must fail loudly with the payment ID
     for manual reconciliation, never silently succeed with nothing recorded."""
     _enable_razorpay(db)
-    from create_tables import User, Shop, UserShop
+    from models.schema import User, Shop, UserShop
     # Build a fresh tenant+shop+bill dedicated to this test to avoid cross-test coupling.
     t = User(name="Solo Tenant", mobile="9000099999", email="solo@test.com",
              password_hash="x", role="tenant", is_active=True)
@@ -449,7 +447,7 @@ def test_verify_total_balance_no_bills_at_all_is_a_500_not_silent_loss(client, t
              paid_amount=0, pending_amount=500, status="pending")
     db.add(b); db.commit(); db.refresh(b)
 
-    import auth_service
+    from core import security as auth_service
     solo_auth = {"Authorization": f"Bearer {auth_service.create_access_token({'sub': str(t.id)})}"}
     monkeypatch.setattr(razorpay.utility.utility.Utility, "verify_payment_signature", lambda self, p: True)
 
@@ -478,9 +476,7 @@ def test_verify_total_balance_no_bills_at_all_is_a_500_not_silent_loss(client, t
 # release (Jenkins etc.) and hand-editing .env on the box isn't practical.
 # ══════════════════════════════════════════════════════════════════════════════
 
-import razorpay_service
-
-
+from services import razorpay as razorpay_service
 def _set_db_keys(db, key_id="rzp_test_DBKEY", key_secret="db_secret_value"):
     settings_service.set_many(db, {
         "payment.razorpay_key_id": key_id,

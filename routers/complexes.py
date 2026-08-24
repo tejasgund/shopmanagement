@@ -9,12 +9,12 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 from typing import List
 
-from db_config import get_db
-from create_tables import Bill, Complex, DepositPayment, Shop, User
-from auth_service import require_admin
-from audit_service import write_audit
-from domain_helpers import _decimal_to_float, _shop_owner_map
-from schemas import ComplexCreate, ComplexResponse, ComplexUpdate
+from core.database import get_db
+from core.security import require_admin
+from models.schema import Bill, Complex, DepositPayment, Shop, User
+from schemas.api import ComplexCreate, ComplexResponse, ComplexUpdate
+from services.audit import write_audit
+from helpers.domain import _decimal_to_float, _shop_owner_map
 
 router = APIRouter(tags=["Complex"])
 

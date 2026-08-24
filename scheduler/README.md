@@ -21,7 +21,7 @@ is mixed into the application's own files.
 
 ## Two things deliberately NOT in here
 
-**The billing rules.** `rent_billing.py` and `penalty_billing.py` stay in the
+**The billing rules.** `services/rent_billing.py` and `services/penalty_billing.py` stay in the
 application, because the admin's manual "generate rent bills" button calls them
 too. Copying them into this folder would give the 2am run and the button two
 implementations that quietly drift apart — the exact failure this project has
@@ -55,8 +55,9 @@ python -m scheduler.run_rent_generation --date 2026-08-01
 ```
 
 Run as a module (`-m`) from the project root. That keeps the project root first
-on `sys.path`, so this folder's `db_config.py` cannot shadow the application's
-one of the same name.
+on `sys.path`, so the application's own packages (`core/`, `models/`,
+`services/`) resolve normally while this folder's `db_config.py` stays reachable
+only as `scheduler.db_config`.
 
 Pick Option A **or** Option B, not both — every task is idempotent so nothing
 breaks, but two things picking up the same occurrence makes the run log

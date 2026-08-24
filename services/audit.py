@@ -1,8 +1,8 @@
 """
-audit_service.py - the single write path for audit_logs rows.
+services/audit.py - the single write path for audit_logs rows.
 
-Extracted verbatim from app.py alongside auth_service.py (step 2 of the
-router/service split). Kept separate from auth_service.py because it's a
+Extracted verbatim from app.py alongside core/security.py (step 2 of the
+router/service split). Kept separate from core/security.py because it's a
 distinct concern (write-side of audit logging vs. authentication) that many
 non-auth routers also need directly.
 """
@@ -12,7 +12,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from create_tables import AuditLog
+from models.schema import AuditLog
 
 
 def write_audit(

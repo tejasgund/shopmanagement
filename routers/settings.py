@@ -3,7 +3,7 @@ routers/settings.py - GET /api/settings/public (unauthenticated), GET/PUT
 /api/settings, POST /api/settings/reset (Admin only).
 
 Extracted verbatim from app.py (step 13 of the router/service split;
-public_settings joined it in step 24, once razorpay_service.py gave
+public_settings joined it in step 24, once services/razorpay.py gave
 _razorpay_public_config() a stable home outside app.py).
 """
 
@@ -12,13 +12,14 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from db_config import get_db
-from create_tables import AppSetting, User
-from auth_service import require_admin
-from audit_service import write_audit
-from razorpay_service import _razorpay_public_config
-from schemas import SettingsUpdateRequest
-import settings_service
+from core.database import get_db
+from core.security import require_admin
+from models.schema import AppSetting, User
+from schemas.api import SettingsUpdateRequest
+from services import settings as settings_service
+from services.audit import write_audit
+from services.razorpay import _razorpay_public_config
+
 
 router = APIRouter(tags=["Settings"])
 

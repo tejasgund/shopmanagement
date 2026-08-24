@@ -1,5 +1,5 @@
 """
-Tests for sync_schema()'s self-healing behaviour in create_tables.py.
+Tests for sync_schema()'s self-healing behaviour in models/schema.py.
 
 These use the throwaway SQLite database from the `db` fixture (already
 matching the model exactly, since `db` builds it via Base.metadata.create_all),
@@ -18,7 +18,7 @@ NOT NULL -> NULL automatically, never tighten the other way.
 
 from unittest.mock import MagicMock, patch
 
-import create_tables as ct
+from models import schema as ct
 
 
 def _fake_inspector_with_override(table_names, columns_by_table):
@@ -64,7 +64,7 @@ def test_sync_schema_relaxes_stale_not_null_column(db):
             c["nullable"] = False  # simulate the live production mismatch
 
     conn = _FakeConnection()
-    with patch("create_tables.sa_inspect") as mock_inspect:
+    with patch("models.schema.sa_inspect") as mock_inspect:
         mock_inspect.return_value = _fake_inspector_with_override(table_names, columns_by_table)
         summary = ct.sync_schema(conn)
 
@@ -88,7 +88,7 @@ def test_sync_schema_never_tightens_nullable_to_not_null(db):
             c["nullable"] = True    # but reported as already-nullable live
 
     conn = _FakeConnection()
-    with patch("create_tables.sa_inspect") as mock_inspect:
+    with patch("models.schema.sa_inspect") as mock_inspect:
         mock_inspect.return_value = _fake_inspector_with_override(table_names, columns_by_table)
         summary = ct.sync_schema(conn)
 
@@ -101,7 +101,7 @@ def test_sync_schema_is_a_no_op_when_schema_already_matches(db):
     table_names, columns_by_table = _snapshot_columns()
 
     conn = _FakeConnection()
-    with patch("create_tables.sa_inspect") as mock_inspect:
+    with patch("models.schema.sa_inspect") as mock_inspect:
         mock_inspect.return_value = _fake_inspector_with_override(table_names, columns_by_table)
         summary = ct.sync_schema(conn)
 

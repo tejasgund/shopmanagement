@@ -3,7 +3,7 @@ Shared pytest fixtures.
 
 Tests run against a throwaway SQLite database and a temporary photo folder, so
 they never touch the real MySQL data and leave nothing behind. The DATABASE_URL
-override is read by db_config.py; everything else in the app is untouched.
+override is read by core/database.py; everything else in the app is untouched.
 """
 
 import os
@@ -11,7 +11,7 @@ import tempfile
 
 import pytest
 
-# Must be set BEFORE db_config/app are imported for the first time.
+# Must be set BEFORE core.database/app are imported for the first time.
 _TMP_DB = os.path.join(tempfile.gettempdir(), "tms_test.db")
 os.environ["DATABASE_URL"] = f"sqlite:///{_TMP_DB}"
 os.environ.setdefault("JWT_SECRET", "test-secret-key")
@@ -20,12 +20,12 @@ from fastapi.testclient import TestClient          # noqa: E402
 from sqlalchemy.orm import Session                 # noqa: E402
 
 import app as app_module                           # noqa: E402
-import auth_service                                 # noqa: E402
-import settings_service                            # noqa: E402
-from create_tables import (                        # noqa: E402
+from core import security as auth_service           # noqa: E402
+from core.database import SessionLocal, engine      # noqa: E402
+from models.schema import (                         # noqa: E402
     Base, Meter, MeterTariff, Shop, User, UserShop, hash_password,
 )
-from db_config import SessionLocal, engine         # noqa: E402
+from services import settings as settings_service   # noqa: E402
 
 
 @pytest.fixture(scope="function")

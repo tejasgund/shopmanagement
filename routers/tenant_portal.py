@@ -3,11 +3,11 @@ routers/tenant_portal.py - Read-only tenant self-service endpoints: profile,
 shops, bills, payments, deposit payments, the tenant's own financial
 summary, and the combined tenant_home bundle. Razorpay-related tenant routes
 (create-order, verify-payment, webhook) live in routers/razorpay.py instead,
-since they depend on razorpay_service.py rather than anything here.
+since they depend on services/razorpay.py rather than anything here.
 
 Extracted verbatim from app.py (step 20 of the router/service split;
 tenant_home joined it in step 23). _tenant_payment_dict lives in
-domain_helpers.py rather than here, shared as-is from before this file
+helpers/domain.py rather than here, shared as-is from before this file
 existed.
 """
 
@@ -17,18 +17,19 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from db_config import get_db
-from create_tables import Bill, Complex, DepositPayment, Meter, MeterReading, Payment, Shop, User, UserShop
-from auth_service import require_tenant
-from domain_helpers import (
+from core.config import APP_TIMEZONE
+from core.database import get_db
+from core.security import require_tenant
+from models.schema import Bill, Complex, DepositPayment, Meter, MeterReading, Payment, Shop, User, UserShop
+from schemas.api import UserResponse
+from services import meter as meter_service
+from services import settings as settings_service
+from services.razorpay import _razorpay_public_config
+from helpers.domain import (
     _build_user_financial_summary, _decimal_to_float, _tenant_payment_dict, bill_penalty_dict,
 )
-from app_config import APP_TIMEZONE
-from meter_helpers import _reading_to_dict, _tenant_shop_ids
-from razorpay_service import _razorpay_public_config
-from schemas import UserResponse
-import meter_service
-import settings_service
+from helpers.meter import _reading_to_dict, _tenant_shop_ids
+
 
 router = APIRouter(tags=["Tenant"])
 
@@ -303,7 +304,7 @@ def tenant_home(
             ),
             # Off means the portal asks the phone for the camera specifically;
             # on means it accepts an existing photo too. See
-            # meter.allow_gallery_upload in settings_service.py for why this
+            # meter.allow_gallery_upload in services/settings.py for why this
             # can only ever be what the app offers, not an enforced rule.
             "meter_gallery_upload_enabled": bool(cfg.get("meter.allow_gallery_upload")),
             "meter_upload_open_today": meter_service.tenant_upload_open_on(cfg, today),

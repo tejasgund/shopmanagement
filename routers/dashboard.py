@@ -10,10 +10,10 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from db_config import get_db
-from create_tables import AuditLog, Bill, DepositPayment, Payment, Shop, User
-from auth_service import require_admin
-from domain_helpers import _decimal_to_float
+from core.database import get_db
+from core.security import require_admin
+from models.schema import AuditLog, Bill, DepositPayment, Payment, Shop, User
+from helpers.domain import _decimal_to_float
 
 router = APIRouter(tags=["Dashboard"])
 

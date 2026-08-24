@@ -17,13 +17,14 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from db_config import get_db
-from create_tables import Bill, Complex, Payment, Shop, User, UserShop
-from auth_service import require_admin
-from audit_service import write_audit
-from domain_helpers import _decimal_to_float, _reconcile_bill
-from schemas import BillCreate, BillResponse, BillUpdate
-import settings_service
+from core.database import get_db
+from core.security import require_admin
+from models.schema import Bill, Complex, Payment, Shop, User, UserShop
+from schemas.api import BillCreate, BillResponse, BillUpdate
+from services import settings as settings_service
+from services.audit import write_audit
+from helpers.domain import _decimal_to_float, _reconcile_bill
+
 
 router = APIRouter(tags=["Bill"])
 

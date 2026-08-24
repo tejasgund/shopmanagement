@@ -1,10 +1,10 @@
 """
-auth_service.py - JWT issuing/validation and the FastAPI auth dependencies
+core/security.py - JWT issuing/validation and the FastAPI auth dependencies
 (get_current_user / require_admin / require_tenant) used by every protected
 route in this app.
 
 Extracted verbatim from app.py (step 2 of the router/service split - see
-schemas.py for step 1). This exists as its own module, separate from app.py,
+schemas/api.py for step 1). This exists as its own module, separate from app.py,
 specifically so that future router modules can depend on require_admin /
 require_tenant without importing app.py itself (which would be a circular
 import, since app.py is what wires the routers together).
@@ -23,8 +23,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
-from db_config import get_db
-from create_tables import User
+from core.database import get_db
+from models.schema import User
 
 # ──────────────────────────────────────────────
 # JWT Settings

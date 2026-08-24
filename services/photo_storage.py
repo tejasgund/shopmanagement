@@ -1,5 +1,5 @@
 """
-photo_storage.py - Meter photo storage
+services/photo_storage.py - Meter photo storage
 
 Deliberately simple: photos are written to a folder on the server's own disk,
 not to a cloud bucket. That keeps the feature free to run and removes the
@@ -27,7 +27,7 @@ import uuid
 from datetime import datetime
 from typing import Tuple
 
-from log import get_logger
+from core.logger import get_logger
 
 logger = get_logger("app")
 

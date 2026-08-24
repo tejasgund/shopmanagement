@@ -5,7 +5,7 @@ the tenant-submission rules in test_meter_readings.py: same validation,
 same photo handling, same review queue - just a different submitter.
 """
 from conftest import make_jpeg
-from create_tables import MeterReading
+from models.schema import MeterReading
 
 
 def test_admin_can_collect_reading_for_tenant(client, db, admin_auth, tenant, shop, meter):
@@ -29,7 +29,7 @@ def test_admin_can_collect_reading_for_tenant(client, db, admin_auth, tenant, sh
 
 
 def test_collect_without_tenant_assigned_is_rejected(client, admin_auth, db):
-    from create_tables import Shop, Meter
+    from models.schema import Shop, Meter
     lonely_shop = Shop(shop_number="Z-999", status="available", shop_rent=1000, shop_deposit=1000)
     db.add(lonely_shop)
     db.commit()

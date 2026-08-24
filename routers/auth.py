@@ -2,8 +2,8 @@
 routers/auth.py - POST /api/login.
 
 Extracted verbatim from app.py (step 21 of the router/service split). Uses
-create_access_token from auth_service.py (step 2) and write_audit from
-audit_service.py (step 2) - same JWT payload, same audit trail, same
+create_access_token from core/security.py (step 2) and write_audit from
+services/audit.py (step 2) - same JWT payload, same audit trail, same
 401/403 rules as before.
 """
 
@@ -11,12 +11,12 @@ import bcrypt
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from db_config import get_db
-from create_tables import User
-from auth_service import create_access_token
-from audit_service import write_audit
-from schemas import LoginRequest, LoginResponse
-from log import get_logger
+from core.database import get_db
+from core.logger import get_logger
+from core.security import create_access_token
+from models.schema import User
+from schemas.api import LoginRequest, LoginResponse
+from services.audit import write_audit
 
 logger = get_logger("app")
 

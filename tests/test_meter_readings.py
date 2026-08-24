@@ -15,7 +15,7 @@ from decimal import Decimal
 import pytest
 
 from conftest import make_jpeg, make_png
-from create_tables import Bill, Meter, MeterReading, MeterTariff
+from models.schema import Bill, Meter, MeterReading, MeterTariff
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -23,20 +23,20 @@ from create_tables import Bill, Meter, MeterReading, MeterTariff
 # ══════════════════════════════════════════════════════════════════════════════
 
 def test_units_are_current_minus_previous():
-    from meter_service import calculate_units
+    from services.meter import calculate_units
     assert calculate_units(Decimal("12450"), Decimal("12732")) == Decimal("282.00")
 
 
 def test_reading_below_previous_is_refused():
     """The headline validation rule - a negative bill must never be possible."""
-    from meter_service import MeterError, calculate_units
+    from services.meter import MeterError, calculate_units
     with pytest.raises(MeterError) as exc:
         calculate_units(Decimal("12450"), Decimal("12300"))
     assert "lower than" in str(exc.value)
 
 
 def test_equal_readings_give_zero_units():
-    from meter_service import calculate_units
+    from services.meter import calculate_units
     assert calculate_units(Decimal("12450"), Decimal("12450")) == Decimal("0.00")
 
 
@@ -46,13 +46,13 @@ def test_equal_readings_give_zero_units():
 
 def test_first_reading_uses_meter_initial_reading(db, meter):
     """With no history, the first bill counts up from installation, not from 0."""
-    from meter_service import previous_reading_value
+    from services.meter import previous_reading_value
     assert previous_reading_value(db, meter) == Decimal("12450.00")
 
 
 def test_pending_and_rejected_readings_are_not_used_as_previous(db, meter, tenant):
     """Only APPROVED readings may act as the basis for the next bill."""
-    from meter_service import previous_reading_value
+    from services.meter import previous_reading_value
 
     db.add(MeterReading(
         meter_id=meter.id, shop_id=meter.shop_id, user_id=tenant.id,
@@ -70,7 +70,7 @@ def test_pending_and_rejected_readings_are_not_used_as_previous(db, meter, tenan
 
 
 def test_approved_reading_becomes_the_next_previous(db, meter, tenant):
-    from meter_service import previous_reading_value
+    from services.meter import previous_reading_value
 
     db.add(MeterReading(
         meter_id=meter.id, shop_id=meter.shop_id, user_id=tenant.id,
@@ -88,7 +88,7 @@ def test_approved_reading_becomes_the_next_previous(db, meter, tenant):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def test_tariff_lookup_picks_the_rate_live_on_that_date(db):
-    from meter_service import applicable_tariff
+    from services.meter import applicable_tariff
 
     for month, price in ((4, "8.00"), (5, "8.50"), (6, "9.00"), (7, "9.50")):
         db.add(MeterTariff(meter_type="electricity", unit_price=Decimal(price),
@@ -102,7 +102,7 @@ def test_tariff_lookup_picks_the_rate_live_on_that_date(db):
 
 
 def test_no_tariff_before_first_effective_date(db):
-    from meter_service import applicable_tariff
+    from services.meter import applicable_tariff
     db.add(MeterTariff(meter_type="electricity", unit_price=Decimal("9.50"),
                        effective_from=datetime(2026, 7, 1)))
     db.commit()
@@ -110,7 +110,7 @@ def test_no_tariff_before_first_effective_date(db):
 
 
 def test_estimate_applies_fixed_charge_and_tax(db, meter):
-    from meter_service import estimate_bill
+    from services.meter import estimate_bill
     db.add(MeterTariff(meter_type="electricity", unit_price=Decimal("10.00"),
                        fixed_charge=Decimal("100"), tax_percent=Decimal("10"),
                        effective_from=datetime(2000, 1, 1)))
@@ -196,7 +196,7 @@ def test_png_photos_are_accepted(client, tenant_auth, meter, photo_dir):
 
 
 def test_oversized_photo_is_refused(client, tenant_auth, meter, photo_dir, db):
-    import settings_service
+    from services import settings as settings_service
     settings_service.set_many(db, {"meter.photo_max_mb": 1})
     db.commit()
     settings_service.invalidate_cache()
@@ -541,7 +541,7 @@ def test_approved_reading_becomes_previous_for_the_next_submission(
 def test_billing_can_be_switched_off_in_settings(
     client, tenant_auth, admin_auth, meter, photo_dir, tariff, db
 ):
-    import settings_service
+    from services import settings as settings_service
     settings_service.set_many(db, {"meter.auto_create_bill": False})
     db.commit()
     settings_service.invalidate_cache()
@@ -619,7 +619,7 @@ def test_rejected_reading_cannot_be_approved(client, tenant_auth, admin_auth, me
 # ══════════════════════════════════════════════════════════════════════════════
 
 def test_the_whole_workflow_is_audited(client, tenant_auth, admin_auth, meter, photo_dir, tariff, db):
-    from create_tables import AuditLog
+    from models.schema import AuditLog
 
     reading_id = _submit(client, tenant_auth, meter.id, 12732).json()["reading"]["id"]
     client.post(f"/api/meter-readings/{reading_id}/approve",

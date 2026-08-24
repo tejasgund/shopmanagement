@@ -2,7 +2,7 @@
 Individual scheduler tasks.
 
 One module per task, each exposing `run(db, run_date, cfg) -> dict`. They are
-thin: the actual rules live in rent_billing.py / penalty_billing.py, so the
+thin: the actual rules live in services/rent_billing.py / services/penalty_billing.py, so the
 same logic backs the nightly run and the admin's manual trigger. The master
 scheduler never imports these directly - scheduler.service resolves them by
 name at run time, which is why adding a task is one registry entry and no

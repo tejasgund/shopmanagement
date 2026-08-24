@@ -19,10 +19,9 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from log import get_logger
+from core.logger import get_logger
 from scheduler import service as svc
-import settings_service
-
+from services import settings as settings_service
 logger = get_logger("app")
 
 

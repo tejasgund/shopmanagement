@@ -15,19 +15,19 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
-from db_config import get_db
-from create_tables import Meter, MeterReading, Shop, User, UserShop
-from auth_service import get_current_user, require_admin
-from audit_service import write_audit
-from domain_helpers import _decimal_to_float
-from meter_helpers import _meter_error, _reading_to_dict, _readings_to_dicts
-from app_config import APP_TIMEZONE
-from log import get_logger
-from schemas import ApproveReadingRequest, RejectReadingRequest, VerifyReadingRequest
-import meter_service
-import photo_storage
-import settings_service
-from meter_service import MeterError
+from core.config import APP_TIMEZONE
+from core.database import get_db
+from core.logger import get_logger
+from core.security import get_current_user, require_admin
+from models.schema import Meter, MeterReading, Shop, User, UserShop
+from schemas.api import ApproveReadingRequest, RejectReadingRequest, VerifyReadingRequest
+from services import meter as meter_service
+from services import photo_storage
+from services import settings as settings_service
+from services.audit import write_audit
+from services.meter import MeterError
+from helpers.domain import _decimal_to_float
+from helpers.meter import _meter_error, _reading_to_dict, _readings_to_dicts
 
 logger = get_logger("app")
 

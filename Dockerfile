@@ -36,45 +36,37 @@ RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
 
 # ──────────────────────────────────────────────
-# Copy application source files
+# Copy application source
 #
-# NOTE: app.py was split into routers/ + several standalone service modules
-# (schemas.py, auth_service.py, audit_service.py, app_config.py,
-# domain_helpers.py, meter_helpers.py, razorpay_service.py, rent_billing.py,
-# penalty_billing.py) - every one of these is imported by app.py or by
-# something under routers/, so all of them have to be copied in, not just
-# app.py itself.
+# The backend is packages now, not a pile of loose modules, so this is one
+# COPY per package instead of one per file - adding a module no longer means
+# remembering to add a COPY line (the bug that caused
+# "ModuleNotFoundError: No module named 'razorpay_service'" in an earlier
+# image).
 #
-# conf/ is deliberately gone: it held only the old in-app scheduler's
-# scheduler.conf, which the cron scheduler replaced with its own
-# scheduler/scheduler.conf.
+#   core/     config, database, logging, security
+#   models/   SQLAlchemy models + schema creation
+#   schemas/  Pydantic request/response models
+#   services/ business logic (settings, billing, penalties, meters, payments)
+#   helpers/  small shared helpers used by routers
+#   routers/  HTTP endpoints, one module per resource
 # ──────────────────────────────────────────────
 COPY app.py .
-COPY db_config.py .
-COPY log.py .
-COPY create_tables.py .
-COPY meter_service.py .
-COPY photo_storage.py .
-COPY settings_service.py .
-COPY schemas.py .
-COPY auth_service.py .
-COPY audit_service.py .
-COPY app_config.py .
-COPY domain_helpers.py .
-COPY meter_helpers.py .
-COPY razorpay_service.py .
-COPY rent_billing.py .
-COPY penalty_billing.py .
-COPY routers/ ./routers/
+COPY core/     ./core/
+COPY models/   ./models/
+COPY schemas/  ./schemas/
+COPY services/ ./services/
+COPY helpers/  ./helpers/
+COPY routers/  ./routers/
 
 # Scheduled jobs. Nothing in the image runs these - the container has no cron
 # daemon on purpose. They are shipped so the HOST crontab can invoke them:
-#   0 2 * * * docker exec <container> python -m scheduler.run_scheduler rent-bills
+#   0 2 * * * docker exec <container> python -m scheduler.run_rent_generation
 # See scheduler/README.md and scheduler/crontab.example.
 COPY scheduler/ ./scheduler/
 
 # ──────────────────────────────────────────────
-# Create logs directory (log.py will also auto-create it,
+# Create logs directory (core/logger.py will also auto-create it,
 # but pre-creating ensures correct ownership)
 # ──────────────────────────────────────────────
 RUN mkdir -p /app/logs
@@ -107,10 +99,10 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:8000/docs || exit 1
 
 # ──────────────────────────────────────────────
-# Entrypoint script:
-#   1. Run create_tables.py to migrate / seed DB
+# Entrypoint:
+#   1. python -m models.schema  → migrate / seed DB (was create_tables.py)
 #   2. Start Uvicorn
 # Using shell form so environment variables expand correctly
 # ──────────────────────────────────────────────
-CMD python create_tables.py && \
+CMD python -m models.schema && \
     uvicorn app:app --host 0.0.0.0 --port 8000 --workers 2

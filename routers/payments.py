@@ -12,16 +12,16 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from db_config import get_db
-from create_tables import Bill, Complex, Payment, Shop, User
-from auth_service import require_admin
-from audit_service import write_audit
-from domain_helpers import _decimal_to_float, _reconcile_bill
-from schemas import (
+from core.database import get_db
+from core.security import require_admin
+from models.schema import Bill, Complex, Payment, Shop, User
+from schemas.api import (
     AllocationRow, AutoAllocateConfirmRequest, AutoAllocatePreviewRequest,
     AutoAllocatePreviewResponse, AutoAllocateResponse, AutoAllocateResult,
     PaymentCreate, PaymentResponse, PaymentUpdate,
 )
+from services.audit import write_audit
+from helpers.domain import _decimal_to_float, _reconcile_bill
 
 router = APIRouter(tags=["Payment"])
 

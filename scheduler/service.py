@@ -26,9 +26,9 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app_config import APP_TIMEZONE
-from create_tables import SchedulerTask
-from log import get_logger
+from core.config import APP_TIMEZONE
+from models.schema import SchedulerTask
+from core.logger import get_logger
 
 logger = get_logger("app")
 

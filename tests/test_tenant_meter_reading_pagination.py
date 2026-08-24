@@ -22,7 +22,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from create_tables import Meter, MeterReading
+from models.schema import Meter, MeterReading
 
 
 def _add_reading(db, meter, tenant, *, day, status="approved", customer_reading=100):

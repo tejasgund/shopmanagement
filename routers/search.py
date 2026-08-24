@@ -7,10 +7,10 @@ Extracted verbatim from app.py (step 6a of the router/service split).
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from db_config import get_db
-from create_tables import Complex, Shop, User, UserShop
-from auth_service import require_admin
-from domain_helpers import _decimal_to_float, _shop_owner_map
+from core.database import get_db
+from core.security import require_admin
+from models.schema import Complex, Shop, User, UserShop
+from helpers.domain import _decimal_to_float, _shop_owner_map
 
 router = APIRouter(tags=["Search"])
 

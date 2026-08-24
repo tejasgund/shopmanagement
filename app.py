@@ -2,14 +2,22 @@
 app.py - Main FastAPI Application
 Tenant Management System
 
-This is now the composition root only: it builds the FastAPI app, wires in
-every router, and hosts the admin's manual rent-generation trigger.
-Everything else - schemas, auth, audit logging, business
-logic, and every route - lives in its own module under routers/ or in one
-of the *_service.py / *_helpers.py files alongside this one. See each
-module's docstring for exactly which "step" of the router/service split
-moved it here; this file is the last step (25): wiring routers/ in and
-retiring the duplicate code that used to live in this file alongside them.
+This is the composition root only: it builds the FastAPI app, wires in every
+router, and hosts the admin's manual rent-generation trigger. Everything else
+lives in a package next to this file, one concern per package:
+
+    core/      configuration, database, logging, security (JWT/roles)
+    models/    SQLAlchemy models and the schema-creation entry point
+    schemas/   Pydantic request/response models
+    services/  business logic: settings, rent billing, penalties, meters,
+               photo storage, Razorpay, audit
+    helpers/   small shared helpers used by routers
+    routers/   HTTP endpoints, one module per resource
+    scheduler/ the cron-driven scheduler app (never started from here)
+
+To change one thing you edit one module: a route in routers/, a rule in
+services/, a column in models/schema.py. Nothing here needs touching except
+when a whole new router is added.
 
 Features:
     - JWT Authentication (HS256)
@@ -21,7 +29,7 @@ Features:
     - Swagger / ReDoc documentation at /docs and /redoc
 
 This file no longer runs any background work. Rent-bill generation lives in
-rent_billing.py, and it is driven by cron via scheduler/run_scheduler.py -
+services/rent_billing.py, and it is driven by cron via scheduler/run_scheduler.py -
 NOT by an in-process timer. The app previously started an APScheduler inside
 every uvicorn worker, which meant `--workers 2` ran the same nightly job
 twice at the same second; moving it to cron makes "exactly one run" a
@@ -39,9 +47,9 @@ from zoneinfo import ZoneInfo
 # Load .env before anything below reads os.getenv() - only fills in variables
 # that aren't already set, so Docker/systemd env injection still wins in
 # production. This must happen before any of this project's own modules are
-# imported below: auth_service reads JWT_SECRET, db_config reads DB_*, and
-# razorpay_service reads RAZORPAY_* at import time, so .env has to be loaded
-# first or those modules would see the un-injected defaults.
+# imported below: core/security.py reads JWT_SECRET, core/database.py reads
+# DB_*, and services/razorpay.py reads RAZORPAY_* at import time, so .env has
+# to be loaded first or those modules would see the un-injected defaults.
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -50,16 +58,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from app_config import APP_TIMEZONE
-from db_config import get_db
-from log import get_logger, log_request_middleware
+from core.config import APP_TIMEZONE
+from core.database import get_db
+from core.logger import get_logger, log_request_middleware
 
 # Import ORM models from create_tables so we have a single schema source-of-truth
-from create_tables import User
+from models.schema import User
 
-from auth_service import require_admin
-import rent_billing
-
+from core.security import require_admin
+from services import rent_billing
 from routers.audit_log import router as audit_log_router
 from routers.auth import router as auth_router
 from routers.bills import router as bills_router
@@ -153,7 +160,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 # ══════════════════════════════════════════════════════════════════════════════
 # ── Rent-bill generation: the admin's manual trigger only.
 #
-# The logic itself lives in rent_billing.py, and the automatic nightly run is
+# The logic itself lives in services/rent_billing.py, and the automatic nightly run is
 # a cron job (see scheduler/) rather than an in-process timer. This endpoint
 # and that cron job call the same function, so pressing the button and waiting
 # for the nightly run can never produce different bills.

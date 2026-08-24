@@ -1,12 +1,12 @@
 """
-domain_helpers.py - shared, stateless helpers used across many routes:
+helpers/domain.py - shared, stateless helpers used across many routes:
 decimal formatting, shop-owner lookups, bill reconciliation, and the tenant
 financial-summary builder shared by the admin and tenant portals.
 
 Extracted verbatim from app.py's UTILITY section (step 4 of the router/
 service split). _razorpay_credentials / _razorpay_webhook_secret /
 _razorpay_public_config, which also lived in the same UTILITY section, moved
-instead to razorpay_service.py (step 22) alongside the rest of the Razorpay
+instead to services/razorpay.py (step 22) alongside the rest of the Razorpay
 integration - see that module's docstring.
 """
 
@@ -16,8 +16,8 @@ from typing import List, Optional
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from create_tables import Bill, Complex, DepositPayment, Payment, Shop, User, UserShop
-from schemas import ShopOwnerInfo, ShopResponse
+from models.schema import Bill, Complex, DepositPayment, Payment, Shop, User, UserShop
+from schemas.api import ShopOwnerInfo, ShopResponse
 
 
 def _decimal_to_float(value) -> float:

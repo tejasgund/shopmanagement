@@ -24,9 +24,9 @@ from decimal import Decimal
 
 import pytest
 
-import rent_billing
-from create_tables import Bill, Shop, User, UserShop
-from db_config import SessionLocal
+from services import rent_billing
+from models.schema import Bill, Shop, User, UserShop
+from core.database import SessionLocal
 
 
 TARGET = date(2026, 8, 13)

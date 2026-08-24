@@ -12,14 +12,14 @@ one bill (from the bill detail sheet) or the WHOLE pending balance in one go
      created from this flow; nothing is ever marked paid off a
      signature-less client claim). One payment can become several
      Payment rows if it's spread across bills - see
-     _allocate_razorpay_payment in razorpay_service.py.
+     _allocate_razorpay_payment in services/razorpay.py.
 
 Also hosts the /api/webhooks/razorpay server-to-server callback, which
 independently catches payments the tenant's own browser never got to report
 (closed tab, dropped network, crashed app) via the same shared finalize path.
 
 Extracted verbatim from app.py (step 22 of the router/service split, along
-with razorpay_service.py - see that module's docstring for why the Razorpay
+with services/razorpay.py - see that module's docstring for why the Razorpay
 logic breaks from the "leave it in app.py" precedent other modules follow).
 """
 
@@ -34,21 +34,21 @@ import razorpay.errors
 
 from datetime import datetime, timezone
 
-from db_config import get_db
-from create_tables import Bill, RazorpayOrder, User
-from auth_service import require_tenant
-from audit_service import write_audit
-from domain_helpers import _decimal_to_float
-from schemas import (
+from core.database import get_db
+from core.logger import get_logger
+from core.security import require_tenant
+from models.schema import Bill, RazorpayOrder, User
+from schemas.api import (
     PaymentResponse, RazorpayCreateOrderRequest, RazorpayCreateOrderResponse, RazorpayVerifyRequest,
 )
-import settings_service
-from log import get_logger
-from razorpay_service import (
+from services import settings as settings_service
+from services.audit import write_audit
+from services.razorpay import (
     _RazorpayNoPendingBillsError, _finalize_paid_razorpay_order, _razorpay_client,
     _razorpay_credentials, _razorpay_webhook_secret, _tenant_total_pending,
     credentials_fingerprint,
 )
+from helpers.domain import _decimal_to_float
 
 logger = get_logger("app")
 

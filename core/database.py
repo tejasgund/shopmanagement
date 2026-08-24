@@ -1,5 +1,5 @@
 """
-db_config.py - Database Configuration
+core/database.py - Database Configuration
 Tenant Management System
 
 Provides:
@@ -16,7 +16,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.exc import OperationalError
 
-from log import get_logger
+from core.logger import get_logger
 
 logger = get_logger("app")
 

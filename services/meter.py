@@ -1,5 +1,5 @@
 """
-meter_service.py - Submeter reading business logic
+services/meter.py - Submeter reading business logic
 
 Kept out of app.py so the rules that decide money can be read, reasoned about
 and unit-tested on their own.
@@ -26,9 +26,9 @@ from typing import List, Optional
 
 from sqlalchemy.orm import Session
 
-import settings_service
-from create_tables import Bill, Meter, MeterReading, MeterTariff
-from log import get_logger
+from core.logger import get_logger
+from models.schema import Bill, Meter, MeterReading, MeterTariff
+from services import settings as settings_service
 
 logger = get_logger("app")
 
@@ -142,8 +142,22 @@ def tenant_upload_window_message(cfg: dict) -> str:
     )
 
 
-def assert_tenant_upload_window(cfg: dict, when: date) -> None:
-    """Raise MeterError if a tenant is submitting outside the window."""
+def upload_window_applies_to(role: str) -> bool:
+    """
+    The submission window restricts tenants only.
+
+    Keyed on the caller's ROLE rather than on which endpoint they reached,
+    because require_tenant() admits admins as well - an admin who submits
+    through the tenant route must still never be turned away by a window that
+    exists to pace tenants.
+    """
+    return role != ADMIN
+
+
+def assert_upload_window(cfg: dict, when: date, role: str) -> None:
+    """Raise MeterError if this caller is submitting outside their window."""
+    if not upload_window_applies_to(role):
+        return
     if not tenant_upload_open_on(cfg, when):
         raise MeterError(tenant_upload_window_message(cfg), status_code=403)
 

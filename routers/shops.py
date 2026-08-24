@@ -9,12 +9,12 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from db_config import get_db
-from create_tables import Complex, Shop, User
-from auth_service import require_admin
-from audit_service import write_audit
-from domain_helpers import _shop_owner_map, _shop_to_response
-from schemas import AssignComplexRequest, ShopCreate, ShopResponse, ShopUpdate
+from core.database import get_db
+from core.security import require_admin
+from models.schema import Complex, Shop, User
+from schemas.api import AssignComplexRequest, ShopCreate, ShopResponse, ShopUpdate
+from services.audit import write_audit
+from helpers.domain import _shop_owner_map, _shop_to_response
 
 router = APIRouter(tags=["Shop"])
 

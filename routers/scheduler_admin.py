@@ -23,13 +23,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from db_config import get_db
-from create_tables import SchedulerTask, User
-from auth_service import require_admin
-from audit_service import write_audit
-from schemas import SettingsUpdateRequest
-import penalty_billing
-import settings_service
+from core.database import get_db
+from core.security import require_admin
+from models.schema import SchedulerTask, User
+from schemas.api import SettingsUpdateRequest
+from services import penalty_billing
+from services import settings as settings_service
+from services.audit import write_audit
 # Read-only use of the scheduler package: this endpoint shows the ledger, it
 # never schedules anything. The dependency runs one way only - the scheduler
 # knows nothing about routers/ - so the folder stays independently runnable.

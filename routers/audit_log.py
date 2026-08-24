@@ -2,7 +2,7 @@
 routers/audit_log.py - GET /api/audit-logs* (Admin only).
 
 Extracted verbatim from app.py (step 3 of the router/service split, after
-schemas.py and auth_service.py/audit_service.py). Self-contained: only
+schemas/api.py and core/security.py/audit_service.py). Self-contained: only
 touches the AuditLog/User models directly and the shared require_admin
 dependency, so it was the first full route module safe to pull out.
 """
@@ -15,9 +15,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from db_config import get_db
-from create_tables import AuditLog, User
-from auth_service import require_admin
+from core.database import get_db
+from core.security import require_admin
+from models.schema import AuditLog, User
 
 router = APIRouter(tags=["Audit Log"])
 

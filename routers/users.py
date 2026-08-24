@@ -11,15 +11,15 @@ import bcrypt
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from db_config import get_db
-from create_tables import Shop, User, UserShop
-from auth_service import require_admin
-from audit_service import write_audit
-from domain_helpers import _shop_owner_map, _build_user_financial_summary
-from schemas import (
+from core.database import get_db
+from core.security import require_admin
+from models.schema import Shop, User, UserShop
+from schemas.api import (
     AssignShopsRequest, DetachShopsRequest, ResetPasswordRequest,
     UpdateAgreementRequest, UserCreate, UserResponse, UserUpdate,
 )
+from services.audit import write_audit
+from helpers.domain import _shop_owner_map, _build_user_financial_summary
 
 router = APIRouter(tags=["User"])
 

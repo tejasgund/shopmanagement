@@ -9,7 +9,7 @@ from decimal import Decimal
 import pytest
 
 from conftest import make_jpeg
-from create_tables import Meter, MeterReading
+from models.schema import Meter, MeterReading
 
 
 def _submit(client, auth, meter_id, reading):

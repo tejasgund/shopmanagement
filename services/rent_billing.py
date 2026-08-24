@@ -1,5 +1,5 @@
 """
-rent_billing.py - automatic monthly rent bill generation.
+services/rent_billing.py - automatic monthly rent bill generation.
 
 Extracted from app.py when the scheduler moved out of the application and
 under crontab (see scheduler/). It lives here, outside both app.py and
@@ -26,12 +26,11 @@ from decimal import Decimal
 from sqlalchemy import extract
 from sqlalchemy.orm import Session
 
-from create_tables import Bill, Shop, User, UserShop
-from audit_service import write_audit
-from domain_helpers import _decimal_to_float
-from log import get_logger
-import settings_service
-
+from core.logger import get_logger
+from models.schema import Bill, Shop, User, UserShop
+from services import settings as settings_service
+from services.audit import write_audit
+from helpers.domain import _decimal_to_float
 logger = get_logger("app")
 
 

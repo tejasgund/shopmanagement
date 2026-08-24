@@ -9,10 +9,8 @@ complex/shop/user CRUD, bills, payments and the reports the admin UI depends on.
 from datetime import datetime
 from decimal import Decimal
 
-from create_tables import Bill, Payment, Shop, User, UserShop
-import settings_service
-
-
+from models.schema import Bill, Payment, Shop, User, UserShop
+from services import settings as settings_service
 # ══════════════════════════════════════════════════════════════════════════════
 # AUTH
 # ══════════════════════════════════════════════════════════════════════════════
@@ -353,7 +351,7 @@ def test_settings_cache_expires_so_other_workers_pick_up_a_change(db, monkeypatc
     TTL lapses.
     """
     import time as _time
-    from create_tables import AppSetting
+    from models.schema import AppSetting
 
     settings_service.set_many(db, {"bill.due_days": 10})
     db.commit()

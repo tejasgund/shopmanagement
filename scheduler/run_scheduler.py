@@ -48,10 +48,10 @@ try:
 except Exception:      # python-dotenv absent, or no .env - both fine
     pass
 
-# Reached by PACKAGE path, not as bare `config`/`db_config`. The project root
-# is first on sys.path above precisely so that a bare `import db_config` from
-# inside the application (create_tables.py does exactly that) still finds the
-# APPLICATION's db_config.py rather than this folder's same-named one.
+# Reached by PACKAGE path (`scheduler.db_config`), never as a bare
+# `db_config`. The project root is first on sys.path above so that the
+# application's own modules keep resolving to `core.database` - this folder's
+# connection helper is deliberately unreachable from anywhere but here.
 from scheduler import db_config as scheduler_db  # noqa: E402
 
 

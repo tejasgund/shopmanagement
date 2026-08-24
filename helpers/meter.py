@@ -1,10 +1,10 @@
 """
-meter_helpers.py - shared helpers for the submeter-reading feature, used by
+helpers/meter.py - shared helpers for the submeter-reading feature, used by
 the meters CRUD router, the meter-readings admin workflow routes, the tenant
 meter routes, and the tenant home bundle.
 
 Extracted verbatim from app.py's SUBMETER READINGS section (step 9 of the
-router/service split). Kept separate from domain_helpers.py because these
+router/service split). Kept separate from helpers/domain.py because these
 are meter-domain-specific, not general-purpose.
 """
 
@@ -13,9 +13,9 @@ from typing import List
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
 
-from create_tables import Bill, Meter, MeterReading, Shop, User, UserShop
-from meter_service import MeterError
-from domain_helpers import _decimal_to_float
+from models.schema import Bill, Meter, MeterReading, Shop, User, UserShop
+from services.meter import MeterError
+from helpers.domain import _decimal_to_float
 
 
 def _meter_error(exc: MeterError) -> HTTPException:

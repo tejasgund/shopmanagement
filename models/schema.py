@@ -1,9 +1,9 @@
 """
-create_tables.py - Database Initialisation Script
+models/schema.py - Database Initialisation Script
 Tenant Management System
 
 Run once (or repeatedly – it is idempotent):
-    python create_tables.py
+    python models/schema.py
 
 What it does:
     1. Verifies the MySQL connection
@@ -30,7 +30,7 @@ Self-healing behaviour:
         NULL (one-way only: never tightens NULL -> NOT NULL automatically)
     This means if you add a new Column(...) to any model below, add an
     entirely new model class, or loosen an existing column's nullability,
-    simply re-running `python create_tables.py` brings the live database up
+    simply re-running `python models/schema.py` brings the live database up
     to date without any manual migration.
 """
 
@@ -46,14 +46,14 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship
 
-from db_config import Base, engine, SessionLocal, test_connection
-from log import get_logger
+from core.database import Base, engine, SessionLocal, test_connection
+from core.logger import get_logger
 
 logger = get_logger("app")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ORM MODELS
-# These are imported by app.py as well – define them here so create_tables.py
+# These are imported by app.py as well – define them here so models/schema.py
 # is the single source of truth for schema.
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -503,7 +503,7 @@ class AppSetting(Base):
     Key/value application configuration so an admin can change branding, upload
     limits and billing behaviour from the frontend instead of redeploying.
 
-    Defaults live in settings_service.py; a row here only exists once a value
+    Defaults live in services/settings.py; a row here only exists once a value
     has actually been customised, so upgrading the defaults still works.
     """
     __tablename__ = "app_settings"
@@ -746,7 +746,7 @@ def main():
 
     # 1. Verify connectivity
     if not test_connection():
-        print("❌  Cannot connect to the database. Check db_config.py / environment variables.")
+        print("❌  Cannot connect to the database. Check core/database.py / environment variables.")
         raise SystemExit(1)
     print("✔  Database Connected\n")
 

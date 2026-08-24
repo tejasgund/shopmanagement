@@ -13,14 +13,15 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from db_config import get_db
-from create_tables import MeterReading, MeterTariff, User
-from auth_service import require_admin
-from audit_service import write_audit
-from domain_helpers import _decimal_to_float
-from schemas import TariffCreate
-from app_config import APP_TIMEZONE
-import meter_service
+from core.config import APP_TIMEZONE
+from core.database import get_db
+from core.security import require_admin
+from models.schema import MeterReading, MeterTariff, User
+from schemas.api import TariffCreate
+from services import meter as meter_service
+from services.audit import write_audit
+from helpers.domain import _decimal_to_float
+
 
 router = APIRouter(tags=["Meter"])
 

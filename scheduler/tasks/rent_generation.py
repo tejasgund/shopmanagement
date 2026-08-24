@@ -1,7 +1,7 @@
 """
 tasks/rent_generation.py - the Rent Generation scheduler task.
 
-Deliberately thin. The rules live in rent_billing.py, which the admin's manual
+Deliberately thin. The rules live in services/rent_billing.py, which the admin's manual
 POST /api/bills/generate-rent also calls, so the nightly run and the button
 cannot drift apart. No penalty logic here, and none of this in the penalty
 task.
@@ -16,9 +16,7 @@ from datetime import date
 
 from sqlalchemy.orm import Session
 
-import rent_billing
-
-
+from services import rent_billing
 def run(db: Session, run_date: date, cfg: dict) -> dict:
     summary = rent_billing.generate_rent_bills_for_date_locked(db, run_date)
 

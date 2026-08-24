@@ -1,5 +1,5 @@
 """
-razorpay_service.py - Razorpay Standard Checkout business logic: credential
+services/razorpay.py - Razorpay Standard Checkout business logic: credential
 resolution, the SDK client, and the shared "this order has been proven paid,
 now actually apply the money" core used by both verify() and the webhook.
 
@@ -28,14 +28,14 @@ from sqlalchemy.orm import Session
 
 import razorpay
 
-from create_tables import Bill, Payment, RazorpayOrder
-from domain_helpers import _decimal_to_float, _reconcile_bill
-from audit_service import write_audit
+from models.schema import Bill, Payment, RazorpayOrder
+from services.audit import write_audit
+from helpers.domain import _decimal_to_float, _reconcile_bill
 
 # ──────────────────────────────────────────────
 # Razorpay settings
 # The admin-editable values in Settings (payment.razorpay_key_id/_secret) are
-# the primary source - see settings_service.py's docstring for why this pair
+# the primary source - see services/settings.py's docstring for why this pair
 # is a deliberate exception to "secrets live in env only". These two env vars
 # are kept ONLY as a fallback for deployments that still prefer .env (or
 # haven't set the DB values yet); see _razorpay_credentials() below, which is
