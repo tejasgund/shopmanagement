@@ -139,11 +139,11 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
                 "can still submit the reading itself.",
     },
 
-    # Whether a TENANT's photo may come from their existing photos rather than
+    # Whether the photo may come from the device's existing photos rather than
     # only from the camera at the moment of submission. Off by default so the
     # camera-only behaviour that shipped before this setting is unchanged until
-    # an admin deliberately relaxes it. Admins collecting a reading always have
-    # both options and are deliberately not affected by this at all.
+    # an admin deliberately relaxes it. Applies to the tenant portal and the
+    # admin Collect form alike.
     #
     # This is a UI control, not a security boundary: it works by dropping the
     # `capture` attribute from the file input, which is a hint browsers honour
@@ -153,30 +153,21 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
     # posts to the API directly.
     "meter.allow_gallery_upload": {
         "value": False, "type": "bool", "category": "Meter readings",
-        "label": "Allow gallery upload (tenants)",
-        "help": "Controls TENANTS only. Off: a tenant's reading photo must be "
-                "taken with the camera there and then. On: a tenant may also "
-                "choose an existing photo from their device, and the camera is "
-                "still offered. Admins always have both, whatever this is set to.",
+        "label": "Allow gallery upload",
+        "help": "Off: the reading photo must be taken with the camera there and "
+                "then. On: an existing photo may be chosen from the device "
+                "instead, and the camera is still offered. Applies to tenants "
+                "and to admins collecting a reading.",
     },
 
     # ── When tenants may submit ──────────────────────────────────────────
     # A day-of-month window that repeats every month, so it is set once rather
     # than re-edited each cycle. Admins are never restricted by it.
     "meter.tenant_upload_any_day": {
-        # Defaults OFF so that setting a window actually does something. It
-        # used to default ON, which meant an admin could narrow the window to
-        # 1-10, save, and have it silently ignored - the window looked broken
-        # with nothing on screen to explain why. With the default range being
-        # the whole month (1-31), off-by-default behaves identically to "every
-        # day" on a fresh install while leaving the window live the moment it
-        # is narrowed.
-        "value": False, "type": "bool", "category": "Meter readings",
-        "label": "Allow tenant reading upload every day (ignores the window below)",
-        "help": "Leave OFF to use the day range below - that is what makes the "
-                "window work. Turn ON only to suspend the window temporarily and "
-                "let tenants submit on any day; while it is on, the From/To days "
-                "below have no effect. Admins are never restricted either way.",
+        "value": True, "type": "bool", "category": "Meter readings",
+        "label": "Allow tenant reading upload every day",
+        "help": "When on, tenants may submit on any day and the window below is "
+                "ignored. Turn off to restrict submissions to the days set below.",
     },
     "meter.tenant_upload_from_day": {
         "value": 1, "type": "int", "category": "Meter readings",
