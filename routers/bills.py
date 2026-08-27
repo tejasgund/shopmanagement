@@ -269,12 +269,38 @@ def delete_bill(
         "status":    bill.status,
     }
 
+    # The late fee raised against this bill goes with it. A fee for a bill that
+    # no longer exists is not collectable, and would sit on the tenant's screen
+    # with nothing left to explain it.
+    #
+    # Done here rather than left to the database's ON DELETE CASCADE: that rule
+    # is enforced by MySQL but silently ignored by SQLite, so relying on it
+    # would mean the tests and production behaving differently on a delete
+    # that destroys money records.
+    fee_bill = db.query(Bill).filter(Bill.parent_bill_id == bill_id).first()
+    removed = [bill_id]
+    if fee_bill is not None:
+        db.query(Payment).filter(Payment.bill_id == fee_bill.id).delete(synchronize_session=False)
+        write_audit(db, actor.id, "DELETE", "bills", fee_bill.id, old_data={
+            "id": fee_bill.id, "bill_type": fee_bill.bill_type,
+            "amount": _decimal_to_float(fee_bill.amount),
+            "parent_bill_id": bill_id,
+            "reason": "late fee removed with the bill it was raised for",
+        })
+        db.delete(fee_bill)
+        removed.append(fee_bill.id)
+
     # Delete linked payments first (cascade not guaranteed on all DB configs)
     db.query(Payment).filter(Payment.bill_id == bill_id).delete(synchronize_session=False)
     db.delete(bill)
 
     write_audit(db, actor.id, "DELETE", "bills", bill_id, old_data=old_snapshot)
     db.commit()
+
+    if len(removed) > 1:
+        return {"success": True,
+                "message": f"Bill {bill_id}, its late fee (bill {removed[1]}) "
+                           f"and their payments deleted successfully"}
     return {"success": True, "message": f"Bill {bill_id} and its payments deleted successfully"}
 
 

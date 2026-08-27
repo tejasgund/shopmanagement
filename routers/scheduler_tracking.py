@@ -359,6 +359,7 @@ def bill_tracking(bill_id: int, db: Session = Depends(get_db),
     )
     shop = db.query(Shop).filter(Shop.id == bill.shop_id).first()
     tenant = db.query(User).filter(User.id == bill.user_id).first()
+    fee_bill = db.query(Bill).filter(Bill.parent_bill_id == bill.id).first()
 
     return {
         "bill": {
@@ -378,6 +379,13 @@ def bill_tracking(bill_id: int, db: Session = Depends(get_db),
             "due_date": bill.due_date,
             "status": bill.status,
             "rent_period": bill.rent_period,
+            # A late fee is its own bill. Exactly one of these is ever set:
+            # `parent_bill_id` on a fee, `late_fee_bill_id` on the bill a fee
+            # was raised against - so this view can be reached from either end
+            # and always show the other.
+            "parent_bill_id": bill.parent_bill_id,
+            "late_fee_bill_id": fee_bill.id if fee_bill else None,
+            "late_fee_amount": _float(fee_bill.amount) if fee_bill else None,
         },
         "history": [_item_dict(r) for r in rows],
     }

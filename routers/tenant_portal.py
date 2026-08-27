@@ -26,7 +26,7 @@ from services import meter as meter_service
 from services import settings as settings_service
 from services.razorpay import _razorpay_public_config
 from helpers.domain import (
-    _build_user_financial_summary, _decimal_to_float, _tenant_payment_dict, bill_penalty_dict,
+    _build_user_financial_summary, _decimal_to_float, _tenant_payment_dict, bill_relations,
 )
 from helpers.meter import _reading_to_dict, _tenant_shop_ids
 
@@ -77,6 +77,7 @@ def tenant_bills(
 ):
     """Return all bills for the authenticated tenant."""
     bills = db.query(Bill).filter(Bill.user_id == current_user.id).order_by(Bill.id).all()
+    links = bill_relations(bills)
     return [
         {
             "id":             b.id,
@@ -89,8 +90,12 @@ def tenant_bills(
             "bill_date":      b.bill_date,
             "due_date":       b.due_date,
             "status":         b.status,
-            # Why the amount owed is higher than the bill was raised for.
-            "penalty":        bill_penalty_dict(b),
+            # A late fee is its own bill. `late_fee` is the fee raised against
+            # THIS bill; `parent_bill` is the bill this fee was raised for.
+            # Exactly one of them is ever set.
+            "parent_bill_id": b.parent_bill_id,
+            "late_fee":       links[b.id]["late_fee"],
+            "parent_bill":    links[b.id]["parent"],
         }
         for b in bills
     ]
@@ -189,6 +194,7 @@ def tenant_home(
 
     # ── Bills ──
     bills = db.query(Bill).filter(Bill.user_id == current_user.id).order_by(Bill.id).all()
+    bill_links = bill_relations(bills)
     bills_out = [
         {
             "id": b.id, "shop_id": b.shop_id, "bill_type": b.bill_type,
@@ -197,7 +203,9 @@ def tenant_home(
             "paid_amount": _decimal_to_float(b.paid_amount),
             "pending_amount": _decimal_to_float(b.pending_amount),
             "bill_date": b.bill_date, "due_date": b.due_date, "status": b.status,
-            "penalty": bill_penalty_dict(b),
+            "parent_bill_id": b.parent_bill_id,
+            "late_fee": bill_links[b.id]["late_fee"],
+            "parent_bill": bill_links[b.id]["parent"],
         }
         for b in bills
     ]

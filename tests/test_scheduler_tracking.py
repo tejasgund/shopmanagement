@@ -334,7 +334,7 @@ def test_settings_returns_what_the_scripts_will_read_tonight(client, admin_auth)
     assert keys == {
         "scheduler.rent_generation_enabled", "scheduler.penalty_enabled",
         "scheduler.penalty_percent_per_day", "scheduler.penalty_grace_days",
-        "scheduler.penalty_max_amount",
+        "scheduler.penalty_max_amount", "scheduler.penalty_on_penalty_enabled",
     }
 
 
@@ -390,6 +390,7 @@ def test_the_scripts_and_the_app_agree_on_the_default_penalty_rules():
     assert script_defaults["percent_per_day"] == settings_service.DEFAULTS["scheduler.penalty_percent_per_day"]["value"]
     assert script_defaults["grace_days"] == settings_service.DEFAULTS["scheduler.penalty_grace_days"]["value"]
     assert script_defaults["max_amount"] == settings_service.DEFAULTS["scheduler.penalty_max_amount"]["value"]
+    assert script_defaults["on_penalty"] == settings_service.DEFAULTS["scheduler.penalty_on_penalty_enabled"]["value"]
 
     rent_src = (root / "scheduler" / "auto_rent_generation" / "auto_rent_generation.py").read_text()
     rent_tree = ast.parse(rent_src)
@@ -413,102 +414,186 @@ def test_the_scripts_and_the_app_agree_on_the_default_penalty_rules():
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _penalised_bill(db, tenant, shop):
-    """A bill as the penalty scheduler leaves it: original untouched, fee
-    accrued separately, pending carrying the sum."""
-    bill = Bill(
+    """
+    A bill as the penalty scheduler leaves it: the rent bill untouched at its
+    own amount, and the late fee raised as a SEPARATE bill pointing back at it.
+
+    Returns (rent_bill, fee_bill).
+    """
+    rent = Bill(
         user_id=tenant.id, shop_id=shop.id, bill_type="Rent",
-        amount=10000, paid_amount=0, pending_amount=10500,
-        penalty_amount=500, penalty_days=5,
-        penalty_charged_through=date(2026, 8, 15),
+        amount=10000, paid_amount=0, pending_amount=10000,
         bill_date=datetime(2026, 8, 1), due_date=datetime(2026, 8, 10),
         status="pending", rent_period="RENT-2026-08",
     )
-    db.add(bill)
+    db.add(rent)
     db.commit()
-    db.refresh(bill)
-    return bill
+    db.refresh(rent)
+
+    fee = Bill(
+        user_id=tenant.id, shop_id=shop.id, bill_type="Penalty",
+        description=f"Late fee on bill #{rent.id}",
+        amount=500, paid_amount=0, pending_amount=500, penalty_days=5,
+        bill_date=datetime(2026, 8, 15), due_date=datetime(2026, 9, 14),
+        status="pending", parent_bill_id=rent.id,
+    )
+    db.add(fee)
+    db.commit()
+    db.refresh(fee)
+    return rent, fee
 
 
-def test_the_admin_bill_api_explains_the_gap_between_amount_and_pending(
-    client, admin_auth, db, tenant, shop,
-):
-    bill = _penalised_bill(db, tenant, shop)
-    body = client.get(f"/api/bill/{bill.id}", headers=admin_auth).json()
+def test_a_rent_bill_stays_a_rent_bill(client, admin_auth, db, tenant, shop):
+    """
+    The whole point of the split. However long a bill is overdue, "Rent" means
+    the rent - not the rent plus a fee that nobody can see the shape of.
+    """
+    rent, fee = _penalised_bill(db, tenant, shop)
+    body = client.get(f"/api/bill/{rent.id}", headers=admin_auth).json()
 
+    assert body["bill_type"] == "Rent"
     assert body["amount"] == 10000.0
-    assert body["penalty_amount"] == 500.0
-    assert body["penalty_days"] == 5
-    assert body["pending_amount"] == 10500.0
-    # The sum is computed server-side so the admin screen and the tenant portal
-    # cannot arrive at different totals.
-    assert body["total_payable"] == 10500.0
-    assert body["rent_period"] == "RENT-2026-08"
+    assert body["pending_amount"] == 10000.0     # not 10,500
+    assert body["parent_bill_id"] is None
 
 
-def test_a_bill_with_no_penalty_reports_zero_rather_than_null(
+def test_the_late_fee_is_its_own_bill_pointing_at_its_parent(
     client, admin_auth, db, tenant, shop,
 ):
-    """The frontends read these unconditionally; null would make every card do
-    its own defaulting, and one of them would eventually forget."""
-    bill = Bill(user_id=tenant.id, shop_id=shop.id, bill_type="Maintenance",
-                amount=500, paid_amount=0, pending_amount=500,
-                bill_date=datetime(2026, 8, 1), status="pending")
-    db.add(bill)
-    db.commit()
+    rent, fee = _penalised_bill(db, tenant, shop)
+    body = client.get(f"/api/bill/{fee.id}", headers=admin_auth).json()
 
-    body = client.get(f"/api/bill/{bill.id}", headers=admin_auth).json()
-    assert body["penalty_amount"] == 0.0
-    assert body["penalty_days"] == 0
-    assert body["penalty_charged_through"] is None
-    assert body["total_payable"] == 500.0
+    assert body["bill_type"] == "Penalty"
+    assert body["amount"] == 500.0
+    assert body["parent_bill_id"] == rent.id
 
 
-def test_the_tenant_sees_the_same_breakdown_the_admin_does(
-    client, tenant_auth, admin_auth, db, tenant, shop,
-):
-    """Two screens, one set of figures. A tenant told a different number from
-    the one the office sees is the worst outcome here."""
-    bill = _penalised_bill(db, tenant, shop)
+def test_the_database_refuses_a_second_fee_for_the_same_bill(db, tenant, shop):
+    """One fee bill per bill, enforced by the unique index rather than by
+    whichever code path remembered to check."""
+    from sqlalchemy.exc import IntegrityError
 
-    tenant_bill = next(b for b in client.get("/api/tenant/bills", headers=tenant_auth).json()
-                       if b["id"] == bill.id)
-    admin_bill = client.get(f"/api/bill/{bill.id}", headers=admin_auth).json()
-
-    assert tenant_bill["penalty"]["penalty_amount"] == admin_bill["penalty_amount"]
-    assert tenant_bill["penalty"]["penalty_days"] == admin_bill["penalty_days"]
-    assert tenant_bill["penalty"]["total_payable"] == admin_bill["total_payable"]
-    assert tenant_bill["pending_amount"] == admin_bill["pending_amount"]
+    rent, fee = _penalised_bill(db, tenant, shop)
+    db.add(Bill(user_id=tenant.id, shop_id=shop.id, bill_type="Penalty",
+                amount=99, paid_amount=0, pending_amount=99,
+                bill_date=datetime(2026, 8, 20), status="pending",
+                parent_bill_id=rent.id))
+    with pytest.raises(IntegrityError):
+        db.commit()
+    db.rollback()
 
 
-def test_the_tenant_home_bundle_carries_the_penalty_too(
+def test_the_tenant_sees_the_fee_linked_to_the_bill_it_is_for(
     client, tenant_auth, db, tenant, shop,
 ):
-    """The portal loads everything from /api/tenant/home on open; a breakdown
+    """
+    Two rows, each able to explain itself: the rent bill says a fee has been
+    raised against it, the fee says which bill it is for. Without the link a
+    tenant sees an unexplained 'Penalty' line and rings the office.
+    """
+    rent, fee = _penalised_bill(db, tenant, shop)
+    bills = {b["id"]: b for b in client.get("/api/tenant/bills", headers=tenant_auth).json()}
+
+    assert bills[rent.id]["late_fee"]["bill_id"] == fee.id
+    assert bills[rent.id]["late_fee"]["amount"] == 500.0
+    assert bills[rent.id]["late_fee"]["days"] == 5
+    assert bills[rent.id]["parent_bill"] is None
+
+    assert bills[fee.id]["parent_bill"]["bill_id"] == rent.id
+    assert bills[fee.id]["parent_bill"]["bill_type"] == "Rent"
+    assert bills[fee.id]["late_fee"] is None
+
+
+def test_the_tenant_home_bundle_carries_the_link_too(
+    client, tenant_auth, db, tenant, shop,
+):
+    """The portal loads everything from /api/tenant/home on open; a link
     present only on /api/tenant/bills would never be shown."""
-    bill = _penalised_bill(db, tenant, shop)
-    home = client.get("/api/tenant/home", headers=tenant_auth).json()
+    rent, fee = _penalised_bill(db, tenant, shop)
+    home = {b["id"]: b for b in client.get("/api/tenant/home", headers=tenant_auth).json()["bills"]}
 
-    entry = next(b for b in home["bills"] if b["id"] == bill.id)
-    assert entry["penalty"]["has_penalty"] is True
-    assert entry["penalty"]["penalty_amount"] == 500.0
-    assert entry["penalty"]["total_payable"] == 10500.0
+    assert home[rent.id]["late_fee"]["bill_id"] == fee.id
+    assert home[fee.id]["parent_bill"]["bill_id"] == rent.id
 
 
-def test_paying_the_full_pending_amount_settles_a_penalised_bill(
+def test_paying_the_rent_settles_the_rent_and_leaves_only_the_fee(
     client, admin_auth, db, tenant, shop,
 ):
-    """pending_amount includes the fee, so paying it must close the bill -
-    not leave a stubborn remainder the size of the penalty."""
-    bill = _penalised_bill(db, tenant, shop)
+    """
+    The complaint that started this. Paying the rent used to leave the bill
+    'partial' with a fee that grew every day. Now the rent closes and what is
+    left is a fixed, clearable fee.
+    """
+    rent, fee = _penalised_bill(db, tenant, shop)
 
     res = client.post("/api/payment", headers=admin_auth, json={
-        "bill_id": bill.id, "amount": 10500.0, "payment_method": "Cash",
+        "bill_id": rent.id, "amount": 10000.0, "payment_method": "Cash",
     })
     assert res.status_code in (200, 201), res.text
 
-    db.refresh(bill)
-    assert bill.status == "paid"
-    assert float(bill.pending_amount) == 0.0
-    # The original bill figure is still answerable after payment.
-    assert float(bill.amount) == 10000.0
-    assert float(bill.penalty_amount) == 500.0
+    db.refresh(rent)
+    db.refresh(fee)
+    assert rent.status == "paid"
+    assert float(rent.pending_amount) == 0.0
+    assert fee.status == "pending"
+    assert float(fee.pending_amount) == 500.0
+
+
+def test_a_payment_can_be_attributed_to_rent_or_to_the_fee(
+    client, admin_auth, db, tenant, shop,
+):
+    """Impossible before the split: one bill, one payment, no way to say which
+    part of it was rent and which was the late fee."""
+    rent, fee = _penalised_bill(db, tenant, shop)
+
+    client.post("/api/payment", headers=admin_auth, json={
+        "bill_id": rent.id, "amount": 10000.0, "payment_method": "Cash"})
+    client.post("/api/payment", headers=admin_auth, json={
+        "bill_id": fee.id, "amount": 500.0, "payment_method": "UPI"})
+
+    payments = client.get("/api/tenant/payments", headers=admin_auth).json() \
+        if False else None      # tenant endpoint needs tenant auth; use the bills instead
+    db.refresh(rent); db.refresh(fee)
+
+    assert [p.amount for p in rent.payments] == [10000]
+    assert [p.amount for p in fee.payments] == [500]
+    assert rent.status == "paid" and fee.status == "paid"
+
+
+def test_deleting_a_bill_takes_its_late_fee_with_it(
+    client, admin_auth, db, tenant, shop,
+):
+    """A late fee for a bill that no longer exists is not collectable, and
+    would sit on the tenant's screen with nothing to explain it."""
+    rent, fee = _penalised_bill(db, tenant, shop)
+    fee_id = fee.id
+
+    res = client.delete(f"/api/bill/{rent.id}", headers=admin_auth)
+    assert res.status_code in (200, 204), res.text
+
+    assert db.query(Bill).filter(Bill.id == fee_id).first() is None
+
+
+def test_charging_a_fee_on_a_fee_is_off_by_default():
+    """
+    Compounding a late fee into a late fee grows a debt faster than a tenant
+    can clear it - the behaviour a penalty is meant to discourage, not cause.
+    It is available for the landlords who want it, but it has to be switched
+    on deliberately, and an upgrade must never switch it on for anyone.
+    """
+    assert settings_service.DEFAULTS["scheduler.penalty_on_penalty_enabled"]["value"] is False
+
+
+def test_the_penalty_on_penalty_switch_is_editable_from_the_scheduler_screen(
+    client, admin_auth,
+):
+    keys = {item["key"] for item in settings_service.describe_for("scheduler")}
+    assert "scheduler.penalty_on_penalty_enabled" in keys
+
+    res = client.put("/api/scheduler/settings", headers=admin_auth,
+                     json={"values": {"scheduler.penalty_on_penalty_enabled": True}})
+    assert res.status_code == 200, res.text
+
+    settings_service.invalidate_cache()
+    values = client.get("/api/scheduler/settings", headers=admin_auth).json()["values"]
+    assert values["scheduler.penalty_on_penalty_enabled"] is True

@@ -190,15 +190,17 @@ class BillResponse(BaseModel):
     status:         str
     created_at:     datetime
 
-    # ── Late-payment penalty ──────────────────────────────────────────────
-    # `amount` above is and stays the ORIGINAL bill; the penalty accrues
-    # separately so "what was this bill for" is always answerable. Without
-    # these fields an admin sees pending_amount silently larger than amount
-    # with nothing explaining the difference, which is how a correct charge
-    # ends up looking like a bug.
-    #
-    # Defaulted rather than required: a bill created before these columns
-    # existed, or one deserialised from an older payload, still validates.
+    # ── Late fee ──────────────────────────────────────────────────────────
+    # Set on a Penalty bill, naming the bill the fee was raised for. NULL on
+    # every ordinary bill. A late fee is its own bill now, so `amount` here is
+    # always just this bill's own charge - a rent bill for 10,000 reads 10,000
+    # however long it has been overdue.
+    parent_bill_id:          Optional[int] = None
+
+    # Retained so an older client keeps working, and because a Penalty bill
+    # records the day count it was charged for. penalty_amount is no longer
+    # written by anything and is 0 on every bill; the fee lives in its own
+    # bill's `amount`.
     penalty_amount:          float = 0.0
     penalty_days:            int = 0
     penalty_charged_through: Optional[date] = None

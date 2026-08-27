@@ -283,6 +283,16 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
                 "from the first day overdue; 5 means a bill due on the 10th "
                 "starts accruing on the 16th.",
     },
+    "scheduler.penalty_on_penalty_enabled": {
+        "value": False, "type": "bool", "category": "Scheduler",
+        "label": "Charge a late fee on unpaid late fees",
+        "help": "Off (recommended): a late-fee bill never accrues a late fee of "
+                "its own, so the amount a tenant owes stops growing once the "
+                "original bill is settled. On: an overdue late-fee bill is "
+                "charged like any other, which compounds a fee into a debt that "
+                "can grow faster than a tenant can clear it. Off by default, and "
+                "turning it on is a deliberate decision.",
+    },
     "scheduler.penalty_max_amount": {
         "value": 0, "type": "float", "category": "Scheduler",
         "label": "Maximum penalty per bill",

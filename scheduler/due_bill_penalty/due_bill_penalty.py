@@ -104,17 +104,25 @@ DEFAULTS = {
     "percent_per_day": 1.0,
     "grace_days": 0,
     "max_amount": 0.0,         # 0 = no cap
+    "on_penalty": False,       # charge a late fee on an unpaid late fee?
+    "due_days": 30,            # how long a tenant gets to pay a late-fee bill
 }
 SETTING_KEYS = {
-    "scheduler.penalty_enabled":         "enabled",
-    "scheduler.penalty_percent_per_day": "percent_per_day",
-    "scheduler.penalty_grace_days":      "grace_days",
-    "scheduler.penalty_max_amount":      "max_amount",
+    "scheduler.penalty_enabled":            "enabled",
+    "scheduler.penalty_percent_per_day":    "percent_per_day",
+    "scheduler.penalty_grace_days":         "grace_days",
+    "scheduler.penalty_max_amount":         "max_amount",
+    "scheduler.penalty_on_penalty_enabled": "on_penalty",
+    # Owned by the application's Settings screen, read here so a late-fee bill
+    # gets the same payment window as every other bill.
+    "bill.due_days":                        "due_days",
 }
 
-# A penalty row is itself a bill; charging a penalty on a penalty would
-# compound a late fee into a debt spiral. Excluded by type, defensively.
-NON_PENALISABLE_TYPES = {"penalty", "late fee", "latefee"}
+# Bill types that ARE late-fee bills. Whether they can themselves accrue a
+# late fee is the "Charge a late fee on unpaid late fees" setting, off by
+# default: compounding a fee into a fee grows a debt faster than a tenant can
+# clear it, which is the behaviour a penalty is meant to discourage, not cause.
+PENALTY_BILL_TYPES = {"penalty", "late fee", "latefee"}
 
 EXIT_OK = 0
 EXIT_FAILED = 1
@@ -222,9 +230,9 @@ def read_settings(conn) -> dict:
                 field = SETTING_KEYS[row["key"]]
                 raw = row["value"]
                 try:
-                    if field == "enabled":
+                    if field in ("enabled", "on_penalty"):
                         settings[field] = str(raw).strip().lower() in ("1", "true", "yes", "on")
-                    elif field == "grace_days":
+                    elif field in ("grace_days", "due_days"):
                         settings[field] = int(float(raw))
                     else:
                         settings[field] = float(raw)
@@ -318,10 +326,67 @@ def close_run(conn, run_id: str, started: datetime, status: str, summary: dict,
 # BUSINESS LOGIC
 # ══════════════════════════════════════════════════════════════════════════════
 
-def overdue_bills(conn, as_of: date) -> list:
+def rent_covered_on(conn, bill_ids: list, as_of: date) -> dict:
+    """
+    For each bill, the date its OWN amount was fully covered by payments -
+    or None if it still is not, as of `as_of`.
+
+    This is the date the late fee stops. Without it a tenant who pays the rent
+    but not yet the fee keeps accruing at 1% of the rent per day, so the fee
+    grows faster than they can clear it and the debt outruns them. Paying the
+    bill made the amount go up, which is exactly the behaviour tenants have
+    been complaining about.
+
+    Computed from the payment DATES rather than from "is it paid now", for two
+    reasons that both matter:
+
+      * The frozen figure must not depend on which night the script happened
+        to run. Rent covered on the 15th freezes the fee at the 15th, whether
+        this runs on the 16th or six weeks later.
+      * Backfilling an earlier date must give the same answer it would have
+        given then, so payments after `as_of` are ignored here. That is what
+        keeps re-running and backfilling idempotent.
+    """
+    covered = {bill_id: None for bill_id in bill_ids}
+    if not bill_ids:
+        return covered
+
+    placeholders = ", ".join(["%s"] * len(bill_ids))
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT p.bill_id, p.payment_date, p.amount, b.amount AS bill_amount
+              FROM payments p
+              JOIN bills b ON b.id = p.bill_id
+             WHERE p.bill_id IN ({})
+               AND DATE(p.payment_date) <= %s
+             ORDER BY p.bill_id, p.payment_date, p.id
+            """.format(placeholders),
+            tuple(bill_ids) + (as_of,),
+        )
+        rows = cur.fetchall()
+
+    running = {}
+    for row in rows:
+        bill_id = row["bill_id"]
+        if covered[bill_id] is not None:
+            continue                      # already covered by an earlier payment
+        running[bill_id] = running.get(bill_id, Decimal("0")) + Decimal(str(row["amount"] or 0))
+        if running[bill_id] >= Decimal(str(row["bill_amount"] or 0)):
+            paid_on = row["payment_date"]
+            covered[bill_id] = paid_on.date() if isinstance(paid_on, datetime) else paid_on
+
+    return covered
+
+
+def overdue_bills(conn, as_of: date, include_penalty_bills: bool = False) -> list:
     """
     Every bill that could carry a penalty: not fully paid, has a due date,
     and is not itself a penalty.
+
+    Late-fee bills are excluded unless `include_penalty_bills` says otherwise -
+    see the setting above. Filtered here in Python rather than in SQL so the
+    rule reads as one list of type names in one place, whichever way it is set.
 
     Deliberately NOT filtered by "past its grace period" here. A bill inside
     its grace period is still visited and simply quotes to zero, which keeps
@@ -351,18 +416,27 @@ def overdue_bills(conn, as_of: date) -> list:
         )
         rows = list(cur.fetchall())
 
+    if include_penalty_bills:
+        return rows
     return [r for r in rows
-            if (r["bill_type"] or "").strip().lower() not in NON_PENALISABLE_TYPES]
+            if (r["bill_type"] or "").strip().lower() not in PENALTY_BILL_TYPES]
 
 
-def quote(bill: dict, settings: dict, as_of: date) -> dict:
+def quote(bill: dict, settings: dict, as_of: date, frozen_on: date = None) -> dict:
     """
     What the penalty on this bill is as of `as_of`, with every intermediate
     figure. Pure: reads the bill and the settings, changes nothing.
 
     Grace is measured from the due date, so a 5-day grace on a bill due on the
     10th starts charging on the 16th - the 15th is still free.
+
+    `frozen_on` is the date the tenant covered the rent (see rent_covered_on).
+    From that date the fee stops: it becomes a fixed amount they can actually
+    clear, rather than one that grows every day they have not yet paid it.
+    Charging a late fee on an unpaid late fee is a debt spiral, not a penalty.
     """
+    if frozen_on is not None and frozen_on < as_of:
+        as_of = frozen_on
     original = Decimal(str(bill["amount"] or 0))
     due = bill["due_date"]
     due_date = due.date() if isinstance(due, datetime) else due
@@ -370,6 +444,10 @@ def quote(bill: dict, settings: dict, as_of: date) -> dict:
     out = {
         "original": original,
         "due_date": due_date,
+        # Set when the rent was covered and the fee therefore stopped. Carried
+        # in the result so the caller records the date it was frozen at rather
+        # than the night the script happened to run.
+        "frozen_on": frozen_on,
         "days_overdue": 0,
         "grace_days": settings["grace_days"],
         "chargeable_days": 0,
@@ -421,51 +499,107 @@ def explain(bill: dict, calc: dict, old_penalty: Decimal) -> str:
                          calc["per_day"], calc["penalty"]))
     if calc["capped"]:
         parts.append("Capped at the {} maximum per bill.".format(calc["max_amount"]))
+    if calc.get("frozen_on"):
+        parts.append("The rent on this bill was paid in full on {}, so the late fee "
+                     "stopped there and will not grow further."
+                     .format(calc["frozen_on"]))
     if old_penalty > calc["penalty"]:
-        parts.append("Reduced from {} - the rules were relaxed or the bill was "
+        parts.append("Reduced from {} - the rules were relaxed or this was "
                      "recalculated for an earlier date.".format(old_penalty))
-    parts.append("Total payable {}.".format(calc["original"] + calc["penalty"]))
+    parts.append("Charged as a separate Late fee bill; the rent bill stays "
+                 "{}.".format(calc["original"]))
     return " ".join(parts)
 
 
-def apply_penalty(conn, bill: dict, calc: dict, as_of: date) -> Decimal:
-    """
-    Write the new penalty and bring the bill's balance in line with it.
+def existing_fee_bills(conn, bill_ids: list) -> dict:
+    """{parent_bill_id: fee bill row} for the bills being processed."""
+    if not bill_ids:
+        return {}
+    placeholders = ", ".join(["%s"] * len(bill_ids))
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, parent_bill_id, amount, paid_amount, pending_amount, status
+              FROM bills
+             WHERE parent_bill_id IN ({})
+            """.format(placeholders),
+            tuple(bill_ids),
+        )
+        return {row["parent_bill_id"]: row for row in cur.fetchall()}
 
-    pending_amount = (original + penalty) - what has been paid, floored at
-    zero, and the status follows from the same comparison. This is the only
-    place this script decides what a bill owes, which is why updating it here
-    is enough for every screen that later reads the bill.
-    """
-    payable = calc["original"] + calc["penalty"]
-    paid = Decimal(str(bill["total_paid"] or 0))
-    pending = payable - paid
-    if pending < 0:
-        pending = Decimal("0")
 
-    if paid <= 0:
-        status = "pending"
-    elif paid >= payable:
-        status = "paid"
-    else:
-        status = "partial"
+def upsert_fee_bill(conn, bill: dict, calc: dict, as_of: date, due_days: int,
+                    existing: dict) -> tuple:
+    """
+    Make the late fee on `bill` equal `calc["penalty"]`, as a bill of its own.
+
+    Returns (action, fee_bill_id, delta).
+
+    ONE fee bill per parent, its amount recomputed while unpaid - not one bill
+    per day, which for a bill 132 days overdue would mean 132 rows nobody could
+    read. The unique index on parent_bill_id is what guarantees the "one".
+
+    The fee is never reduced below what has already been PAID on it. Recompute
+    is what makes re-running safe, but a relaxed setting must not turn money a
+    tenant has handed over into a negative balance; the paid amount is the
+    floor.
+    """
+    fee = calc["penalty"]
+    row = existing.get(bill["id"])
+
+    # ── Nothing owed, nothing recorded: leave the ledger alone ──
+    if fee <= 0 and row is None:
+        return ("NONE", None, Decimal("0"))
+
+    # ── The fee has fallen to zero and nobody has paid any of it ──
+    if fee <= 0 and row is not None:
+        if Decimal(str(row["paid_amount"] or 0)) <= 0:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM bills WHERE id = %s", (row["id"],))
+            return ("PENALTY_BILL_CLEARED", row["id"], -Decimal(str(row["amount"] or 0)))
+        # Partly paid: keep it, floored at what was paid, so the tenant is not
+        # left with a bill for money they already handed over.
+        fee = Decimal(str(row["paid_amount"]))
+
+    paid = Decimal(str(row["paid_amount"] or 0)) if row else Decimal("0")
+    if fee < paid:
+        fee = paid
+
+    raised_on = datetime.combine(as_of, datetime.min.time())
+    status = "paid" if paid >= fee else ("partial" if paid > 0 else "pending")
+    pending = max(Decimal("0"), fee - paid)
+
+    if row is None:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO bills
+                    (user_id, shop_id, bill_type, description, amount, paid_amount,
+                     pending_amount, bill_date, due_date, status, penalty_amount,
+                     penalty_days, parent_bill_id, created_at)
+                VALUES (%s, %s, 'Penalty', %s, %s, 0, %s, %s, %s, 'pending', 0, %s, %s, %s)
+                """,
+                (bill["user_id"], bill["shop_id"],
+                 "Late fee on bill #{}".format(bill["id"]),
+                 fee, fee, raised_on, raised_on + timedelta(days=due_days),
+                 calc["chargeable_days"], bill["id"], datetime.now()),
+            )
+            return ("PENALTY_BILL_RAISED", cur.lastrowid, fee)
+
+    old = Decimal(str(row["amount"] or 0))
+    if fee == old:
+        return ("PENALTY_BILL_UNCHANGED", row["id"], Decimal("0"))
 
     with conn.cursor() as cur:
         cur.execute(
             """
             UPDATE bills
-               SET penalty_amount = %s,
-                   penalty_days = %s,
-                   penalty_charged_through = %s,
-                   paid_amount = %s,
-                   pending_amount = %s,
-                   status = %s
+               SET amount = %s, pending_amount = %s, status = %s, penalty_days = %s
              WHERE id = %s
             """,
-            (calc["penalty"], calc["chargeable_days"], as_of, paid, pending,
-             status, bill["id"]),
+            (fee, pending, status, calc["chargeable_days"], row["id"]),
         )
-    return pending
+    return ("PENALTY_BILL_UPDATED", row["id"], fee - old)
 
 
 def mark_checked(conn, bill_id: int, as_of: date) -> None:
@@ -515,58 +649,77 @@ def run(as_of: date, trigger_source: str, dry_run: bool) -> int:
             return EXIT_BUSY
 
         try:
-            log.info("Run %s | %s%%/day, %s grace day(s), cap %s",
+            log.info("Run %s | %s%%/day, %s grace day(s), cap %s, late fee on late fees: %s",
                      run_id, settings["percent_per_day"], settings["grace_days"],
-                     settings["max_amount"] or "none")
+                     settings["max_amount"] or "none",
+                     "ON" if settings["on_penalty"] else "off")
 
             if not dry_run:
                 open_run(conn, run_id, as_of, started, trigger_source)
 
-            for bill in overdue_bills(conn, as_of):
+            candidates = overdue_bills(conn, as_of, settings["on_penalty"])
+            bill_ids = [b["id"] for b in candidates]
+            # Two queries for the whole run rather than two per bill: this runs
+            # over every overdue bill in the database, every night.
+            frozen = rent_covered_on(conn, bill_ids, as_of)
+            fee_bills = existing_fee_bills(conn, bill_ids)
+            due_days = settings["due_days"]
+
+            for bill in candidates:
                 summary["examined"] += 1
                 label = "bill #{} ({} / shop {})".format(
                     bill["id"], bill["user_name"], bill["shop_number"])
 
                 try:
-                    calc = quote(bill, settings, as_of)
-                    old_penalty = Decimal(str(bill["penalty_amount"] or 0))
+                    calc = quote(bill, settings, as_of, frozen.get(bill["id"]))
+                    existing = fee_bills.get(bill["id"])
+                    old_fee = Decimal(str(existing["amount"] or 0)) if existing else Decimal("0")
 
-                    # Recomputation, not increment: an unchanged figure means
-                    # this bill is already correct, whatever happened before.
-                    if calc["penalty"] == old_penalty:
-                        summary["unchanged"] += 1
-                        if not dry_run:
-                            mark_checked(conn, bill["id"], as_of)
-                            conn.commit()
+                    if dry_run:
+                        # Decide and report; touch nothing.
+                        if calc["penalty"] == old_fee:
+                            summary["unchanged"] += 1
+                        else:
+                            summary["changed"] += 1
+                            log.info("  WOULD %s | fee %s -> %s (%s days)",
+                                     label, old_fee, calc["penalty"], calc["chargeable_days"])
+                        conn.rollback()
                         continue
 
-                    delta = calc["penalty"] - old_penalty
-                    action = "PENALTY_APPLIED" if delta > 0 else "PENALTY_REDUCED"
+                    action, fee_bill_id, delta = upsert_fee_bill(
+                        conn, bill, calc, calc.get("frozen_on") or as_of,
+                        due_days, fee_bills,
+                    )
 
-                    if not dry_run:
-                        pending = apply_penalty(conn, bill, calc, as_of)
-                        record_item(
-                            conn, run_id, as_of, action=action, status="SUCCESS",
-                            user_id=bill["user_id"], user_name=bill["user_name"],
-                            shop_id=bill["shop_id"], shop_number=bill["shop_number"],
-                            bill_id=bill["id"], amount=delta,
-                            penalty_amount=calc["penalty"],
-                            penalty_days=calc["chargeable_days"],
-                            penalty_rate=calc["rate"],
-                            bill_due_date=bill["due_date"],
-                            reason=explain(bill, calc, old_penalty),
-                        )
+                    if action in ("NONE", "PENALTY_BILL_UNCHANGED"):
+                        summary["unchanged"] += 1
+                        mark_checked(conn, bill["id"], calc.get("frozen_on") or as_of)
                         conn.commit()
-                    else:
-                        conn.rollback()
-                        pending = calc["original"] + calc["penalty"]
+                        continue
+
+                    record_item(
+                        conn, run_id, as_of, action=action, status="SUCCESS",
+                        user_id=bill["user_id"], user_name=bill["user_name"],
+                        shop_id=bill["shop_id"], shop_number=bill["shop_number"],
+                        # The fee bill is what changed, so that is what the
+                        # tracking row points at; the parent is named in the
+                        # reason so both ends are findable.
+                        bill_id=fee_bill_id, amount=delta,
+                        penalty_amount=calc["penalty"],
+                        penalty_days=calc["chargeable_days"],
+                        penalty_rate=calc["rate"],
+                        bill_due_date=bill["due_date"],
+                        reason=explain(bill, calc, old_fee),
+                    )
+                    mark_checked(conn, bill["id"], calc.get("frozen_on") or as_of)
+                    conn.commit()
 
                     summary["changed"] += 1
                     if delta > 0:
                         summary["added"] += delta
-                    log.info("  %s  %s | penalty %s -> %s (%s days), payable %s",
-                             "PEN " if delta > 0 else "DROP", label, old_penalty,
-                             calc["penalty"], calc["chargeable_days"], pending)
+                    log.info("  %-22s %s | fee %s -> %s (%s days) as bill #%s",
+                             action, label, old_fee, calc["penalty"],
+                             calc["chargeable_days"], fee_bill_id)
 
                 except Exception as exc:
                     conn.rollback()

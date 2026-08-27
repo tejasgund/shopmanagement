@@ -87,32 +87,54 @@ def _reconcile_bill(bill: Bill):
         bill.status = "partial"
 
 
-def bill_penalty_dict(bill: Bill) -> dict:
+def bill_relations(bills: List[Bill]) -> dict:
     """
-    The penalty breakdown for one bill, in the shape both dashboards show.
+    Work out, for a list of bills, which of them are late fees and which bill
+    each one is for.
 
-    Every figure the tenant needs to understand why the amount went up, in one
-    place so the admin screen and the tenant portal can never explain the same
-    bill differently. `days_overdue` is the plain calendar count since the due
-    date; `penalty_days` is what was actually charged for, which is lower when
-    a grace period applies.
+    Returns {bill_id: {"late_fee": {...}|None, "parent": {...}|None}}.
+
+    Built from the list that was already fetched rather than by querying per
+    bill: a parent and its fee always belong to the same tenant, so every link
+    is already in hand. A screen showing forty bills would otherwise make forty
+    extra round trips.
+
+    A late fee is its OWN bill now (see models/schema.py on parent_bill_id).
+    These two keys are what let a screen say "this rent bill has a fee against
+    it" and "this fee is for that rent bill" without either side having to work
+    it out from amounts.
     """
-    original = _decimal_to_float(bill.amount)
-    penalty = _decimal_to_float(bill.penalty_amount)
-    days_overdue = 0
-    if bill.due_date and bill.status != "paid":
-        from datetime import datetime as _dt
-        days_overdue = max(0, (_dt.now().date() - bill.due_date.date()).days)
+    by_id = {b.id: b for b in bills}
+    children = {b.parent_bill_id: b for b in bills if b.parent_bill_id}
 
-    return {
-        "original_amount": round(original, 2),
-        "penalty_amount": round(penalty, 2),
-        "penalty_days": bill.penalty_days or 0,
-        "days_overdue": days_overdue,
-        "penalty_charged_through": bill.penalty_charged_through,
-        "total_payable": round(original + penalty, 2),
-        "has_penalty": penalty > 0,
-    }
+    out = {}
+    for bill in bills:
+        fee = children.get(bill.id)
+        parent = by_id.get(bill.parent_bill_id) if bill.parent_bill_id else None
+
+        out[bill.id] = {
+            "late_fee": {
+                "bill_id": fee.id,
+                "amount": _decimal_to_float(fee.amount),
+                "pending_amount": _decimal_to_float(fee.pending_amount),
+                "status": fee.status,
+                "days": fee.penalty_days or 0,
+                "is_settled": fee.status == "paid",
+            } if fee else None,
+            "parent": {
+                "bill_id": parent.id,
+                "bill_type": parent.bill_type,
+                "amount": _decimal_to_float(parent.amount),
+                "due_date": parent.due_date,
+                "status": parent.status,
+            } if parent else None,
+        }
+    return out
+
+
+def is_late_fee_bill(bill: Bill) -> bool:
+    """A bill raised as a late fee against another bill."""
+    return bill.parent_bill_id is not None
 
 
 def _tenant_payment_dict(p: Payment) -> dict:

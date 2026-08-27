@@ -34,7 +34,7 @@ Self-healing behaviour:
     to date without any manual migration.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from sqlalchemy import bindparam, or_
 
@@ -214,13 +214,42 @@ class Bill(Base):
     # bill can come into existence.
     rent_period = Column(String(20), nullable=True, index=True)
 
+    # ── Late fee as its own bill ──────────────────────────────────────────
+    # Set on a Penalty bill, pointing at the bill the fee is for. NULL on
+    # every ordinary bill.
+    #
+    # A late fee used to live in penalty_amount above, which meant one row
+    # carried two different kinds of money: a "Rent" bill for 10,000 would
+    # display 23,200 to pay. Nobody could tell which figure was rent and which
+    # was the fee, a payment could not be attributed to one or the other, and
+    # rent income could not be reported apart from penalty income. Splitting
+    # the fee into its own bill makes a rent bill mean rent again.
+    #
+    # ONE fee bill per parent, not one per day - a bill 132 days overdue would
+    # otherwise spawn 132 rows. The single fee bill's amount is recomputed
+    # while it is unpaid. The unique index below is what enforces that.
+    parent_bill_id = Column(Integer, ForeignKey("bills.id", ondelete="CASCADE"),
+                            nullable=True, index=True)
+
     # Relationships
     user     = relationship("User",    back_populates="bills")
     shop     = relationship("Shop",    back_populates="bills")
     payments = relationship("Payment", back_populates="bill", cascade="all, delete-orphan")
 
+    # The fee raised against this bill, if any. Deleting a bill takes its fee
+    # with it: a late fee for a bill that no longer exists is not collectable.
+    late_fee_bill = relationship(
+        "Bill", remote_side=[id], backref="fee_bills", uselist=False,
+        foreign_keys=[parent_bill_id],
+    )
+
     __table_args__ = (
         Index("uq_bill_rent_period", "user_id", "shop_id", "rent_period", unique=True),
+        # One fee bill per parent. Repeated NULLs are allowed, so ordinary
+        # bills are unconstrained; a second fee bill for the same parent is
+        # refused by the database rather than by whichever code path
+        # remembered to check.
+        Index("uq_bill_parent", "parent_bill_id", unique=True),
     )
 
 
@@ -916,6 +945,184 @@ def backfill_rent_periods() -> dict:
     return result
 
 
+def split_penalties_into_bills() -> dict:
+    """
+    Move every late fee that currently lives in bills.penalty_amount into its
+    own Penalty bill, linked to the bill it was charged for.
+
+    Why this exists: a "Rent" bill for 10,000 that displayed 23,200 to pay was
+    one row carrying two kinds of money. Tenants and admins could not tell
+    which figure was rent and which was the fee, a payment could not be
+    attributed to either, and rent income could not be reported apart from
+    penalty income.
+
+    HOW PAYMENTS ARE SPLIT - the part worth checking
+
+    Existing payments were recorded against the combined figure, so where a
+    tenant has paid more than the rent, some of that money belongs to the fee.
+    It is allocated RENT FIRST: payments fill the rent, and only the excess
+    moves to the fee bill. That is the conventional reading and the one that
+    favours the tenant, since the rent is the older debt.
+
+    A payment that straddles the boundary is SPLIT into two rows rather than
+    moved whole - paid_amount has to equal the sum of a bill's own payments or
+    the next reconciliation would silently undo this. Both halves keep the
+    original date and method, and the moved half says in its remarks where it
+    came from.
+
+    Deliberately does NOT charge anyone anything new. Bills that were paid
+    late but never had a fee applied are left alone: raising fees for settled
+    history would bill people months after the fact for something they were
+    never told about.
+
+    Idempotent: a bill that already has a fee bill is skipped, so running the
+    schema setup repeatedly is safe.
+    """
+    result = {"converted": 0, "payments_split": 0, "fees_total": 0.0, "warnings": []}
+    db = SessionLocal()
+    try:
+        try:
+            candidates = (
+                db.query(Bill)
+                .filter(Bill.penalty_amount > 0)
+                .order_by(Bill.id)
+                .all()
+            )
+        except Exception as exc:
+            logger.warning("Could not read bills for the penalty split: %s", exc)
+            return result
+
+        if not candidates:
+            return result
+
+        already_split = {
+            row.parent_bill_id
+            for row in db.query(Bill.parent_bill_id)
+            .filter(Bill.parent_bill_id.isnot(None)).all()
+        }
+
+        try:
+            due_days = int(_setting_value(db, "bill.due_days", 30))
+        except Exception:
+            due_days = 30
+
+        for parent in candidates:
+            if parent.id in already_split:
+                continue
+
+            fee = Decimal(str(parent.penalty_amount or 0))
+            rent = Decimal(str(parent.amount or 0))
+
+            payments = sorted(parent.payments, key=lambda p: (p.payment_date, p.id))
+            total_paid = sum(Decimal(str(p.amount or 0)) for p in payments)
+
+            # ── Rent first; only the excess belongs to the fee ──
+            fee_paid = max(Decimal("0"), total_paid - rent)
+            if fee_paid > fee:
+                result["warnings"].append(
+                    f"bill #{parent.id}: payments of {total_paid} exceed rent {rent} "
+                    f"plus fee {fee} by {fee_paid - fee} - the surplus was left on "
+                    f"the late-fee bill, which now shows as overpaid"
+                )
+
+            when = parent.penalty_charged_through or (
+                parent.bill_date.date() if parent.bill_date else now_utc().date()
+            )
+            fee_bill = Bill(
+                user_id=parent.user_id,
+                shop_id=parent.shop_id,
+                bill_type="Penalty",
+                description=f"Late fee on bill #{parent.id}",
+                amount=fee,
+                paid_amount=Decimal("0"),
+                pending_amount=fee,
+                bill_date=datetime.combine(when, datetime.min.time()),
+                due_date=datetime.combine(when, datetime.min.time()) + timedelta(days=due_days),
+                status="pending",
+                penalty_amount=Decimal("0"),
+                penalty_days=parent.penalty_days or 0,
+                parent_bill_id=parent.id,
+            )
+            db.add(fee_bill)
+            db.flush()
+
+            # ── Move the excess payments across ──
+            remaining_rent = rent
+            moved = Decimal("0")
+            for payment in payments:
+                amount = Decimal(str(payment.amount or 0))
+                if remaining_rent >= amount:
+                    remaining_rent -= amount
+                    continue
+
+                keep = remaining_rent          # the part that still fits the rent
+                move = amount - keep
+                remaining_rent = Decimal("0")
+
+                note = (f"Reallocated to late-fee bill #{fee_bill.id} when late fees "
+                        f"were split out of bill #{parent.id}.")
+
+                if keep > 0:
+                    # Straddles the boundary: shrink this row, add the remainder
+                    # to the fee bill as its own payment.
+                    payment.amount = keep
+                    db.add(Payment(
+                        bill_id=fee_bill.id, amount=move,
+                        payment_method=payment.payment_method,
+                        payment_date=payment.payment_date,
+                        remarks=(payment.remarks + " | " if payment.remarks else "") + note,
+                    ))
+                    result["payments_split"] += 1
+                else:
+                    # Entirely on the fee side - move the row itself.
+                    payment.bill_id = fee_bill.id
+                    payment.remarks = (payment.remarks + " | " if payment.remarks else "") + note
+                moved += move
+
+            # ── Restate both bills from their own payments ──
+            fee_bill.paid_amount = moved
+            fee_bill.pending_amount = max(Decimal("0"), fee - moved)
+            fee_bill.status = ("paid" if moved >= fee else
+                               "partial" if moved > 0 else "pending")
+
+            parent.penalty_amount = Decimal("0")
+            parent.penalty_days = 0
+            parent.penalty_charged_through = None
+            rent_paid = min(total_paid, rent)
+            parent.paid_amount = rent_paid
+            parent.pending_amount = max(Decimal("0"), rent - rent_paid)
+            parent.status = ("paid" if rent_paid >= rent else
+                             "partial" if rent_paid > 0 else "pending")
+
+            result["converted"] += 1
+            result["fees_total"] += float(fee)
+
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.error("Penalty split failed: %s", exc)
+        result["warnings"].append(f"failed: {exc}")
+    finally:
+        db.close()
+
+    if result["converted"]:
+        print(f"  \u2714  Split {result['converted']} late fee(s) into their own bills "
+              f"({result['fees_total']:.2f} total)")
+        if result["payments_split"]:
+            print(f"     {result['payments_split']} payment(s) split across rent and fee")
+    for line in result["warnings"]:
+        print(f"  \u26a0  {line}")
+    return result
+
+
+def _setting_value(db, key: str, fallback):
+    """One app_settings value, without importing services/ (which imports this)."""
+    row = db.query(AppSetting).filter(AppSetting.key == key).first()
+    if row is None or row.value is None:
+        return fallback
+    return row.value
+
+
 def main():
     print("\n" + "═" * 50)
     print("  Tenant Management System – Database Setup")
@@ -957,6 +1164,9 @@ def main():
 
     # 2b. Backfill bills.rent_period on existing Rent bills.
     backfill_rent_periods()
+
+    # 2c. Move late fees out of bills.penalty_amount and into their own bills.
+    split_penalties_into_bills()
 
     # 3. Seed default admin user
     db = SessionLocal()
