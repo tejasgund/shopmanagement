@@ -25,8 +25,6 @@ shopmanagement/
 │
 ├── services/           Business logic — no HTTP, no FastAPI imports
 │   ├── settings.py       runtime config in the DB (DEFAULTS = source of truth)
-│   ├── rent_billing.py   monthly rent bill generation
-│   ├── penalty_billing.py late-payment penalty engine
 │   ├── meter.py          submeter rules: upload window, photo policy, readings
 │   ├── photo_storage.py  meter-photo files on disk
 │   ├── razorpay.py       online payments (orders, verification, webhooks)
@@ -41,8 +39,10 @@ shopmanagement/
 │   meters, meter_tariffs, meter_readings, tenant_meters, tenant_portal,
 │   razorpay, reports, dashboard, ledger, search, audit_log, scheduler_admin
 │
-├── scheduler/          Standalone cron app — see scheduler/README.md
-├── tests/              pytest suite (247 tests)
+├── scheduler/          Two standalone cron scripts — see docs/SCHEDULER.md
+│   ├── auto_rent_generation/   auto_rent_generation.py · db_config.py · logs/
+│   └── due_bill_penalty/       due_bill_penalty.py · db_config.py · logs/
+├── tests/              pytest suite
 ├── docs/               longer-form notes
 ├── logs/               runtime logs (gitignored)
 └── uploads/            meter photos (gitignored)
@@ -53,12 +53,15 @@ shopmanagement/
 | I want to… | Edit |
 |---|---|
 | add or change an endpoint | `routers/<resource>.py` |
-| change a business rule (how a bill/penalty/reading is computed) | `services/<area>.py` |
+| change a business rule (how a reading or a payment is computed) | `services/<area>.py` |
+| change the rent or penalty rules | the relevant `scheduler/*/` script — self-contained, one file each |
 | add a column or table | `models/schema.py`, then `python -m models.schema` |
 | change a request/response shape | `schemas/api.py` |
 | add an admin-configurable setting | `DEFAULTS` in `services/settings.py` |
 | change auth or role rules | `core/security.py` |
-| change a scheduled job | `scheduler/` (runs from cron, never from the app) |
+| change a scheduled job | the relevant `scheduler/*/` script (cron runs it, the app never does) |
+| change a scheduler switch or its bounds | `DEFAULTS` in `services/settings.py`, and the matching fallback in the script |
+| see what a scheduler did, and why | Scheduler screen → `routers/scheduler_tracking.py` |
 
 ## Import rules
 
@@ -67,18 +70,26 @@ Dependencies point one way — nothing lower ever imports something higher:
 ```
 routers  →  services  →  models / core
      ↘  helpers  ↗           schemas
+
+scheduler/*/  →  the database        (imports nothing from this project)
 ```
 
 A router may import anything. A service may import `core`, `models`, `schemas`
 and other services. `core` and `models` import nothing from this project except
 each other.
 
+`scheduler/` holds two standalone cron scripts. They import nothing from this
+project and this project imports nothing from them — the database is the only
+thing the two sides share. The scripts write what they did to
+`scheduler_runs` / `scheduler_run_items`; the app reads that back through
+`routers/scheduler_tracking.py`. See `docs/SCHEDULER.md`.
+
 ## Running
 
 ```bash
 python -m models.schema                 # create tables + seed
 uvicorn app:app --reload                # dev
-pytest -q                               # tests (throwaway SQLite, touches no real data)
+pytest -q                               # tests (throwaway SQLite)
 ```
 
 Docker builds and runs the same two steps — see the `CMD` in `Dockerfile`.

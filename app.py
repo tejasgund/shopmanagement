@@ -13,7 +13,7 @@ lives in a package next to this file, one concern per package:
                photo storage, Razorpay, audit
     helpers/   small shared helpers used by routers
     routers/   HTTP endpoints, one module per resource
-    scheduler/ the cron-driven scheduler app (never started from here)
+    scheduler/ two standalone cron scripts - NOT imported from here
 
 To change one thing you edit one module: a route in routers/, a rule in
 services/, a column in models/schema.py. Nothing here needs touching except
@@ -28,21 +28,21 @@ Features:
     - Audit logging on every mutating operation
     - Swagger / ReDoc documentation at /docs and /redoc
 
-This file no longer runs any background work. Rent-bill generation lives in
-services/rent_billing.py, and it is driven by cron via scheduler/run_scheduler.py -
-NOT by an in-process timer. The app previously started an APScheduler inside
-every uvicorn worker, which meant `--workers 2` ran the same nightly job
-twice at the same second; moving it to cron makes "exactly one run" a
-property of the deployment rather than something the app has to defend
-against at runtime.
+This file runs no background work, and imports nothing from scheduler/.
 
-The only rent-billing thing left here is the admin's manual trigger endpoint,
-which delegates to the same rent_billing function the cron job calls.
+The two schedulers are standalone scripts run by cron
+(scheduler/auto_rent_generation/ and scheduler/due_bill_penalty/). They talk
+to the database and nothing else. This application reads back what they
+recorded, through routers/scheduler_tracking.py, and the two sides share
+nothing but the database.
+
+There is deliberately no "generate rent now" endpoint any more. Rent
+generation is cron's job and only cron's, so there is exactly one thing that
+decides when a bill is raised; an admin who needs a one-off bill creates it
+through the ordinary bill screen, which is unchanged.
 """
 
 from datetime import datetime
-from typing import Optional
-from zoneinfo import ZoneInfo
 
 # Load .env before anything below reads os.getenv() - only fills in variables
 # that aren't already set, so Docker/systemd env injection still wins in
@@ -53,20 +53,14 @@ from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
 
-from core.config import APP_TIMEZONE
-from core.database import get_db
 from core.logger import get_logger, log_request_middleware
 
 # Import ORM models from create_tables so we have a single schema source-of-truth
-from models.schema import User
 
-from core.security import require_admin
-from services import rent_billing
 from routers.audit_log import router as audit_log_router
 from routers.auth import router as auth_router
 from routers.bills import router as bills_router
@@ -80,7 +74,7 @@ from routers.meters import router as meters_router
 from routers.payments import router as payments_router
 from routers.razorpay import router as razorpay_router
 from routers.reports import router as reports_router
-from routers.scheduler_admin import router as scheduler_admin_router
+from routers.scheduler_tracking import router as scheduler_tracking_router
 from routers.search import router as search_router
 from routers.settings import router as settings_router
 from routers.shops import router as shops_router
@@ -141,7 +135,7 @@ app.include_router(meter_tariffs_router)
 app.include_router(tenant_meters_router)
 app.include_router(meter_readings_router)
 app.include_router(settings_router)
-app.include_router(scheduler_admin_router)
+app.include_router(scheduler_tracking_router)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -155,41 +149,6 @@ async def global_exception_handler(request: Request, exc: Exception):
         status_code=500,
         content={"success": False, "detail": "Internal server error"},
     )
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# ── Rent-bill generation: the admin's manual trigger only.
-#
-# The logic itself lives in services/rent_billing.py, and the automatic nightly run is
-# a cron job (see scheduler/) rather than an in-process timer. This endpoint
-# and that cron job call the same function, so pressing the button and waiting
-# for the nightly run can never produce different bills.
-# ══════════════════════════════════════════════════════════════════════════════
-
-@app.post("/api/bills/generate-rent", tags=["Bill"])
-def generate_rent_bills(
-    date: Optional[str] = Query(None, description="YYYY-MM-DD. Defaults to today (Asia/Kolkata)."),
-    db:   Session = Depends(get_db),
-    _:    User    = Depends(require_admin),
-):
-    """
-    Manually trigger Rent bill generation for a given day (defaults to
-    today). This is the same logic the automatic nightly scheduler runs —
-    useful for on-demand runs, testing, or backfilling a date the scheduler
-    missed. Safe to call repeatedly; already-generated bills are skipped.
-    Admin only.
-    """
-    if date:
-        try:
-            target_date = datetime.strptime(date, "%Y-%m-%d").date()
-        except ValueError:
-            raise HTTPException(400, detail="date must be in YYYY-MM-DD format")
-    else:
-        target_date = datetime.now(ZoneInfo(APP_TIMEZONE)).date()
-
-    # Locked, same as the scheduler: two admins pressing the button together,
-    # or a press landing while the nightly job runs, must not double-bill.
-    return rent_billing.generate_rent_bills_for_date_locked(db, target_date)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

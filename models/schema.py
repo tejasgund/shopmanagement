@@ -36,7 +36,7 @@ Self-healing behaviour:
 
 from datetime import datetime, timezone
 from decimal import Decimal
-from sqlalchemy import or_
+from sqlalchemy import bindparam, or_
 
 import bcrypt
 from sqlalchemy import (
@@ -198,10 +198,30 @@ class Bill(Base):
     # incremented, which is what makes running the task twice in a day a no-op.
     penalty_charged_through = Column(Date, nullable=True)
 
+    # ── Duplicate rent protection ─────────────────────────────────────────
+    # "RENT-2026-09" for a Rent bill; NULL for every other bill type. With the
+    # unique index below, a second Rent bill for the same tenant and shop in
+    # the same month is impossible AT THE DATABASE, not merely unlikely -
+    # which is what stops the 2026-08-13 double-billing from ever recurring,
+    # whichever process or future code path tries it.
+    #
+    # NULL for non-Rent bills is deliberate: MySQL and SQLite both allow
+    # repeated NULLs in a unique index, so utility bills, deposits and manual
+    # charges are unconstrained while Rent is not.
+    #
+    # Set by scheduler/auto_rent_generation/auto_rent_generation.py and by the
+    # admin's manual bill creation (routers/bills.py) - the two places a Rent
+    # bill can come into existence.
+    rent_period = Column(String(20), nullable=True, index=True)
+
     # Relationships
     user     = relationship("User",    back_populates="bills")
     shop     = relationship("Shop",    back_populates="bills")
     payments = relationship("Payment", back_populates="bill", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index("uq_bill_rent_period", "user_id", "shop_id", "rent_period", unique=True),
+    )
 
 
 # ──────────────────────────────────────────────
@@ -440,61 +460,137 @@ class MeterReading(Base):
 # ──────────────────────────────────────────────
 # app_settings  (runtime configuration, editable from the admin UI)
 # ──────────────────────────────────────────────
-class SchedulerTask(Base):
+class SchedulerRun(Base):
     """
-    One row per expected run of one scheduled task - the scheduler's ledger.
+    One row per execution of one scheduler script - the run log.
 
-    The database, not the crontab, is the source of truth for what was supposed
-    to happen. A task is written here as PENDING the moment it is known to be
-    due (including retrospectively, for a day the server was down), and every
-    attempt updates the same row. That is what makes "nothing is silently
-    missed" true: a run that never happened still exists as a PENDING row with
-    a scheduled_for in the past, so it shows up as missed on the dashboard and
-    gets picked up on the next sweep instead of vanishing.
+    Written by the standalone scripts under scheduler/, read by
+    routers/scheduler_tracking.py. The application never writes here: the
+    scripts talk to this database and nothing else, and the API only reads
+    back what they recorded.
 
-    The unique constraint on (task_name, scheduled_for) is the duplicate
-    protection. Registering the same occurrence twice - two cron ticks racing,
-    a retry, a backfill overlapping a live run - is a no-op at the database
-    level rather than something every caller has to remember to check.
+    `run_id` is the human-readable handle for one execution
+    (AUTO_RENT-20260827-020015-3f9a). It is what the dashboard shows, what the
+    per-item rows point at, and what someone quotes when asking why a bill
+    looks the way it does - which is why it is a readable string rather than a
+    bare UUID.
+
+    `status` distinguishes three outcomes that matter operationally:
+      SUCCESS  everything the run attempted worked
+      PARTIAL  some items failed, the rest were still processed - the run did
+               useful work and should NOT simply be re-run blindly
+      FAILED   the run itself could not proceed (no database, bad config)
     """
 
-    __tablename__ = "scheduler_tasks"
+    __tablename__ = "scheduler_runs"
 
-    id           = Column(Integer, primary_key=True, autoincrement=True)
-    task_name    = Column(String(80), nullable=False, index=True)
+    id        = Column(Integer, primary_key=True, autoincrement=True)
+    run_id    = Column(String(64), nullable=False, unique=True, index=True)
+    # "auto_rent_generation" or "due_bill_penalty".
+    scheduler = Column(String(40), nullable=False, index=True)
+    # The business date the run covers. Usually today, but a catch-up run for
+    # a tenant whose rent day was the 5th still carries the date it ran for.
+    run_date  = Column(Date, nullable=False, index=True)
 
-    # When this occurrence was due to run.
-    scheduled_for = Column(DateTime, nullable=False, index=True)
-    # The business date it covers. Usually scheduled_for's date, but kept
-    # separate because a backfilled run happening today is *for* an earlier day.
-    run_date      = Column(Date, nullable=False, index=True)
+    started_at  = Column(DateTime, nullable=False, default=now_utc)
+    finished_at = Column(DateTime, nullable=True)
+    duration_ms = Column(Integer, nullable=True)
 
     status = Column(
-        Enum("PENDING", "RUNNING", "COMPLETED", "FAILED", "SKIPPED",
-             name="scheduler_task_status"),
-        nullable=False, default="PENDING", index=True,
+        Enum("RUNNING", "SUCCESS", "PARTIAL", "FAILED", name="scheduler_run_status"),
+        nullable=False, default="RUNNING", index=True,
     )
+    # "cron" for a scheduled run, "manual" when someone ran the script by hand.
+    trigger_source = Column(String(20), nullable=False, default="cron")
 
-    attempts     = Column(Integer, nullable=False, default=0)
-    started_at   = Column(DateTime, nullable=True)
-    finished_at  = Column(DateTime, nullable=True)
-    duration_ms  = Column(Integer, nullable=True)
-
-    records_processed = Column(Integer, nullable=False, default=0)
-    records_failed    = Column(Integer, nullable=False, default=0)
+    items_total     = Column(Integer, nullable=False, default=0)
+    items_succeeded = Column(Integer, nullable=False, default=0)
+    items_failed    = Column(Integer, nullable=False, default=0)
+    items_skipped   = Column(Integer, nullable=False, default=0)
+    # Rent raised, or penalty added, depending on the scheduler.
+    amount_total    = Column(Numeric(14, 2), nullable=False, default=0)
 
     error_message = Column(Text, nullable=True)
-    # Whatever the task wants to show on the dashboard, as JSON.
-    result_json   = Column(Text, nullable=True)
-    # Why a run was skipped, so a SKIPPED row is never a mystery.
-    skip_reason   = Column(String(255), nullable=True)
+    hostname      = Column(String(120), nullable=True)
 
     created_at = Column(DateTime, nullable=False, default=now_utc)
-    updated_at = Column(DateTime, nullable=False, default=now_utc, onupdate=now_utc)
+
+    items = relationship("SchedulerRunItem", back_populates="run",
+                         cascade="all, delete-orphan")
 
     __table_args__ = (
-        UniqueConstraint("task_name", "scheduled_for", name="uq_scheduler_task_occurrence"),
-        Index("ix_scheduler_tasks_status_scheduled", "status", "scheduled_for"),
+        Index("ix_scheduler_runs_sched_date", "scheduler", "run_date"),
+        Index("ix_scheduler_runs_status_started", "status", "started_at"),
+    )
+
+
+class SchedulerRunItem(Base):
+    """
+    One row per customer/bill a scheduler run actually touched.
+
+    This is what makes the tracking answerable rather than merely present:
+    which tenant got rent on which day, which bill was skipped as a duplicate,
+    how much penalty a bill received and - in `reason` - the arithmetic behind
+    it as it stood that night.
+
+    `user_name` and `shop_number` are COPIED here, not joined at read time. A
+    tenant who moves out or a shop that is renumbered must not rewrite last
+    year's billing history; the record of what happened has to stay readable
+    after the rows it referred to have changed.
+
+    `reason` is written by the script at the moment it decided, in the settings
+    that applied then. Recomputing an explanation from today's settings would
+    quietly disagree with the charge actually made.
+    """
+
+    __tablename__ = "scheduler_run_items"
+
+    id        = Column(Integer, primary_key=True, autoincrement=True)
+    run_id    = Column(String(64), ForeignKey("scheduler_runs.run_id", ondelete="CASCADE"),
+                       nullable=False, index=True)
+    scheduler = Column(String(40), nullable=False, index=True)
+    run_date  = Column(Date, nullable=False, index=True)
+
+    # Who and where. IDs for filtering, names for reading back later.
+    user_id     = Column(Integer, nullable=True, index=True)
+    user_name   = Column(String(120), nullable=True)
+    shop_id     = Column(Integer, nullable=True, index=True)
+    shop_number = Column(String(50), nullable=True)
+    bill_id     = Column(Integer, nullable=True, index=True)
+
+    # RENT_CREATED / SKIPPED_DUPLICATE / SKIPPED_NO_SHOP / SKIPPED_ZERO_RENT /
+    # PENALTY_APPLIED / PENALTY_UNCHANGED / PENALTY_REDUCED / FAILED
+    action = Column(String(40), nullable=False, index=True)
+    status = Column(
+        Enum("SUCCESS", "SKIPPED", "FAILED", name="scheduler_item_status"),
+        nullable=False, default="SUCCESS", index=True,
+    )
+
+    # Rent raised, or the penalty delta applied.
+    amount = Column(Numeric(14, 2), nullable=True)
+
+    # Penalty detail, as it applied on the night. Null for rent items.
+    penalty_amount = Column(Numeric(14, 2), nullable=True)
+    penalty_days   = Column(Integer, nullable=True)
+    penalty_rate   = Column(Numeric(6, 3), nullable=True)
+    bill_due_date  = Column(DateTime, nullable=True)
+
+    # "RENT-2026-09" - the same value written to bills.rent_period, so a
+    # duplicate is visible here even when it was correctly prevented there.
+    period_key = Column(String(20), nullable=True, index=True)
+
+    # The sentence the dashboard shows: why this happened, in figures.
+    reason        = Column(Text, nullable=True)
+    error_message = Column(Text, nullable=True)
+
+    created_at = Column(DateTime, nullable=False, default=now_utc)
+
+    run = relationship("SchedulerRun", back_populates="items")
+
+    __table_args__ = (
+        Index("ix_scheduler_items_sched_date", "scheduler", "run_date"),
+        Index("ix_scheduler_items_user_date", "user_id", "run_date"),
+        Index("ix_scheduler_items_action", "action", "run_date"),
     )
 
 
@@ -739,6 +835,87 @@ def add_missing_columns(connection):
 # MAIN
 # ══════════════════════════════════════════════════════════════════════════════
 
+def backfill_rent_periods() -> dict:
+    """
+    Fill bills.rent_period for Rent bills raised before the column existed.
+
+    The value is derived, not invented: RENT-<year>-<month> of the bill date,
+    which is exactly what the scheduler writes for new bills.
+
+    Any tenant/shop that ALREADY has two Rent bills in the same month is left
+    with rent_period NULL on the duplicates and reported here. That is
+    deliberate. Filling them in would make the unique index impossible to
+    create, and silently deleting a bill someone may have taken payment
+    against is not this function's decision to make - so the duplicates are
+    named, and the operator decides.
+
+    Idempotent: rows that already have a value are not touched.
+    """
+    result = {"filled": 0, "duplicates": []}
+    with engine.connect() as conn:
+        try:
+            # Group Rent bills by tenant/shop/month and find the ones with
+            # more than one - those cannot all carry the same period key.
+            rows = conn.execute(text(
+                """
+                SELECT user_id, shop_id,
+                       YEAR(bill_date)  AS y,
+                       MONTH(bill_date) AS m,
+                       COUNT(*)         AS n,
+                       GROUP_CONCAT(id) AS ids
+                  FROM bills
+                 WHERE bill_type = 'Rent'
+                 GROUP BY user_id, shop_id, YEAR(bill_date), MONTH(bill_date)
+                HAVING COUNT(*) > 1
+                """
+            )).fetchall() if engine.dialect.name == "mysql" else []
+
+            for row in rows:
+                result["duplicates"].append(
+                    f"user {row.user_id} / shop {row.shop_id} has {row.n} Rent bills "
+                    f"for {row.y}-{row.m:02d} (bill ids {row.ids})"
+                )
+
+            duplicate_ids = set()
+            for row in rows:
+                duplicate_ids.update(int(i) for i in str(row.ids).split(","))
+
+            if engine.dialect.name == "mysql":
+                update = text(
+                    """
+                    UPDATE bills
+                       SET rent_period = CONCAT('RENT-', DATE_FORMAT(bill_date, '%Y-%m'))
+                     WHERE bill_type = 'Rent'
+                       AND rent_period IS NULL
+                    """
+                    + (" AND id NOT IN :skip" if duplicate_ids else "")
+                )
+                if duplicate_ids:
+                    update = update.bindparams(
+                        bindparam("skip", expanding=True)
+                    )
+                    outcome = conn.execute(update, {"skip": sorted(duplicate_ids)})
+                else:
+                    outcome = conn.execute(update)
+                conn.commit()
+                result["filled"] = outcome.rowcount or 0
+        except Exception as exc:
+            conn.rollback()
+            logger.warning("Could not backfill bills.rent_period: %s", exc)
+            result["error"] = str(exc)
+
+    if result["filled"]:
+        print(f"  ✔  Backfilled rent_period on {result['filled']} existing Rent bill(s)")
+    if result["duplicates"]:
+        print(f"\n  ⚠  {len(result['duplicates'])} tenant/shop/month(s) already hold more than "
+              f"one Rent bill. They are left unprotected by the new unique index\n"
+              f"     until you decide which to keep:")
+        for line in result["duplicates"]:
+            print(f"       - {line}")
+        print()
+    return result
+
+
 def main():
     print("\n" + "═" * 50)
     print("  Tenant Management System – Database Setup")
@@ -777,6 +954,9 @@ def main():
         for err in summary["errors"]:
             print(f"   - {err}")
         print()
+
+    # 2b. Backfill bills.rent_period on existing Rent bills.
+    backfill_rent_periods()
 
     # 3. Seed default admin user
     db = SessionLocal()

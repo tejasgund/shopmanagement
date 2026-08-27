@@ -47,7 +47,7 @@ RUN pip install --no-cache-dir --upgrade pip \
 #   core/     config, database, logging, security
 #   models/   SQLAlchemy models + schema creation
 #   schemas/  Pydantic request/response models
-#   services/ business logic (settings, billing, penalties, meters, payments)
+#   services/ business logic (settings, meters, photos, payments, audit)
 #   helpers/  small shared helpers used by routers
 #   routers/  HTTP endpoints, one module per resource
 # ──────────────────────────────────────────────
@@ -59,17 +59,22 @@ COPY services/ ./services/
 COPY helpers/  ./helpers/
 COPY routers/  ./routers/
 
-# Scheduled jobs. Nothing in the image runs these - the container has no cron
-# daemon on purpose. They are shipped so the HOST crontab can invoke them:
-#   0 2 * * * docker exec <container> python -m scheduler.run_rent_generation
-# See scheduler/README.md and scheduler/crontab.example.
+# The two scheduler scripts. Nothing in this image imports them and nothing
+# here runs them: the container has no cron daemon on purpose. They are
+# shipped so the HOST crontab can invoke them:
+#   0 2 * * * docker exec <container> sh -c "cd /app/scheduler/auto_rent_generation && python auto_rent_generation.py"
+# They need only pymysql (already installed above via requirements.txt), so
+# they can equally be copied to a box of their own. See docs/SCHEDULER.md.
 COPY scheduler/ ./scheduler/
 
 # ──────────────────────────────────────────────
-# Create logs directory (core/logger.py will also auto-create it,
-# but pre-creating ensures correct ownership)
+# Log directories. All are auto-created at runtime, but pre-creating ensures
+# correct ownership - the schedulers may be invoked as a different user via
+# docker exec, and each writes only into its own folder.
 # ──────────────────────────────────────────────
-RUN mkdir -p /app/logs
+RUN mkdir -p /app/logs \
+    /app/scheduler/auto_rent_generation/logs \
+    /app/scheduler/due_bill_penalty/logs
 
 # ──────────────────────────────────────────────
 # Environment variables – override at runtime via
