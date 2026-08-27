@@ -11,3 +11,7 @@ uploads/          # meter photos - evidence files, backed up separately, never i
 .env
 *.db
 
+
+# Scheduler runtime output (each script logs into its own folder)
+scheduler/*/logs/*.log
+scheduler/*/logs/*.gz

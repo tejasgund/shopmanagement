@@ -243,23 +243,24 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
     # ══════════════════════════════════════════════════════════════════════
     # Scheduler
     #
-    # The cron entry only decides how OFTEN the master scheduler wakes up.
-    # These decide whether it does anything when it does, and are read fresh on
-    # every run - so turning something off here takes effect on the next tick
-    # with nothing to restart and no crontab to edit.
+    # Read by the two standalone scripts under scheduler/ - they query this
+    # table directly. Declared here because this is the screen that edits
+    # them, and because a switch in a config file on the server AND a toggle
+    # in the UI would be two answers to the same question.
+    #
+    # The scripts hold the same defaults as a fallback for a database where a
+    # key has never been customised. Change a default here and change it
+    # there; the test in tests/test_scheduler_tracking.py checks they agree.
+    #
+    # A change takes effect on the scripts' NEXT run - they read these fresh
+    # every time, so there is nothing to restart and no crontab to edit.
     # ══════════════════════════════════════════════════════════════════════
-    "scheduler.enabled": {
-        "value": True, "type": "bool", "category": "Scheduler",
-        "label": "Master scheduler",
-        "help": "Off: cron still wakes the scheduler, but no task does any work - "
-                "every due task is recorded as SKIPPED rather than silently "
-                "ignored, so the dashboard shows exactly what did not run.",
-    },
     "scheduler.rent_generation_enabled": {
         "value": True, "type": "bool", "category": "Scheduler",
         "label": "Automatic rent generation",
         "help": "Generate each tenant's monthly Rent bill on their configured "
-                "bill day. Only runs when the master scheduler above is on.",
+                "bill day. Off means the cron job still runs but does nothing, "
+                "and records that it was switched off.",
     },
     "scheduler.penalty_enabled": {
         "value": False, "type": "bool", "category": "Scheduler",
@@ -287,22 +288,6 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
         "label": "Maximum penalty per bill",
         "help": "Upper limit on the accrued penalty for a single bill. 0 means "
                 "no cap, and the penalty keeps growing until the bill is paid.",
-    },
-    "scheduler.backfill_days": {
-        "value": 30, "type": "int", "category": "Scheduler",
-        "label": "Look back for missed runs (days)",
-        "help": "How far back the scheduler looks for runs that never happened - "
-                "a server outage, a stopped cron. Anything found is registered "
-                "and processed rather than lost. Keep it comfortably longer than "
-                "the longest outage you would want recovered automatically.",
-    },
-    "scheduler.lookahead_days": {
-        "value": 7, "type": "int", "category": "Scheduler",
-        "label": "Register future runs (days ahead)",
-        "help": "How far ahead the future-task checker writes expected runs, so "
-                "the dashboard can show what is coming. Registering them in "
-                "advance is also what makes a missed run detectable: the row "
-                "already exists and simply never completed.",
     },
 
     # ── Online payments (Razorpay) ────────────────────────────────────────
@@ -546,6 +531,9 @@ def _validate(values: Dict[str, Any], current: Optional[Dict[str, Any]] = None) 
     # Day-of-month window. Checked against the merged view of current + incoming
     # values, so saving just one of the two days is still validated against the
     # other's stored value rather than passing because it wasn't in this batch.
+    # Scheduler bounds. These exist to stop a value that would make a nightly
+    # run behave absurdly - a 500% daily penalty, a rate that turns a late fee
+    # into a debt spiral - rather than to protect the UI.
     if "scheduler.penalty_percent_per_day" in values and not (
         0 <= float(values["scheduler.penalty_percent_per_day"]) <= 100
     ):
@@ -556,10 +544,6 @@ def _validate(values: Dict[str, Any], current: Optional[Dict[str, Any]] = None) 
         raise ValueError("Grace period must be between 0 and 365 days")
     if "scheduler.penalty_max_amount" in values and float(values["scheduler.penalty_max_amount"]) < 0:
         raise ValueError("Maximum penalty cannot be negative")
-    if "scheduler.backfill_days" in values and not (0 <= int(values["scheduler.backfill_days"]) <= 400):
-        raise ValueError("Look-back for missed runs must be between 0 and 400 days")
-    if "scheduler.lookahead_days" in values and not (0 <= int(values["scheduler.lookahead_days"]) <= 90):
-        raise ValueError("Future run registration must be between 0 and 90 days")
 
     if "meter.tenant_upload_from_day" in values or "meter.tenant_upload_to_day" in values:
         for key in ("meter.tenant_upload_from_day", "meter.tenant_upload_to_day"):

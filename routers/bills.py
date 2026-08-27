@@ -15,6 +15,7 @@ from decimal import Decimal
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from core.database import get_db
@@ -90,6 +91,17 @@ def create_bill(
     else:
         due_date_value = body.due_date
 
+    # The month this rent belongs to, stamped so the UNIQUE index on
+    # (user_id, shop_id, rent_period) covers manually created rent bills too.
+    # Without it an admin could raise September's rent by hand and the
+    # scheduler would raise it again that night - the index only protects rows
+    # that carry the key. NULL for every other bill type, which is why utility
+    # and one-off charges stay unconstrained.
+    rent_period_value = (
+        "RENT-{:04d}-{:02d}".format(bill_date_value.year, bill_date_value.month)
+        if is_rent else None
+    )
+
     bill = Bill(
         user_id        = body.user_id,
         shop_id        = body.shop_id,
@@ -101,9 +113,23 @@ def create_bill(
         due_date       = due_date_value,
         bill_date      = bill_date_value,
         status         = "pending",
+        rent_period    = rent_period_value,
     )
     db.add(bill)
-    db.flush()
+
+    try:
+        db.flush()
+    except IntegrityError:
+        # The unique index refused it: a Rent bill for this tenant, shop and
+        # month already exists - raised by hand a moment ago, or by the
+        # scheduler overnight. Told plainly rather than surfaced as a 500.
+        db.rollback()
+        raise HTTPException(
+            400,
+            detail=f"A Rent bill for {bill_date_value.strftime('%B %Y')} already exists "
+                   f"for this tenant and shop. Edit that bill instead of creating "
+                   f"a second one.",
+        )
 
     write_audit(db, actor.id, "CREATE", "bills", bill.id, new_data={**body.model_dump(), "amount": float(amount)})
     db.commit()

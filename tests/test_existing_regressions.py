@@ -263,25 +263,83 @@ def test_tenant_only_sees_their_own_bills(client, admin_auth, tenant_auth,
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# RENT BILL GENERATION (the existing scheduler's logic)
+# DUPLICATE RENT PROTECTION
+#
+# Rent generation itself now lives in a standalone cron script
+# (scheduler/auto_rent_generation/) which is not importable from here by
+# design. What the APPLICATION still has to guarantee is that it cannot create
+# a second Rent bill for a tenant/shop/month either - because the admin's
+# manual bill screen is the other way one can come into existence.
+#
+# The guarantee is the UNIQUE index on (user_id, shop_id, rent_period), not a
+# check in a code path, so it holds however the second bill is attempted.
 # ══════════════════════════════════════════════════════════════════════════════
 
-def test_auto_rent_generation_is_idempotent(client, admin_auth, db, tenant, shop):
-    """Running generation twice for the same day must not double-bill."""
-    tenant.auto_rent_bill_enabled = True
-    tenant.rent_bill_date = 5
-    db.commit()
+def test_a_manually_created_rent_bill_is_stamped_with_its_month(
+    client, admin_auth, db, tenant, shop,
+):
+    """The stamp is what the unique index protects; an unstamped bill is
+    unprotected, so this is the precondition for everything below."""
+    res = client.post("/api/bill", headers=admin_auth, json={
+        "user_id": tenant.id, "shop_id": shop.id,
+        "bill_type": "Rent", "bill_date": "2026-06-05T00:00:00",
+    })
+    assert res.status_code == 201, res.text
 
-    target = "2026-06-05"
-    first = client.post(f"/api/bills/generate-rent?date={target}", headers=admin_auth)
-    assert first.status_code == 200
-    assert len(first.json()["created"]) == 1
+    bill = db.query(Bill).filter(Bill.id == res.json()["id"]).one()
+    assert bill.rent_period == "RENT-2026-06"
 
-    second = client.post(f"/api/bills/generate-rent?date={target}", headers=admin_auth)
-    assert second.json()["created"] == []
-    assert second.json()["skipped_existing"] == 1
 
+def test_a_second_rent_bill_for_the_same_month_is_refused(
+    client, admin_auth, db, tenant, shop,
+):
+    """The regression this exists for: shop 10 receiving two identical rent
+    bills on 2026-08-13. Now impossible at the database, not merely unlikely."""
+    payload = {
+        "user_id": tenant.id, "shop_id": shop.id,
+        "bill_type": "Rent", "bill_date": "2026-06-05T00:00:00",
+    }
+    first = client.post("/api/bill", headers=admin_auth, json=payload)
+    assert first.status_code == 201, first.text
+
+    # Same month, different day - still the same rent period.
+    payload["bill_date"] = "2026-06-20T00:00:00"
+    second = client.post("/api/bill", headers=admin_auth, json=payload)
+
+    assert second.status_code == 400
+    assert "already exists" in second.json()["detail"]
     assert db.query(Bill).filter(Bill.bill_type == "Rent").count() == 1
+
+
+def test_rent_bills_in_different_months_are_both_allowed(
+    client, admin_auth, db, tenant, shop,
+):
+    """The constraint must bite on duplicates only - a tenant is billed every
+    month, and June and July are not duplicates of each other."""
+    for bill_date in ("2026-06-05T00:00:00", "2026-07-05T00:00:00"):
+        res = client.post("/api/bill", headers=admin_auth, json={
+            "user_id": tenant.id, "shop_id": shop.id,
+            "bill_type": "Rent", "bill_date": bill_date,
+        })
+        assert res.status_code == 201, res.text
+
+    assert db.query(Bill).filter(Bill.bill_type == "Rent").count() == 2
+
+
+def test_non_rent_bills_are_not_constrained(client, admin_auth, db, tenant, shop):
+    """Several electricity or maintenance charges in one month are ordinary,
+    so they carry no rent period and the index leaves them alone."""
+    for _ in range(3):
+        res = client.post("/api/bill", headers=admin_auth, json={
+            "user_id": tenant.id, "shop_id": shop.id,
+            "bill_type": "Maintenance", "amount": 500,
+            "bill_date": "2026-06-05T00:00:00",
+        })
+        assert res.status_code == 201, res.text
+
+    bills = db.query(Bill).filter(Bill.bill_type == "Maintenance").all()
+    assert len(bills) == 3
+    assert all(b.rent_period is None for b in bills)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
