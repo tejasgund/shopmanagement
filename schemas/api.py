@@ -12,10 +12,10 @@ in app.py. Do not "clean up" field ordering, formatting, or validators here -
 any difference, however small, is a behavior change to a live API contract.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -189,6 +189,35 @@ class BillResponse(BaseModel):
     due_date:       Optional[datetime]
     status:         str
     created_at:     datetime
+
+    # ── Late-payment penalty ──────────────────────────────────────────────
+    # `amount` above is and stays the ORIGINAL bill; the penalty accrues
+    # separately so "what was this bill for" is always answerable. Without
+    # these fields an admin sees pending_amount silently larger than amount
+    # with nothing explaining the difference, which is how a correct charge
+    # ends up looking like a bug.
+    #
+    # Defaulted rather than required: a bill created before these columns
+    # existed, or one deserialised from an older payload, still validates.
+    penalty_amount:          float = 0.0
+    penalty_days:            int = 0
+    penalty_charged_through: Optional[date] = None
+
+    # "RENT-2026-09" on a Rent bill, NULL otherwise - the key the unique index
+    # uses to make a second rent bill for the same month impossible.
+    rent_period:             Optional[str] = None
+
+    @computed_field
+    @property
+    def total_payable(self) -> float:
+        """
+        What must actually be paid: the original bill plus any late fee.
+
+        Computed here rather than in each caller so the admin screen, the
+        tenant portal and any future consumer cannot disagree about it -
+        the same reason helpers/domain.bill_payable exists server-side.
+        """
+        return round(self.amount + self.penalty_amount, 2)
 
     class Config:
         from_attributes = True

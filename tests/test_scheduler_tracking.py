@@ -400,3 +400,115 @@ def test_the_scripts_and_the_app_agree_on_the_default_penalty_rules():
         and getattr(node.targets[0], "id", None) == "DEFAULT_BILL_DUE_DAYS"
     )
     assert rent_due_days == settings_service.DEFAULTS["bill.due_days"]["value"]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# THE PENALTY HAS TO BE VISIBLE WHERE THE MONEY IS
+#
+# The scheduler writing a correct penalty is only half the job. If the screens
+# that show a bill display pending_amount larger than amount with nothing
+# explaining the gap, a correct charge reads as a bug - to the admin, and worse,
+# to the tenant about to pay it. These lock down that the breakdown reaches
+# both.
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _penalised_bill(db, tenant, shop):
+    """A bill as the penalty scheduler leaves it: original untouched, fee
+    accrued separately, pending carrying the sum."""
+    bill = Bill(
+        user_id=tenant.id, shop_id=shop.id, bill_type="Rent",
+        amount=10000, paid_amount=0, pending_amount=10500,
+        penalty_amount=500, penalty_days=5,
+        penalty_charged_through=date(2026, 8, 15),
+        bill_date=datetime(2026, 8, 1), due_date=datetime(2026, 8, 10),
+        status="pending", rent_period="RENT-2026-08",
+    )
+    db.add(bill)
+    db.commit()
+    db.refresh(bill)
+    return bill
+
+
+def test_the_admin_bill_api_explains_the_gap_between_amount_and_pending(
+    client, admin_auth, db, tenant, shop,
+):
+    bill = _penalised_bill(db, tenant, shop)
+    body = client.get(f"/api/bill/{bill.id}", headers=admin_auth).json()
+
+    assert body["amount"] == 10000.0
+    assert body["penalty_amount"] == 500.0
+    assert body["penalty_days"] == 5
+    assert body["pending_amount"] == 10500.0
+    # The sum is computed server-side so the admin screen and the tenant portal
+    # cannot arrive at different totals.
+    assert body["total_payable"] == 10500.0
+    assert body["rent_period"] == "RENT-2026-08"
+
+
+def test_a_bill_with_no_penalty_reports_zero_rather_than_null(
+    client, admin_auth, db, tenant, shop,
+):
+    """The frontends read these unconditionally; null would make every card do
+    its own defaulting, and one of them would eventually forget."""
+    bill = Bill(user_id=tenant.id, shop_id=shop.id, bill_type="Maintenance",
+                amount=500, paid_amount=0, pending_amount=500,
+                bill_date=datetime(2026, 8, 1), status="pending")
+    db.add(bill)
+    db.commit()
+
+    body = client.get(f"/api/bill/{bill.id}", headers=admin_auth).json()
+    assert body["penalty_amount"] == 0.0
+    assert body["penalty_days"] == 0
+    assert body["penalty_charged_through"] is None
+    assert body["total_payable"] == 500.0
+
+
+def test_the_tenant_sees_the_same_breakdown_the_admin_does(
+    client, tenant_auth, admin_auth, db, tenant, shop,
+):
+    """Two screens, one set of figures. A tenant told a different number from
+    the one the office sees is the worst outcome here."""
+    bill = _penalised_bill(db, tenant, shop)
+
+    tenant_bill = next(b for b in client.get("/api/tenant/bills", headers=tenant_auth).json()
+                       if b["id"] == bill.id)
+    admin_bill = client.get(f"/api/bill/{bill.id}", headers=admin_auth).json()
+
+    assert tenant_bill["penalty"]["penalty_amount"] == admin_bill["penalty_amount"]
+    assert tenant_bill["penalty"]["penalty_days"] == admin_bill["penalty_days"]
+    assert tenant_bill["penalty"]["total_payable"] == admin_bill["total_payable"]
+    assert tenant_bill["pending_amount"] == admin_bill["pending_amount"]
+
+
+def test_the_tenant_home_bundle_carries_the_penalty_too(
+    client, tenant_auth, db, tenant, shop,
+):
+    """The portal loads everything from /api/tenant/home on open; a breakdown
+    present only on /api/tenant/bills would never be shown."""
+    bill = _penalised_bill(db, tenant, shop)
+    home = client.get("/api/tenant/home", headers=tenant_auth).json()
+
+    entry = next(b for b in home["bills"] if b["id"] == bill.id)
+    assert entry["penalty"]["has_penalty"] is True
+    assert entry["penalty"]["penalty_amount"] == 500.0
+    assert entry["penalty"]["total_payable"] == 10500.0
+
+
+def test_paying_the_full_pending_amount_settles_a_penalised_bill(
+    client, admin_auth, db, tenant, shop,
+):
+    """pending_amount includes the fee, so paying it must close the bill -
+    not leave a stubborn remainder the size of the penalty."""
+    bill = _penalised_bill(db, tenant, shop)
+
+    res = client.post("/api/payment", headers=admin_auth, json={
+        "bill_id": bill.id, "amount": 10500.0, "payment_method": "Cash",
+    })
+    assert res.status_code in (200, 201), res.text
+
+    db.refresh(bill)
+    assert bill.status == "paid"
+    assert float(bill.pending_amount) == 0.0
+    # The original bill figure is still answerable after payment.
+    assert float(bill.amount) == 10000.0
+    assert float(bill.penalty_amount) == 500.0
