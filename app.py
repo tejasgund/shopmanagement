@@ -112,6 +112,56 @@ app.add_middleware(
 # Register request-logging middleware
 app.middleware("http")(log_request_middleware)
 
+
+@app.on_event("startup")
+def warn_if_schema_is_behind():
+    """
+    Say plainly, once, if the database is missing columns this build needs.
+
+    Without this a pending migration shows up as a 500 on every bill screen and
+    an "Unknown column 'bills.parent_bill_id'" buried in the log - which reads
+    as "the finance section is broken", not as "one command has not been run".
+    The whole admin area can go dark over a column that takes a second to add.
+
+    Deliberately only WARNS. It does not alter the schema: the API runs under
+    several uvicorn workers, and having each of them race to run DDL on startup
+    is a worse problem than the one it would solve. Migrations stay an explicit
+    step:
+
+        python -m models.schema
+    """
+    try:
+        from sqlalchemy import inspect as _sa_inspect
+
+        from core.database import engine
+        from models.schema import Base
+
+        inspector = _sa_inspect(engine)
+        live_tables = set(inspector.get_table_names())
+        missing = []
+
+        for table in Base.metadata.sorted_tables:
+            if table.name not in live_tables:
+                missing.append(f"table {table.name} (absent)")
+                continue
+            live_cols = {c["name"] for c in inspector.get_columns(table.name)}
+            for column in table.columns:
+                if column.name not in live_cols:
+                    missing.append(f"{table.name}.{column.name}")
+
+        if missing:
+            logger.error(
+                "DATABASE SCHEMA IS BEHIND THIS BUILD - %s missing: %s. "
+                "Endpoints touching these tables will fail until you run: "
+                "python -m models.schema",
+                len(missing), ", ".join(missing[:12]) + (" ..." if len(missing) > 12 else ""),
+            )
+        else:
+            logger.info("Schema check: database matches this build.")
+    except Exception as exc:
+        # A check that cannot run must never stop the app from starting.
+        logger.warning("Could not check the database schema on startup: %s", exc)
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Routers - every route in the API except the manual rent-generation trigger
 # below, which stays in this file next to nothing else.

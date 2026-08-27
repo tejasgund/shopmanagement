@@ -7,13 +7,31 @@ submittable however the switches are set, and each switch touches only its own
 role. The acceptance criteria they came from are quoted at each section.
 """
 
-from datetime import date
+from datetime import date, datetime
 
 import pytest
 
 from conftest import make_jpeg
 from models.schema import Meter, MeterReading, UserShop
 from services import settings as settings_service
+
+
+def app_today():
+    """
+    Today, in the timezone the APPLICATION uses.
+
+    Not date.today(): that reads the machine clock, which on a UTC server
+    disagrees with Asia/Kolkata for the five and a half hours after 18:30 UTC.
+    These tests configure an upload window by day-of-month and then assert what
+    the API says about it, so a one-day disagreement made them fail every
+    evening for reasons that had nothing to do with the code under test.
+    """
+    from zoneinfo import ZoneInfo
+
+    from core.config import APP_TIMEZONE
+    return datetime.now(ZoneInfo(APP_TIMEZONE)).date()
+
+
 def _set(db, **values):
     settings_service.set_many(db, values)
     db.commit()
@@ -150,7 +168,7 @@ def test_tenant_is_blocked_outside_the_window(
     client, tenant_auth, meter, db, photo_dir
 ):
     # A window that deliberately excludes today.
-    today = date.today().day
+    today = app_today().day
     if today <= 27:
         start, end = today + 1, 28
     else:
@@ -182,7 +200,7 @@ def test_tenant_can_submit_inside_the_window(
 def test_allow_every_day_overrides_the_window(
     client, tenant_auth, meter, db, photo_dir
 ):
-    today = date.today().day
+    today = app_today().day
     start, end = (today + 1, 28) if today <= 27 else (1, today - 1)
     _set(db, **{
         "meter.tenant_upload_any_day": True,   # the override
@@ -198,7 +216,7 @@ def test_admin_is_never_restricted_by_the_tenant_window(
     client, admin_auth, meter, db, photo_dir
 ):
     """"Admin should always be able to submit regardless of the tenant window."""
-    today = date.today().day
+    today = app_today().day
     start, end = (today + 1, 28) if today <= 27 else (1, today - 1)
     _set(db, **{
         "meter.tenant_upload_any_day": False,
@@ -222,7 +240,7 @@ def test_the_portal_is_told_the_window_state(client, tenant_auth, meter, db):
     assert cfg["meter_photo_upload_enabled"] is False
     assert cfg["meter_photo_required"] is False        # yields to the switch
     assert cfg["meter_upload_window"] == {"any_day": False, "from_day": 3, "to_day": 9}
-    assert cfg["meter_upload_open_today"] is (3 <= date.today().day <= 9)
+    assert cfg["meter_upload_open_today"] is (3 <= app_today().day <= 9)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -303,7 +321,7 @@ def test_report_day_scope_is_narrower_than_month_scope(
     _set(db, **{"meter.photo_required": False})
     assert _submit_tenant(client, tenant_auth, meter.id, 12732, photo=False).status_code == 201
 
-    today = date.today()
+    today = app_today()
     # Submitted today -> present under both scopes for today...
     assert _report(client, admin_auth, scope="day", date=today.isoformat())["summary"]["submitted"] == 1
     assert _report(client, admin_auth, scope="month", date=today.isoformat())["summary"]["submitted"] == 1
@@ -451,7 +469,7 @@ def test_configuring_a_window_restricts_tenants_without_any_other_step(
     The exact reported configuration. An admin sets From/To and nothing else -
     no second switch to find - and the window is live immediately.
     """
-    today = date.today().day
+    today = app_today().day
     start, end = (today + 1, 28) if today <= 27 else (1, today - 1)
     _set(db, **{
         "meter.tenant_upload_from_day": start,
@@ -483,7 +501,7 @@ def test_every_day_still_works_as_an_explicit_override(
     client, tenant_auth, meter, db, photo_dir
 ):
     """Turning it on deliberately must still suspend the window."""
-    today = date.today().day
+    today = app_today().day
     start, end = (today + 1, 28) if today <= 27 else (1, today - 1)
     _set(db, **{
         "meter.tenant_upload_any_day": True,
@@ -509,7 +527,7 @@ def test_the_window_never_blocks_an_admin(
     db.add(UserShop(user_id=admin.id, shop_id=shop.id))
     db.commit()
 
-    today = date.today().day
+    today = app_today().day
     start, end = (today + 1, 28) if today <= 27 else (1, today - 1)
     _set(db, **{
         "meter.tenant_upload_from_day": start,
@@ -525,7 +543,7 @@ def test_the_admin_collect_route_is_never_windowed(
     client, admin_auth, meter, db, photo_dir
 ):
     """The admin's own route has no window check at all - the normal path."""
-    today = date.today().day
+    today = app_today().day
     start, end = (today + 1, 28) if today <= 27 else (1, today - 1)
     _set(db, **{
         "meter.tenant_upload_from_day": start,
@@ -544,7 +562,7 @@ def test_a_tenant_outside_the_window_is_told_why_not_something_vague(
         "meter.tenant_upload_to_day": 10,
         "meter.photo_required": False,
     })
-    if 1 <= date.today().day <= 10:
+    if 1 <= app_today().day <= 10:
         pytest.skip("today is inside the 1-10 window")
     detail = _submit_tenant(client, tenant_auth, meter.id, 12732, photo=False).json()["detail"]
     assert "1" in detail and "10" in detail and "day" in detail.lower()
@@ -585,7 +603,7 @@ def test_admin_collect_is_unaffected_by_the_gallery_setting(
 
 def test_window_and_gallery_are_independent(client, tenant_auth, meter, db, photo_dir):
     """Gallery on must not open the window, and the window must not gate gallery."""
-    today = date.today().day
+    today = app_today().day
     start, end = (today + 1, 28) if today <= 27 else (1, today - 1)
     _set(db, **{
         "meter.allow_gallery_upload": True,     # HOW they may upload

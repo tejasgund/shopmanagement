@@ -228,8 +228,11 @@ class Bill(Base):
     # ONE fee bill per parent, not one per day - a bill 132 days overdue would
     # otherwise spawn 132 rows. The single fee bill's amount is recomputed
     # while it is unpaid. The unique index below is what enforces that.
+    # No index=True: the UNIQUE index below already covers lookups on this
+    # column, and a second index on the same column is dead weight on every
+    # write.
     parent_bill_id = Column(Integer, ForeignKey("bills.id", ondelete="CASCADE"),
-                            nullable=True, index=True)
+                            nullable=True)
 
     # Relationships
     user     = relationship("User",    back_populates="bills")
@@ -821,17 +824,29 @@ def sync_schema(connection) -> dict:
 
         # ── Step 3: best-effort check for missing simple/unique indexes ──
         try:
+            # Keyed on (columns, is_unique), NOT columns alone. Matching on
+            # columns only meant a UNIQUE index was silently skipped whenever a
+            # plain index already existed on the same column - so a constraint
+            # added later was never actually created, and the guarantee it was
+            # there to provide quietly did not exist. A non-unique index does
+            # not cover a unique one; a unique index does cover a plain one.
             existing_index_cols = set()
             for idx in inspector.get_indexes(table.name):
-                existing_index_cols.add(tuple(idx["column_names"]))
-            # Also treat existing unique constraints / PKs as covering
+                cols = tuple(idx["column_names"])
+                is_unique = bool(idx.get("unique"))
+                existing_index_cols.add((cols, is_unique))
+                if is_unique:
+                    existing_index_cols.add((cols, False))
+
+            # A primary key covers both.
             pk_cols = tuple(inspector.get_pk_constraint(table.name).get("constrained_columns") or [])
             if pk_cols:
-                existing_index_cols.add(pk_cols)
+                existing_index_cols.add((pk_cols, True))
+                existing_index_cols.add((pk_cols, False))
 
             for index in table.indexes:
                 idx_cols = tuple(col.name for col in index.columns)
-                if idx_cols in existing_index_cols:
+                if (idx_cols, bool(index.unique)) in existing_index_cols:
                     continue
                 # Skip if any column in the index didn't exist before this run
                 # and failed to be added above
@@ -848,6 +863,13 @@ def sync_schema(connection) -> dict:
                     logger.info("Added missing index: %s.%s", table.name, index.name)
                 except Exception as exc:
                     connection.rollback()
+                    summary["errors"].append(f"{table.name}:{index.name}: {exc}")
+                    print(f"  \u26a0  Could not add index {table.name}.{index.name}")
+                    if index.unique:
+                        print(f"     The data already breaks this constraint. Find the "
+                              f"duplicates with:\n"
+                              f"       SELECT {', '.join(idx_cols)}, COUNT(*) FROM {table.name} "
+                              f"GROUP BY {', '.join(idx_cols)} HAVING COUNT(*) > 1;")
                     logger.warning("Could not add index %s.%s: %s", table.name, index.name, exc)
         except Exception as exc:
             logger.warning("Index check skipped for %s: %s", table.name, exc)
