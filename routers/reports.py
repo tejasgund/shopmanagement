@@ -841,14 +841,25 @@ def finance_overview(
         pay_q = pay_q.filter(Payment.payment_date >= start_date)
     if end_date is not None:
         pay_q = pay_q.filter(Payment.payment_date <= end_date)
-    recent_payments_rows = pay_q.order_by(Payment.payment_date.desc()).limit(20).all()
+    # Select Payment+Bill together instead of accessing p.bill inside the
+    # loop below - that lazy-load used to issue one extra query per row
+    # (up to 20 here). users_by_id/shops_by_id are scoped to just the users
+    # and shops these 20 payments actually reference, not the whole table.
+    recent_payments_rows = pay_q.add_entity(Bill).order_by(Payment.payment_date.desc()).limit(20).all()
 
-    users_by_id = {u.id: u for u in db.query(User).all()}
-    shops_by_id = {s.id: s for s in db.query(Shop).all()}
+    recent_user_ids = {bill.user_id for _, bill in recent_payments_rows if bill}
+    recent_shop_ids = {bill.shop_id for _, bill in recent_payments_rows if bill}
+    users_by_id = (
+        {u.id: u for u in db.query(User).filter(User.id.in_(recent_user_ids)).all()}
+        if recent_user_ids else {}
+    )
+    shops_by_id = (
+        {s.id: s for s in db.query(Shop).filter(Shop.id.in_(recent_shop_ids)).all()}
+        if recent_shop_ids else {}
+    )
 
     recent_payments = []
-    for p in recent_payments_rows:
-        bill = p.bill
+    for p, bill in recent_payments_rows:
         u = users_by_id.get(bill.user_id) if bill else None
         s = shops_by_id.get(bill.shop_id) if bill else None
         recent_payments.append({

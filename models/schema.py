@@ -86,6 +86,13 @@ class User(Base):
     created_at    = Column(DateTime, nullable=False, default=now_utc)
     updated_at    = Column(DateTime, nullable=False, default=now_utc, onupdate=now_utc)
 
+    __table_args__ = (
+        # Performance: dashboard KPIs and several reports filter
+        # role="tenant" (+ is_active) together. Low cardinality on its own,
+        # but still avoids a full table scan as the tenant list grows.
+        Index("ix_users_role_active", "role", "is_active"),
+    )
+
     # Relationships
     user_shops       = relationship("UserShop",       back_populates="user", cascade="all, delete-orphan")
     bills            = relationship("Bill",           back_populates="user")
@@ -253,6 +260,15 @@ class Bill(Base):
         # refused by the database rather than by whichever code path
         # remembered to check.
         Index("uq_bill_parent", "parent_bill_id", unique=True),
+        # Performance: GET /api/bills, the dashboard KPIs and most report
+        # endpoints filter by status (often "pending"/"partial") combined
+        # with a bill_date range, or by bill_date alone. Composite index
+        # covers both (status-only queries use the leftmost prefix); the
+        # plain bill_date index covers date-range/order-by queries that
+        # don't also filter on status (e.g. ledger, some reports).
+        Index("ix_bills_status_date", "status", "bill_date"),
+        Index("ix_bills_bill_date", "bill_date"),
+        Index("ix_bills_bill_type", "bill_type"),
     )
 
 
@@ -278,6 +294,13 @@ class Payment(Base):
 
     # Relationships
     bill = relationship("Bill", back_populates="payments")
+
+    __table_args__ = (
+        # Performance: every payments list/report filters and/or sorts by
+        # payment_date (GET /api/payments, dashboard "collections this
+        # month", finance overview, ledger).
+        Index("ix_payments_payment_date", "payment_date"),
+    )
 
 
 # ──────────────────────────────────────────────
@@ -328,6 +351,12 @@ class DepositPayment(Base):
     # Relationships
     user = relationship("User", back_populates="deposit_payments")
     shop = relationship("Shop", back_populates="deposit_payments")
+
+    __table_args__ = (
+        # Performance: GET /api/deposit-payments sorts/filters by
+        # payment_date; finance/reports endpoints do too.
+        Index("ix_deposit_payments_payment_date", "payment_date"),
+    )
 
 
 # ──────────────────────────────────────────────
@@ -660,6 +689,19 @@ class AuditLog(Base):
 
     # Relationships
     user = relationship("User", back_populates="audit_logs")
+
+    __table_args__ = (
+        # Performance: GET /api/audit-logs always sorts by created_at desc,
+        # and is very often additionally filtered by action or table_name -
+        # composite indexes cover the filtered case (leftmost prefix also
+        # covers the filter alone), the plain created_at index covers the
+        # unfiltered "recent activity" case. This is the largest
+        # unbounded table in the schema (a row per mutation across the
+        # whole app), previously had no index beyond user_id.
+        Index("ix_audit_logs_created_at", "created_at"),
+        Index("ix_audit_logs_action_created", "action", "created_at"),
+        Index("ix_audit_logs_table_created", "table_name", "created_at"),
+    )
 
 
 # ══════════════════════════════════════════════════════════════════════════════

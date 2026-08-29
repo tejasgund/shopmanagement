@@ -39,6 +39,11 @@ def dashboard_kpis(
     now = datetime.now(timezone.utc)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
+    # Every number below is computed with SQL COUNT/SUM rather than pulling
+    # the matching rows into Python and reducing them here - these tables
+    # (bills, payments, deposit_payments) grow without bound, and the KPI
+    # numbers are the only thing this endpoint needs from them.
+
     # Tenants
     tenants_total  = db.query(User).filter(User.role == "tenant").count()
     tenants_active = db.query(User).filter(User.role == "tenant", User.is_active == True).count()
@@ -51,25 +56,30 @@ def dashboard_kpis(
     shops_maintenance = shop_counts.get("maintenance", 0)
 
     # Pending bills
-    pending_bills = db.query(Bill).filter(Bill.status.in_(["pending", "partial"])).all()
-    bills_pending_count  = len(pending_bills)
-    bills_pending_amount = round(sum(_decimal_to_float(b.pending_amount) for b in pending_bills), 2)
+    bills_pending_count, bills_pending_amount_raw = (
+        db.query(func.count(Bill.id), func.coalesce(func.sum(Bill.pending_amount), 0))
+        .filter(Bill.status.in_(["pending", "partial"]))
+        .one()
+    )
+    bills_pending_amount = round(_decimal_to_float(bills_pending_amount_raw), 2)
 
     # Collections this month
-    month_payments = (
-        db.query(Payment)
+    collections_this_month_raw = (
+        db.query(func.coalesce(func.sum(Payment.amount), 0))
         .filter(Payment.payment_date >= month_start)
-        .all()
+        .scalar()
     )
-    collections_this_month = round(sum(_decimal_to_float(p.amount) for p in month_payments), 2)
+    collections_this_month = round(_decimal_to_float(collections_this_month_raw), 2)
 
     # Deposits
-    deposit_required_total = round(
-        sum(_decimal_to_float(s.shop_deposit) for s in db.query(Shop).filter(Shop.status == "occupied").all()), 2
+    deposit_required_raw = (
+        db.query(func.coalesce(func.sum(Shop.shop_deposit), 0))
+        .filter(Shop.status == "occupied")
+        .scalar()
     )
-    deposit_collected_total = round(
-        sum(_decimal_to_float(r.amount) for r in db.query(DepositPayment).all()), 2
-    )
+    deposit_required_total = round(_decimal_to_float(deposit_required_raw), 2)
+    deposit_collected_raw = db.query(func.coalesce(func.sum(DepositPayment.amount), 0)).scalar()
+    deposit_collected_total = round(_decimal_to_float(deposit_collected_raw), 2)
 
     # Recent activity (last 5 audit log entries)
     recent_rows = (
