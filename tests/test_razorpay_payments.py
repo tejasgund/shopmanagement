@@ -397,12 +397,13 @@ def test_verify_total_balance_partial_fills_oldest_bill_first(client, tenant_aut
     assert by_bill[newer.id] == 200.0
 
 
-def test_verify_total_balance_race_overpays_last_bill_instead_of_losing_money(
+def test_verify_total_balance_race_keeps_extra_as_advance_instead_of_losing_money(
     client, tenant_auth, two_bills, db, mock_order_create, monkeypatch,
 ):
     """If pending bills get paid down by something else between create-order
-    and verify, the verified amount must still be recorded somewhere, not
-    dropped - even if that means briefly overpaying the last bill touched."""
+    and verify, the verified amount must still be recorded in full, never
+    dropped. Before receipts existed this overpaid the last bill; now the
+    receipt holds all 1600 and the 600 nobody owed is the tenant's advance."""
     _enable_razorpay(db)
     _mock_verify_ok(monkeypatch)
     older, newer = two_bills
@@ -423,17 +424,26 @@ def test_verify_total_balance_race_overpays_last_bill_instead_of_losing_money(
     }, headers=tenant_auth)
     assert res.status_code == 200, res.text
 
-    total_recorded = sum(
+    from models.schema import Receipt
+    from services import receipts as receipt_service
+    receipt = db.query(Receipt).filter(Receipt.razorpay_payment_id == "pay_RACE").one()
+    assert float(receipt.amount) == 1600.0          # the full verified amount is recorded
+    applied = sum(
         float(p.amount) for p in
         db.query(Payment).filter(Payment.razorpay_order_id == order["order_id"]).all()
     )
-    assert total_recorded == 1600.0   # the full verified amount is accounted for, nowhere lost
+    assert applied == 1000.0                        # only what was owed went to bills
+    assert float(receipt_service.advance_of(db, older.user_id)) == 600.0   # the rest is advance
+    db.refresh(older); db.refresh(newer)
+    assert float(older.paid_amount) == float(older.amount)   # no bill overpaid
+    assert float(newer.paid_amount) == float(newer.amount)
 
 
-def test_verify_total_balance_no_bills_at_all_is_a_500_not_silent_loss(client, tenant_auth, db, mock_order_create, monkeypatch):
+def test_verify_total_balance_no_bills_at_all_keeps_money_as_advance(client, tenant_auth, db, mock_order_create, monkeypatch):
     """Edge case: every bill vanishes between create-order and verify (should
-    be near-impossible in practice) - must fail loudly with the payment ID
-    for manual reconciliation, never silently succeed with nothing recorded."""
+    be near-impossible in practice). Before receipts this had to fail with a
+    500 for manual reconciliation; now the verified money is recorded as a
+    receipt and kept as the tenant's advance - never silently lost."""
     _enable_razorpay(db)
     from models.schema import User, Shop, UserShop
     # Build a fresh tenant+shop+bill dedicated to this test to avoid cross-test coupling.
@@ -462,9 +472,13 @@ def test_verify_total_balance_no_bills_at_all_is_a_500_not_silent_loss(client, t
         "razorpay_payment_id": "pay_ORPHAN",
         "razorpay_signature": "sig",
     }, headers=solo_auth)
-    assert res.status_code == 500
-    assert "pay_ORPHAN" in res.json()["detail"]
+    assert res.status_code == 200, res.text
     assert db.query(Payment).filter(Payment.razorpay_payment_id == "pay_ORPHAN").count() == 0
+    from models.schema import Receipt
+    from services import receipts as receipt_service
+    receipt = db.query(Receipt).filter(Receipt.razorpay_payment_id == "pay_ORPHAN").one()
+    assert float(receipt.amount) == 500.0
+    assert float(receipt_service.advance_of(db, t.id)) == 500.0
 
 
 # ══════════════════════════════════════════════════════════════════════════════

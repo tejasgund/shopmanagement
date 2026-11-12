@@ -36,6 +36,10 @@ def dashboard_kpis(
         deposit_collected_total, deposit_required_total
         recent_activity  – last 5 audit log entries
     """
+    # Apply any advance first so "pending" never counts a bill it already covers.
+    from services import receipts as receipt_service
+    if receipt_service.settle_all(db):
+        db.commit()
     now = datetime.now(timezone.utc)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 

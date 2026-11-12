@@ -72,6 +72,12 @@ def create_razorpay_order(
     if not cfg.get("payment.razorpay_enabled"):
         raise HTTPException(403, detail="Online payments are currently turned off.")
 
+    # Use any advance first, so the tenant is never charged online for a bill
+    # their advance already covers (e.g. a rent bill the cron raised overnight).
+    from services import receipts as receipt_service
+    if receipt_service.settle(db, current_user.id):
+        db.commit()
+
     bill = None
     if body.bill_id is not None:
         bill = db.query(Bill).filter(Bill.id == body.bill_id).first()

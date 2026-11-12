@@ -41,7 +41,8 @@ from core.config import APP_TIMEZONE
 from core.database import get_db
 from core.security import require_admin
 from helpers.domain import _decimal_to_float, bill_payable, is_late_fee_bill
-from models.schema import Bill, Complex, Payment, Shop, User, UserShop
+from models.schema import Bill, Complex, Payment, Receipt, Shop, User, UserShop
+from services import receipts as receipt_service
 from services import settings as settings_service
 
 router = APIRouter(tags=["Finance"])
@@ -117,6 +118,8 @@ def _payment_dict(p: Payment, bill: Optional[Bill]) -> dict:
         "payment_date": p.payment_date.isoformat() if p.payment_date else None,
         "remarks": p.remarks,
         "online": bool(p.razorpay_payment_id),
+        "receipt_id": p.receipt_id,
+        "receipt_no": receipt_service.receipt_no(p.receipt_id) if p.receipt_id else None,
     }
 
 
@@ -160,6 +163,11 @@ def finance_register(
     plus anyone (current or past tenant) who still owes on an older bill - so a
     tenant who left owing money never silently drops off the screen.
     """
+    # Advance first: bills the cron raised overnight are paid from it before
+    # anything is counted (see services/receipts.settle_all).
+    if receipt_service.settle_all(db):
+        db.commit()
+
     start, end = _month_range(year, month)
     today = _today()
     cfg = settings_service.get_all(db)
@@ -272,6 +280,26 @@ def finance_register(
     out.sort(key=lambda r: ((r["complex_name"] or "").lower(), (r["shop_number"] or "").lower(),
                             r["tenant_name"].lower()))
 
+    # Advance is the TENANT's (any of their shops), so it is shown on every
+    # row of that tenant but counted once in the summary.
+    tenant_ids = {r["user_id"] for r in out}
+    adv = receipt_service.advance_by_user(db, tenant_ids)
+    for r in out:
+        r["tenant_advance"] = _r(float(adv.get(r["user_id"], 0)))
+
+    # Cash in/out this month is counted from RECEIPTS - the money actually
+    # handed over, including any part of it kept as advance - plus any old
+    # payment rows not yet grouped into a receipt.
+    rq = db.query(Receipt).filter(Receipt.received_date >= start, Receipt.received_date < end)
+    if complex_id is not None:
+        rq = rq.filter(Receipt.user_id.in_(list(tenant_ids) or [-1]))
+    month_receipts = rq.all()
+    legacy_cash = sum(
+        _decimal_to_float(p.amount) for p, _b in month_payments if p.receipt_id is None
+    )
+    received_cash = sum(_decimal_to_float(x.amount) for x in month_receipts if x.kind == "receipt") + legacy_cash
+    refunded_cash = -sum(_decimal_to_float(x.amount) for x in month_receipts if x.kind == "refund")
+
     def total(k):
         return _r(sum(r[k] for r in out))
 
@@ -282,7 +310,10 @@ def finance_register(
         "billed": total("billed"),
         "paid": total("paid"),
         "due": total("due"),
-        "received_in_month": total("received_in_month"),
+        "received_in_month": _r(received_cash),
+        "refunded_in_month": _r(refunded_cash),
+        "receipts_in_month": sum(1 for x in month_receipts if x.kind == "receipt"),
+        "advance_held": _r(sum(float(v) for v in adv.values() if v > 0)),
         "older_due": total("older_due"),
         "total_owed": total("total_owed"),
         "rent": total("rent"), "electricity": total("electricity"),
@@ -324,6 +355,8 @@ def finance_tenant_ledger(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(404, detail="Tenant not found")
+    if receipt_service.settle(db, user_id):
+        db.commit()
 
     today = _today()
     cfg = settings_service.get_all(db)
@@ -339,10 +372,37 @@ def finance_tenant_ledger(
         if bill_by_id else []
     )
 
+    # Cash side. For the whole tenant it comes from RECEIPTS (money handed
+    # over, advance included; refunds negative) plus old payment rows not yet
+    # grouped into a receipt. Filtered to one shop, money is only known per
+    # bill, so it falls back to that shop's payments.
+    tenant_receipts = (
+        db.query(Receipt).filter(Receipt.user_id == user_id).all() if shop_id is None else []
+    )
+
+    def cash_before(when):
+        if shop_id is not None:
+            return sum(_decimal_to_float(p.amount) for p in all_payments if p.payment_date < when)
+        return (sum(_decimal_to_float(r.amount) for r in tenant_receipts if r.received_date < when)
+                + sum(_decimal_to_float(p.amount) for p in all_payments
+                      if p.receipt_id is None and p.payment_date < when))
+
+    def cash_in(start, end):
+        """(received, refunded) between start and end."""
+        if shop_id is not None:
+            return sum(_decimal_to_float(p.amount) for p in all_payments
+                       if start <= p.payment_date < end), 0.0
+        rec = sum(_decimal_to_float(r.amount) for r in tenant_receipts
+                  if r.kind == "receipt" and start <= r.received_date < end)
+        rec += sum(_decimal_to_float(p.amount) for p in all_payments
+                   if p.receipt_id is None and start <= p.payment_date < end)
+        ref = -sum(_decimal_to_float(r.amount) for r in tenant_receipts
+                   if r.kind == "refund" and start <= r.received_date < end)
+        return rec, ref
+
     year_start, _e = _month_range(year, 1)
     opening = _r(
-        sum(bill_payable(b) for b in all_bills if b.bill_date < year_start)
-        - sum(_decimal_to_float(p.amount) for p in all_payments if p.payment_date < year_start)
+        sum(bill_payable(b) for b in all_bills if b.bill_date < year_start) - cash_before(year_start)
     )
 
     months = []
@@ -353,21 +413,21 @@ def finance_tenant_ledger(
         billed = sum(bill_payable(b) for b in mb)
         paid = sum(_decimal_to_float(b.paid_amount) for b in mb)
         due = sum(_decimal_to_float(b.pending_amount) for b in mb)
-        received = sum(_decimal_to_float(p.amount) for p in mp)
-        balance_end = (
-            sum(bill_payable(b) for b in all_bills if b.bill_date < end)
-            - sum(_decimal_to_float(p.amount) for p in all_payments if p.payment_date < end)
-        )
+        received, refunded = cash_in(start, end)
+        # Negative = the tenant is in credit (advance) at month end.
+        balance_end = sum(bill_payable(b) for b in all_bills if b.bill_date < end) - cash_before(end)
         months.append({
             "month": m,
             "billed": _r(billed), "paid": _r(paid), "due": _r(due),
             "received": _r(received),
+            "refunded": _r(refunded),
             "balance_end": _r(balance_end),
             "status": _status(billed, paid, due),
             "bill_count": len(mb), "payment_count": len(mp),
             "is_future": start.date() > today,
         })
 
+    tenant_balances = receipt_service.balances(db, user_id) if shop_id is None else None
     year_bills = sorted(
         (b for b in all_bills if b.bill_date.year == year),
         key=lambda b: (b.bill_date, b.id),
@@ -385,6 +445,7 @@ def finance_tenant_ledger(
 
     years_with_data = sorted({b.bill_date.year for b in all_bills}
                              | {p.payment_date.year for p in all_payments}
+                             | {r.received_date.year for r in tenant_receipts}
                              | {today.year})
 
     return {
@@ -411,9 +472,16 @@ def finance_tenant_ledger(
             "received": _r(sum(x["received"] for x in months)),
         },
         "outstanding_now": _r(sum(_decimal_to_float(b.pending_amount) for b in all_bills)),
+        "advance_now": _r(float(receipt_service.advance_of(db, user_id))),
+        "refunded_in_year": _r(sum(x["refunded"] for x in months)),
         "months": months,
         "bills": [_bill_dict(b, elec_label, today) for b in year_bills],
         "payments": [_payment_dict(p, bill_by_id.get(p.bill_id)) for p in year_payments],
+        "receipts": [
+            receipt_service.receipt_dict(db, r, tenant_balances)
+            for r in sorted(tenant_receipts, key=lambda r: (r.received_date, r.id), reverse=True)
+            if r.received_date.year == year
+        ],
     }
 
 
@@ -430,6 +498,8 @@ def finance_defaulters(
     _: User = Depends(require_admin),
 ):
     """Every tenant who owes money, largest amount first."""
+    if receipt_service.settle_all(db):
+        db.commit()
     today = _today()
     q = db.query(Bill).filter(Bill.pending_amount > 0)
     if complex_id is not None:

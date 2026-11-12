@@ -161,7 +161,9 @@ def _tenant_payment_dict(p: Payment) -> dict:
         "payment_date":   p.payment_date,
         "remarks":        p.remarks,
         "created_at":     p.created_at,
-        "payment_group":  getattr(p, "payment_group", None),
+        # One receipt = one amount the tenant paid; the portal groups by it.
+        "payment_group":  getattr(p, "receipt_id", None) or getattr(p, "payment_group", None),
+        "receipt_id":     getattr(p, "receipt_id", None),
         "razorpay_payment_id": p.razorpay_payment_id,
     }
 

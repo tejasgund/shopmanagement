@@ -416,10 +416,45 @@ def overdue_bills(conn, as_of: date, include_penalty_bills: bool = False) -> lis
         )
         rows = list(cur.fetchall())
 
+    # Never charge a late fee to a tenant who has unused advance: the app
+    # applies advance to their bills on its next activity (or the nightly
+    # `python -m services.receipts settle`), so an "overdue" bill here is
+    # only overdue because that has not happened yet.
+    with_advance = tenants_with_advance(conn)
+    if with_advance:
+        rows = [r for r in rows if r["user_id"] not in with_advance]
+
     if include_penalty_bills:
         return rows
     return [r for r in rows
             if (r["bill_type"] or "").strip().lower() not in PENALTY_BILL_TYPES]
+
+
+def tenants_with_advance(conn) -> set:
+    """
+    Tenants whose receipts hold money not yet applied to bills (advance =
+    received - refunded - applied > 0). Read-only. Returns an empty set on a
+    database that predates the receipts table, so this scheduler keeps
+    working unchanged before the migration has been run.
+    """
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT r.user_id,
+                       SUM(r.amount) - COALESCE((
+                           SELECT SUM(p.amount) FROM payments p
+                             JOIN receipts r2 ON r2.id = p.receipt_id
+                            WHERE r2.user_id = r.user_id), 0) AS advance
+                  FROM receipts r
+              GROUP BY r.user_id
+                HAVING advance > 0.004
+                """
+            )
+            return {row["user_id"] for row in cur.fetchall()}
+    except Exception:
+        # A failed SELECT does not abort a MySQL transaction, so nothing to undo.
+        return set()
 
 
 def quote(bill: dict, settings: dict, as_of: date, frozen_on: date = None) -> dict:

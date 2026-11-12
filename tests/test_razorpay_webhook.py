@@ -191,14 +191,15 @@ def test_webhook_captured_unknown_order_returns_200_without_erroring(client, db,
     assert db.query(Payment).count() == 0
 
 
-def test_webhook_captured_no_pending_bills_leaves_order_created_for_manual_reconciliation(
+def test_webhook_captured_no_pending_bills_keeps_money_as_advance(
     client, tenant_auth, db, mock_order_create, monkeypatch,
 ):
-    """Mirrors test_verify_total_balance_no_bills_at_all_is_a_500_not_silent_loss,
+    """Mirrors test_verify_total_balance_no_bills_at_all_keeps_money_as_advance,
     but from the webhook side: money was captured with nowhere to apply it
     (e.g. the bill was deleted in between) - must not silently vanish, and
-    must not crash the webhook either. The order stays 'created' so an admin
-    can reconcile it manually with the payment ID from the logs."""
+    must not crash the webhook either. Before receipts the order was left
+    'created' for manual reconciliation; now the money is a receipt held as
+    the tenant's advance and the order is closed as paid."""
     _enable_razorpay_webhook(db)
     from models.schema import User, Shop, UserShop
     t = User(name="Webhook Solo Tenant", mobile="9000088888", email="wsolo@test.com",
@@ -224,8 +225,13 @@ def test_webhook_captured_no_pending_bills_leaves_order_created_for_manual_recon
     assert res.status_code == 200     # acknowledged, not a 500 - no user to show an error to
 
     order_row = db.query(RazorpayOrder).filter(RazorpayOrder.razorpay_order_id == order["order_id"]).first()
-    assert order_row.status == "created"      # left open for manual reconciliation
+    assert order_row.status == "paid"
     assert db.query(Payment).filter(Payment.razorpay_payment_id == "pay_ORPHAN_WH").count() == 0
+    from models.schema import Receipt
+    from services import receipts as receipt_service
+    receipt = db.query(Receipt).filter(Receipt.razorpay_payment_id == "pay_ORPHAN_WH").one()
+    assert float(receipt.amount) == 500.0
+    assert float(receipt_service.advance_of(db, t.id)) == 500.0
 
 
 # ══════════════════════════════════════════════════════════════════════════════

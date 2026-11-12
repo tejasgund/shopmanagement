@@ -63,6 +63,7 @@ from core.logger import get_logger, log_request_middleware
 
 from routers.agreements import router as agreements_router
 from routers.finance import router as finance_router
+from routers.receipts import router as receipts_router
 from routers.audit_log import router as audit_log_router
 from routers.auth import router as auth_router
 from routers.bills import router as bills_router
@@ -190,6 +191,7 @@ app.include_router(settings_router)
 app.include_router(scheduler_tracking_router)
 app.include_router(agreements_router)
 app.include_router(finance_router)
+app.include_router(receipts_router)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

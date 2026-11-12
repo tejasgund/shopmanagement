@@ -21,6 +21,8 @@ from schemas.api import (
     PaymentCreate, PaymentResponse, PaymentUpdate,
 )
 from services.audit import write_audit
+from services import receipts as receipt_service
+from services.receipts import ReceiptError
 from helpers.domain import _decimal_to_float, _reconcile_bill
 
 router = APIRouter(tags=["Payment"])
@@ -44,21 +46,23 @@ def record_payment(
     if bill.status == "paid":
         raise HTTPException(400, detail="Bill is already fully paid")
 
-    pay = Payment(
-        bill_id=body.bill_id,
-        amount=Decimal(str(body.amount)),
-        payment_method=body.payment_method,
-        remarks=body.remarks,
-        payment_date=body.payment_date or datetime.now(timezone.utc),
-    )
-    db.add(pay)
-    db.flush()
+    # One receipt for the money received; its slice goes to this bill (up to
+    # what the bill owes). Anything more is the tenant's advance - which
+    # settle() then applies to their other unpaid bills, oldest first.
+    try:
+        receipt, made = receipt_service.create_receipt(
+            db, user_id=bill.user_id, amount=body.amount, payment_method=body.payment_method,
+            received_date=body.payment_date, remarks=body.remarks, actor_id=actor.id,
+            source="manual", allocations=[(bill.id, body.amount)],
+        )
+    except ReceiptError as exc:
+        db.rollback()
+        raise HTTPException(exc.status_code, detail=str(exc))
 
-    # Reload payments to include the new record before reconciling
-    db.refresh(bill)
-    _reconcile_bill(bill)
-
-    write_audit(db, actor.id, "CREATE", "payments", pay.id, new_data=body.model_dump())
+    pay = next((p for p in made if p.bill_id == bill.id), None)
+    write_audit(db, actor.id, "CREATE", "payments", pay.id if pay else None, new_data={
+        **body.model_dump(mode="json"), "receipt_id": receipt.id,
+    })
     db.commit()
     db.refresh(pay)
     return pay
@@ -106,9 +110,11 @@ def auto_allocate_preview(
         remaining -= alloc
 
     total_allocated = float(Decimal(str(body.amount)) - remaining)
+    current_advance = float(receipt_service.advance_of(db, user.id))
     return AutoAllocatePreviewResponse(
         user_id=user.id, user_name=user.name, shop_id=body.shop_id, rows=rows,
         amount_received=body.amount, total_allocated=total_allocated, unallocated_amount=float(remaining),
+        current_advance=current_advance, advance_after=current_advance + float(remaining),
     )
 
 
@@ -135,56 +141,66 @@ def auto_allocate_confirm(
     if len(bill_ids) != len(set(bill_ids)):
         raise HTTPException(400, detail="Duplicate bill_id in allocations")
 
+    # Every bill must belong to this tenant (checked up front, as before).
+    owned = {b.id: b for b in db.query(Bill).filter(Bill.id.in_(bill_ids)).all()}
+    for bid in bill_ids:
+        if bid not in owned or owned[bid].user_id != body.user_id:
+            raise HTTPException(400, detail=f"Bill {bid} not found for this tenant")
+
+    # Pending balances BEFORE, to report any cap ("balance changed since preview").
+    before = {bid: Decimal(str(_decimal_to_float(owned[bid].pending_amount))).quantize(Decimal("0.01"))
+              for bid in bill_ids}
+    requested = {a.bill_id: Decimal(str(a.amount)).quantize(Decimal("0.01")) for a in body.allocations}
+    received = Decimal(str(body.amount_received)).quantize(Decimal("0.01"))
+    if sum(requested.values(), Decimal("0")) > received:
+        raise HTTPException(400, detail="The split adds up to more than the amount received.")
+
     try:
-        bills = db.query(Bill).filter(Bill.id.in_(bill_ids)).with_for_update().all()
-        bill_map = {b.id: b for b in bills}
-
-        payments, allocations = [], []
-        total_allocated = Decimal("0")
-
-        for item in body.allocations:
-            bill = bill_map.get(item.bill_id)
-            if not bill or bill.user_id != body.user_id:
-                raise HTTPException(400, detail=f"Bill {item.bill_id} not found for this tenant")
-
-            outstanding = Decimal(str(_decimal_to_float(bill.pending_amount))).quantize(Decimal("0.01"))
-            requested = Decimal(str(item.amount)).quantize(Decimal("0.01"))
-            note = None
-            if outstanding <= 0:
-                continue  # already paid since preview — skip silently, nothing to allocate
-            alloc = requested
-            if requested > outstanding:
-                alloc = outstanding
-                note = f"Capped to current outstanding balance of {float(outstanding)} (balance changed since preview)"
-
-            pay = Payment(bill_id=bill.id, amount=alloc, payment_method=body.payment_method, remarks=body.remarks,
-                          payment_date=body.payment_date or datetime.now(timezone.utc))
-            db.add(pay)
-            db.flush()
-            db.refresh(bill)
-            _reconcile_bill(bill)
-
-            write_audit(db, actor.id, "CREATE", "payments", pay.id, new_data={
-                "bill_id": bill.id, "amount": float(alloc),
-                "payment_method": body.payment_method, "auto_allocated": True, "admin_approved": True,
-            })
-            db.refresh(pay)
-            payments.append(pay)
-            allocations.append(AutoAllocateResult(bill_id=bill.id, allocated=float(alloc), bill_status=bill.status, note=note))
-            total_allocated += alloc
-
+        # ONE receipt for the whole amount received; each confirmed row is a
+        # slice of it. Whatever is not split to a bill stays as advance.
+        receipt, made = receipt_service.create_receipt(
+            db, user_id=body.user_id, amount=received, payment_method=body.payment_method,
+            received_date=body.payment_date, remarks=body.remarks, actor_id=actor.id,
+            source="auto", allocations=[(a.bill_id, a.amount) for a in body.allocations],
+        )
         db.commit()
-    except HTTPException:
+    except ReceiptError as exc:
         db.rollback()
-        raise
+        raise HTTPException(exc.status_code, detail=str(exc))
     except Exception:
         db.rollback()
         raise
 
-    unallocated = max(Decimal("0"), Decimal(str(body.amount_received)) - total_allocated)
+    for p in made:
+        db.refresh(p)
+    by_bill = {}
+    for p in made:
+        by_bill.setdefault(p.bill_id, []).append(p)
+
+    allocations = []
+    total_allocated = Decimal("0")
+    for item in body.allocations:
+        bill = db.query(Bill).filter(Bill.id == item.bill_id).first()
+        got = sum((Decimal(str(_decimal_to_float(p.amount))) for p in by_bill.get(item.bill_id, [])), Decimal("0"))
+        note = None
+        if got < requested[item.bill_id] and requested[item.bill_id] > before[item.bill_id]:
+            note = (f"Capped to current outstanding balance of {float(before[item.bill_id])} "
+                    f"(balance changed since preview)")
+        if got <= 0 and before[item.bill_id] <= 0:
+            continue
+        allocations.append(AutoAllocateResult(bill_id=item.bill_id, allocated=float(got),
+                                              bill_status=bill.status if bill else "deleted", note=note))
+        total_allocated += got
+
+    # Advance applied to OTHER bills (settle) is part of this receipt too.
+    applied_all = sum((Decimal(str(_decimal_to_float(p.amount))) for p in made), Decimal("0"))
+    kept = max(received - applied_all, Decimal("0"))
     return AutoAllocateResponse(
-        payments=payments, allocations=allocations,
-        total_allocated=float(total_allocated), unallocated_amount=float(unallocated),
+        payments=made, allocations=allocations,
+        total_allocated=float(total_allocated), unallocated_amount=float(received - total_allocated),
+        receipt_id=receipt.id, receipt_no=receipt_service.receipt_no(receipt.id),
+        kept_as_advance=float(kept),
+        advance_balance=float(receipt_service.advance_of(db, body.user_id)),
     )
 
 
@@ -261,23 +277,36 @@ def update_payment(
         "remarks":        pay.remarks,
     }
 
-    if "amount"         in changes: pay.amount         = Decimal(str(changes["amount"]))
-    if "payment_method" in changes: pay.payment_method = changes["payment_method"]
-    if "payment_date"   in changes: pay.payment_date   = changes["payment_date"]
-    if "remarks"        in changes: pay.remarks        = changes["remarks"]
-
-    db.flush()
-
-    # Re-reconcile the parent bill
     bill = pay.bill
+    try:
+        # A payment line is a slice of a receipt: an amount change means the
+        # money received changed; date/method/remarks belong to the whole
+        # receipt. All rules: services/receipts.update_payment_line().
+        receipt_service.update_payment_line(db, pay, changes, actor_id=actor.id)
+    except ReceiptError as exc:
+        db.rollback()
+        raise HTTPException(exc.status_code, detail=str(exc))
     if bill:
         db.refresh(bill)
-        _reconcile_bill(bill)
 
-    write_audit(db, actor.id, "UPDATE", "payments", pay.id,
+    write_audit(db, actor.id, "UPDATE", "payments", payment_id,
                 old_data=old_snapshot, new_data=changes)
     db.commit()
-    db.refresh(pay)
+    still_there = db.query(Payment).filter(Payment.id == payment_id).first()
+    if still_there is None:
+        # The whole amount went to advance (the bill was already covered).
+        return {
+            "success": True,
+            "message": "Payment moved to the tenant's advance (the bill was already paid)",
+            "data": None,
+            "bill_reconciled": {
+                "id": bill.id, "paid_amount": _decimal_to_float(bill.paid_amount),
+                "pending_amount": _decimal_to_float(bill.pending_amount), "status": bill.status,
+            } if bill else None,
+        }
+    pay = still_there
+    if bill:
+        db.refresh(bill)
 
     return {
         "success": True,
@@ -321,13 +350,16 @@ def delete_payment(
         "payment_method": pay.payment_method,
     }
 
-    db.delete(pay)
-    db.flush()
+    try:
+        # "This money was not received": the receipt shrinks by this amount.
+        receipt_service.delete_payment_line(db, pay, actor_id=actor.id)
+    except ReceiptError as exc:
+        db.rollback()
+        raise HTTPException(exc.status_code, detail=str(exc))
 
     bill_after = None
     if bill:
         db.refresh(bill)
-        _reconcile_bill(bill)
         bill_after = {
             "id":             bill.id,
             "paid_amount":    _decimal_to_float(bill.paid_amount),

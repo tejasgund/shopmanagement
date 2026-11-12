@@ -536,6 +536,12 @@ def approve_reading(db: Session, reading: MeterReading, meter: Meter,
         "bill_created": True,
         "unit_price": breakdown["unit_price"],
     })
+
+    # A tenant holding advance has the new bill paid from it straight away.
+    # Imported here: services.receipts imports helpers that import models,
+    # and this module is imported early by the schema check.
+    from services import receipts as receipt_service
+    receipt_service.settle(db, bill.user_id, admin_id)
     return result
 
 

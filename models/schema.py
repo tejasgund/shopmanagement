@@ -326,14 +326,59 @@ class Payment(Base):
     razorpay_order_id   = Column(String(64), nullable=True, index=True)
     razorpay_payment_id = Column(String(64), nullable=True, index=True)
 
+    # The receipt (money actually received) this payment is a slice of.
+    # A payment row is now "this much of receipt R went to bill B". NULL only
+    # on rows written before receipts existed and not yet grouped by
+    # `python -m services.receipts backfill`. See services/receipts.py.
+    receipt_id = Column(Integer, ForeignKey("receipts.id", ondelete="RESTRICT"), nullable=True, index=True)
+
     # Relationships
-    bill = relationship("Bill", back_populates="payments")
+    bill    = relationship("Bill", back_populates="payments")
+    receipt = relationship("Receipt", back_populates="payments")
 
     __table_args__ = (
         # Performance: every payments list/report filters and/or sorts by
         # payment_date (GET /api/payments, dashboard "collections this
         # month", finance overview, ledger).
         Index("ix_payments_payment_date", "payment_date"),
+    )
+
+
+# ──────────────────────────────────────────────
+# receipts
+# One row per amount of money a tenant actually handed over (or, with
+# kind="refund", per amount given back). Payments are the slices of a receipt
+# applied to bills; whatever is not applied is the tenant's ADVANCE.
+#
+#   advance(tenant) = SUM(receipts.amount)            -- refunds are negative
+#                   - SUM(payments.amount WHERE receipt_id IS NOT NULL)
+#
+# That number is never stored anywhere - it is always derived from these two
+# tables, so it cannot drift out of step after an edit or a delete.
+# All the rules live in services/receipts.py.
+# ──────────────────────────────────────────────
+class Receipt(Base):
+    __tablename__ = "receipts"
+
+    id             = Column(Integer, primary_key=True, autoincrement=True)
+    user_id        = Column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)
+    kind           = Column(String(20), nullable=False, default="receipt")   # "receipt" | "refund"
+    # Positive for a receipt; NEGATIVE for a refund (money given back).
+    amount         = Column(Numeric(12, 2), nullable=False)
+    received_date  = Column(DateTime, nullable=False, default=now_utc)
+    payment_method = Column(String(60), nullable=False)
+    remarks        = Column(Text, nullable=True)
+    # manual | auto (lump sum split) | online (Razorpay) | migrated | refund
+    source         = Column(String(20), nullable=False, default="manual")
+    razorpay_payment_id = Column(String(64), nullable=True, index=True)
+    created_by     = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at     = Column(DateTime, nullable=False, default=now_utc)
+    updated_at     = Column(DateTime, nullable=False, default=now_utc, onupdate=now_utc)
+
+    payments = relationship("Payment", back_populates="receipt")
+
+    __table_args__ = (
+        Index("ix_receipts_user_date", "user_id", "received_date"),
     )
 
 

@@ -24,6 +24,8 @@ from models.schema import Bill, Complex, Payment, Shop, User, UserShop
 from schemas.api import BillCreate, BillResponse, BillUpdate
 from services import settings as settings_service
 from services.audit import write_audit
+from services import receipts as receipt_service
+from services.receipts import ReceiptError
 from helpers.domain import _decimal_to_float, _reconcile_bill
 
 
@@ -132,6 +134,8 @@ def create_bill(
         )
 
     write_audit(db, actor.id, "CREATE", "bills", bill.id, new_data={**body.model_dump(), "amount": float(amount)})
+    # A tenant holding advance has this bill paid from it straight away.
+    receipt_service.settle(db, bill.user_id, actor.id)
     db.commit()
     db.refresh(bill)
     return bill
@@ -202,18 +206,20 @@ def update_bill(
     if "bill_date"   in changes: bill.bill_date   = changes["bill_date"]
     if "due_date"    in changes: bill.due_date    = changes["due_date"]
 
-    # Amount change requires reconciliation
+    # Amount change requires reconciliation. Lowering it below what has been
+    # paid no longer needs payments deleted by hand: the excess goes back to
+    # its receipt as the tenant's advance (newest payment first), and that
+    # advance is then used on their other unpaid bills.
     if "amount" in changes:
-        new_amount = Decimal(str(changes["amount"]))
-        already_paid = _decimal_to_float(bill.paid_amount)
-        if changes["amount"] < already_paid:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Cannot reduce amount below already-paid amount ({already_paid}). "
-                       "Delete excess payments first."
-            )
+        new_amount = Decimal(str(changes["amount"])).quantize(Decimal("0.01"))
         bill.amount = new_amount
-        # Re-reconcile derived fields
+        db.flush()
+        db.refresh(bill)
+        receipt_service.release_from_bill(
+            db, bill, Decimal(str(_decimal_to_float(bill.amount) + _decimal_to_float(bill.penalty_amount))),
+            actor.id,
+        )
+        db.refresh(bill)
         _reconcile_bill(bill)
 
     # Manual status override (e.g. marking cancelled)
@@ -224,6 +230,11 @@ def update_bill(
 
     write_audit(db, actor.id, "UPDATE", "bills", bill.id,
                 old_data=old_snapshot, new_data=changes)
+    try:
+        receipt_service.settle(db, bill.user_id, actor.id)
+    except ReceiptError as exc:
+        db.rollback()
+        raise HTTPException(exc.status_code, detail=str(exc))
     db.commit()
     db.refresh(bill)
 
@@ -277,9 +288,16 @@ def delete_bill(
     # is enforced by MySQL but silently ignored by SQLite, so relying on it
     # would mean the tests and production behaving differently on a delete
     # that destroys money records.
+    # Money paid on the bill (and on its late fee) is NOT lost with it: every
+    # payment is released back to its receipt first, so it becomes the
+    # tenant's advance and is then used on their other unpaid bills.
+    user_id = bill.user_id
+    receipt_service.lock_tenant(db, user_id)
     fee_bill = db.query(Bill).filter(Bill.parent_bill_id == bill_id).first()
     removed = [bill_id]
+    receipt_service.release_whole_bill(db, bill, actor.id)
     if fee_bill is not None:
+        receipt_service.release_whole_bill(db, fee_bill, actor.id)
         db.query(Payment).filter(Payment.bill_id == fee_bill.id).delete(synchronize_session=False)
         write_audit(db, actor.id, "DELETE", "bills", fee_bill.id, old_data={
             "id": fee_bill.id, "bill_type": fee_bill.bill_type,
@@ -295,6 +313,8 @@ def delete_bill(
     db.delete(bill)
 
     write_audit(db, actor.id, "DELETE", "bills", bill_id, old_data=old_snapshot)
+    db.flush()
+    receipt_service.settle(db, user_id, actor.id)
     db.commit()
 
     if len(removed) > 1:

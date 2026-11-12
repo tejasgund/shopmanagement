@@ -242,6 +242,9 @@ class PaymentResponse(BaseModel):
     payment_date:   datetime
     remarks:        Optional[str]
     created_at:     datetime
+    # The receipt (money received) this payment is a slice of - see
+    # services/receipts.py. None only on old, not-yet-grouped rows.
+    receipt_id:     Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -273,6 +276,10 @@ class AutoAllocatePreviewResponse(BaseModel):
     amount_received:     float
     total_allocated:     float
     unallocated_amount:  float
+    # Advance the tenant already holds before this payment, and what they
+    # will hold after it (unallocated money is kept as advance).
+    current_advance:     float = 0.0
+    advance_after:       float = 0.0
 
 
 class ConfirmAllocationItem(BaseModel):
@@ -285,7 +292,8 @@ class AutoAllocateConfirmRequest(BaseModel):
     amount_received: float = Field(..., gt=0)
     payment_method:  str   = Field(..., min_length=1, max_length=60)
     remarks:         Optional[str] = None
-    allocations:     List[ConfirmAllocationItem] = Field(..., min_length=1)
+    # May be empty: the whole amount is then kept as the tenant's advance.
+    allocations:     List[ConfirmAllocationItem] = Field(default_factory=list)
     payment_date: Optional[datetime] = None
 
 
@@ -301,6 +309,12 @@ class AutoAllocateResponse(BaseModel):
     allocations:        List[AutoAllocateResult]
     total_allocated:    float
     unallocated_amount: float
+    # Receipt created for this money, and the part of it kept as advance
+    # (unallocated money is no longer dropped - it becomes the tenant's advance).
+    receipt_id:         Optional[int] = None
+    receipt_no:         Optional[str] = None
+    kept_as_advance:    float = 0.0
+    advance_balance:    float = 0.0
 
 
 # ── Deposit Payment ───────────────────────────

@@ -217,33 +217,34 @@ def _finalize_paid_razorpay_order(
     payment can never be recorded twice no matter which path arrives first
     or how many times either one retries.
 
-    Raises _RazorpayNoPendingBillsError if there's nowhere to apply the money
-    (e.g. every bill was settled some other way in between) - callers decide
-    how to surface that, since a webhook has no user to show an error to but
-    verify() does.
+    Never raises for "nothing left to pay" any more: with receipts, money
+    that finds no unpaid bill is kept as the tenant's advance. The
+    _RazorpayNoPendingBillsError class is kept so existing imports work.
     """
+    # One RECEIPT for the money Razorpay captured. A single-bill order pays
+    # that bill first; a whole-balance order pays oldest first. If the bills
+    # were settled some other way in the meantime, the rest is kept as the
+    # tenant's advance (and used on their next bills) - verified money is
+    # never dropped and no bill is ever overpaid.
+    from services import receipts as receipt_service
+    allocations = None
     if order_row.bill_id is not None:
-        bills = db.query(Bill).filter(Bill.id == order_row.bill_id).with_for_update().all()
-    else:
-        bills = (
-            db.query(Bill)
-            .filter(Bill.user_id == order_row.user_id, Bill.status.in_(["pending", "partial"]))
-            .order_by(Bill.due_date.is_(None), Bill.due_date.asc(), Bill.bill_date.asc(), Bill.id.asc())
-            .with_for_update()
-            .all()
-        )
-
-    if not bills:
-        raise _RazorpayNoPendingBillsError("no pending bills to apply this payment to")
-
-    payments = _allocate_razorpay_payment(
-        db, bills, order_row.amount, order_row.razorpay_order_id, razorpay_payment_id, actor_id,
+        bill = db.query(Bill).filter(Bill.id == order_row.bill_id).with_for_update().first()
+        if bill is not None and bill.user_id == order_row.user_id:
+            allocations = [(bill.id, order_row.amount)]
+    receipt, payments = receipt_service.create_receipt(
+        db, user_id=order_row.user_id, amount=order_row.amount, payment_method="Razorpay",
+        received_date=datetime.now(timezone.utc),
+        remarks=f"Razorpay payment {razorpay_payment_id}",
+        actor_id=actor_id, source="online", allocations=allocations,
+        razorpay_payment_id=razorpay_payment_id,
     )
-    if not payments:
-        raise RuntimeError("allocation produced no payments")
+    for p in payments:
+        p.razorpay_order_id = order_row.razorpay_order_id
+    db.flush()
 
     order_row.status = "paid"
-    order_row.payment_id = payments[0].id
+    order_row.payment_id = payments[0].id if payments else None
     db.commit()
     for p in payments:
         db.refresh(p)

@@ -26,6 +26,7 @@ from services import meter as meter_service
 from services import settings as settings_service
 from services.razorpay import _razorpay_public_config
 from routers.agreements import documents_by_shop
+from services import receipts as receipt_service
 from helpers.domain import (
     _build_user_financial_summary, _decimal_to_float, _tenant_payment_dict, bill_relations,
 )
@@ -77,6 +78,8 @@ def tenant_bills(
     current_user: User    = Depends(require_tenant),
 ):
     """Return all bills for the authenticated tenant."""
+    if receipt_service.settle(db, current_user.id):
+        db.commit()
     bills = db.query(Bill).filter(Bill.user_id == current_user.id).order_by(Bill.id).all()
     links = bill_relations(bills)
     return [
@@ -152,6 +155,18 @@ def tenant_financial_summary(
     return _build_user_financial_summary(db, current_user)
 
 
+def _tenant_receipts(db: Session, user_id: int) -> list:
+    bal = receipt_service.balances(db, user_id)
+    shop_numbers = {s.id: s.shop_number for s in db.query(Shop).all()}
+    out = []
+    for r in sorted(bal["receipts"], key=lambda r: (r.received_date, r.id), reverse=True):
+        d = receipt_service.receipt_dict(db, r, bal)
+        for line in d["lines"]:
+            line["shop_number"] = shop_numbers.get(line["shop_id"])
+        out.append(d)
+    return out
+
+
 @router.get("/api/tenant/home", tags=["Tenant"])
 def tenant_home(
     db: Session = Depends(get_db),
@@ -166,6 +181,10 @@ def tenant_home(
     endpoints - those are all still there and still work, so nothing that
     already calls them breaks.
     """
+    # Apply any advance first, so a bill the cron raised overnight shows as
+    # paid from advance rather than as something the tenant still owes.
+    if receipt_service.settle(db, current_user.id):
+        db.commit()
     shop_ids = _tenant_shop_ids(db, current_user.id)
 
     # ── Shops (with agreement dates and rent) ──
@@ -295,6 +314,11 @@ def tenant_home(
         ],
         "meters": meters_out,
         "readings": readings_out,
+        # Money paid in advance and not yet used on a bill (see services/receipts.py).
+        "advance": float(receipt_service.advance_of(db, current_user.id)),
+        # One entry per amount the tenant handed over (or got back as a
+        # refund), each with its month-by-month split - the "I paid" screen.
+        "receipts": _tenant_receipts(db, current_user.id),
         "settings": {
             "app_name": cfg.get("app.name"),
             "currency_symbol": cfg.get("app.currency_symbol"),
