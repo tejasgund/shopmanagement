@@ -184,3 +184,38 @@ def test_max_mb_setting_is_bounded(db):
         settings_service.set_many(db, {"agreement.max_mb": 0})
     with pytest.raises(ValueError):
         settings_service.set_many(db, {"agreement.max_mb": 51})
+
+
+# ── shop history (past + current tenants) ─────────────────────────────────
+
+def test_shop_history_shows_past_and_current_tenants(client, db, admin_auth, tenant, other_tenant,
+                                                    other_tenant_auth, shop, doc_dir):
+    old_doc = _upload(client, admin_auth, tenant.id, shop.id, name="old.pdf").json()["document"]["id"]
+    # old tenant leaves, new tenant takes the SAME shop
+    db.query(UserShop).filter(UserShop.user_id == tenant.id, UserShop.shop_id == shop.id).delete()
+    db.add(UserShop(user_id=other_tenant.id, shop_id=shop.id))
+    db.commit()
+    new_doc = _upload(client, admin_auth, other_tenant.id, shop.id, name="new.pdf").json()["document"]["id"]
+
+    # the new tenant still sees only their own
+    home = client.get("/api/tenant/home", headers=other_tenant_auth).json()
+    row = next(s for s in home["shops"] if s["id"] == shop.id)
+    assert [d["id"] for d in row["agreement_documents"]] == [new_doc]
+    assert client.get(f"/api/agreement-documents/{old_doc}/download",
+                      headers=other_tenant_auth).status_code == 404
+
+    # the admin's shop history has both, labelled
+    res = client.get(f"/api/shops/{shop.id}/agreement-documents", headers=admin_auth)
+    assert res.status_code == 200
+    docs = {d["id"]: d for d in res.json()["documents"]}
+    assert set(docs) == {old_doc, new_doc}
+    assert docs[old_doc]["tenant_name"] == "Tenant One" and docs[old_doc]["is_current_tenant"] is False
+    assert docs[new_doc]["tenant_name"] == "Tenant Two" and docs[new_doc]["is_current_tenant"] is True
+
+
+def test_shop_history_is_admin_only(client, tenant_auth, shop, doc_dir):
+    assert client.get(f"/api/shops/{shop.id}/agreement-documents", headers=tenant_auth).status_code == 403
+
+
+def test_shop_history_unknown_shop(client, admin_auth, doc_dir):
+    assert client.get("/api/shops/9999/agreement-documents", headers=admin_auth).status_code == 404

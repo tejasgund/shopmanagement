@@ -96,6 +96,51 @@ def list_agreement_documents(
     return {"success": True, "documents": [document_to_dict(d, names) for d in docs]}
 
 
+@router.get("/api/shops/{shop_id}/agreement-documents")
+def shop_agreement_history(
+    shop_id: int,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """
+    Every agreement document ever uploaded for a shop - current AND past
+    tenants - newest first. Admin only.
+
+    The per-assignment list above can only reach the tenant assigned right
+    now; once a tenant leaves, their signed agreement is still kept but would
+    otherwise have no screen to open it from. This is that screen.
+    """
+    shop = db.query(Shop).filter(Shop.id == shop_id).first()
+    if not shop:
+        raise HTTPException(404, detail="Shop not found")
+
+    docs = (
+        db.query(AgreementDocument)
+        .filter(AgreementDocument.shop_id == shop_id)
+        .order_by(AgreementDocument.uploaded_at.desc(), AgreementDocument.id.desc())
+        .all()
+    )
+    names = _uploader_names(db, docs)
+    tenant_ids = {d.user_id for d in docs}
+    tenants = {
+        u.id: (u.name, u.mobile)
+        for u in db.query(User.id, User.name, User.mobile).filter(User.id.in_(tenant_ids)).all()
+    } if tenant_ids else {}
+    current_ids = {
+        r.user_id for r in db.query(UserShop.user_id).filter(UserShop.shop_id == shop_id).all()
+    }
+
+    out = []
+    for d in docs:
+        row = document_to_dict(d, names)
+        name, mobile = tenants.get(d.user_id, (None, None))
+        row["tenant_name"] = name
+        row["tenant_mobile"] = mobile
+        row["is_current_tenant"] = d.user_id in current_ids
+        out.append(row)
+    return {"success": True, "shop_id": shop.id, "shop_number": shop.shop_number, "documents": out}
+
+
 @router.post("/api/user/{user_id}/shop/{shop_id}/agreement-documents", status_code=201)
 async def upload_agreement_document(
     user_id: int,
