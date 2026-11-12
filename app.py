@@ -62,6 +62,7 @@ from core.logger import get_logger, log_request_middleware
 # Import ORM models from create_tables so we have a single schema source-of-truth
 
 from routers.agreements import router as agreements_router
+from routers.finance import router as finance_router
 from routers.audit_log import router as audit_log_router
 from routers.auth import router as auth_router
 from routers.bills import router as bills_router
@@ -188,6 +189,7 @@ app.include_router(meter_readings_router)
 app.include_router(settings_router)
 app.include_router(scheduler_tracking_router)
 app.include_router(agreements_router)
+app.include_router(finance_router)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
