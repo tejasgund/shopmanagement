@@ -171,6 +171,40 @@ class UserShop(Base):
 
 
 # ──────────────────────────────────────────────
+# agreement_documents
+# ──────────────────────────────────────────────
+class AgreementDocument(Base):
+    """
+    A signed agreement file (PDF / scan) for one tenant + shop pair.
+
+    Uploaded by an admin; visible to the admins and to that tenant only.
+    Keyed on (user_id, shop_id) rather than on a user_shops row id, because a
+    user_shops row is deleted when a shop is unassigned - the signed agreement
+    is a record that should outlive the assignment.
+
+    The file itself lives on disk (see services/document_storage.py); this row
+    holds only the generated storage key and display metadata. There is no
+    public URL - files are streamed through an authorised endpoint.
+    """
+    __tablename__ = "agreement_documents"
+
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    user_id       = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    shop_id       = Column(Integer, ForeignKey("shops.id", ondelete="CASCADE"), nullable=False)
+    title         = Column(String(150), nullable=True)
+    original_name = Column(String(255), nullable=True)    # display only, never used as a path
+    file_path     = Column(String(500), nullable=False)    # storage key we generated
+    mime_type     = Column(String(100), nullable=False)
+    size_bytes    = Column(Integer,     nullable=False, default=0)
+    uploaded_by   = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    uploaded_at   = Column(DateTime, nullable=False, default=now_utc)
+
+    __table_args__ = (
+        Index("ix_agreement_docs_user_shop", "user_id", "shop_id"),
+    )
+
+
+# ──────────────────────────────────────────────
 # bills
 # ──────────────────────────────────────────────
 class Bill(Base):

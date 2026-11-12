@@ -95,6 +95,19 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
         "help": "Change to 'Property', 'Building' etc.",
     },
 
+    # ── Agreement documents ─────────────────────────────────────────────
+    "agreement.max_mb": {
+        "value": 15, "type": "int", "category": "Agreements",
+        "label": "Max agreement file size (MB)",
+        "help": "Agreement uploads (PDF, JPG or PNG) larger than this are rejected.",
+    },
+    "agreement.storage_dir": {
+        "value": "uploads/agreements", "type": "str", "category": "Agreements",
+        "label": "Agreement storage folder",
+        "help": "Server folder where agreement files are kept. Files are served only "
+                "to admins and to the tenant they belong to, never as public files.",
+    },
+
     # ── Meter photo uploads ─────────────────────────────────────────────
     "meter.photo_max_mb": {
         "value": 10, "type": "int", "category": "Meter readings",
@@ -534,6 +547,10 @@ def _validate(values: Dict[str, Any], current: Optional[Dict[str, Any]] = None) 
     """
     if "meter.photo_max_mb" in values and not (1 <= values["meter.photo_max_mb"] <= 50):
         raise ValueError("Max photo size must be between 1 and 50 MB")
+    if "agreement.max_mb" in values and not (1 <= int(values["agreement.max_mb"]) <= 50):
+        raise ValueError("Max agreement file size must be between 1 and 50 MB")
+    if "agreement.storage_dir" in values and not str(values["agreement.storage_dir"]).strip():
+        raise ValueError("Agreement storage folder cannot be empty")
     if "meter.bill_due_days" in values and not (0 <= values["meter.bill_due_days"] <= 365):
         raise ValueError("Payment window must be between 0 and 365 days")
     if "bill.due_days" in values and not (0 <= values["bill.due_days"] <= 365):

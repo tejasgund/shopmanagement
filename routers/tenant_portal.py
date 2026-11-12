@@ -25,6 +25,7 @@ from schemas.api import UserResponse
 from services import meter as meter_service
 from services import settings as settings_service
 from services.razorpay import _razorpay_public_config
+from routers.agreements import documents_by_shop
 from helpers.domain import (
     _build_user_financial_summary, _decimal_to_float, _tenant_payment_dict, bill_relations,
 )
@@ -177,6 +178,7 @@ def tenant_home(
             .all()
         )
         complexes = {c.id: c.name for c in db.query(Complex).all()}
+        docs_by_shop = documents_by_shop(db, current_user.id)
         shops = [
             {
                 "id": s.id,
@@ -188,6 +190,7 @@ def tenant_home(
                 "shop_deposit": _decimal_to_float(s.shop_deposit),
                 "agreement_start_date": us.agreement_start_date,
                 "agreement_end_date": us.agreement_end_date,
+                "agreement_documents": docs_by_shop.get(s.id, []),
             }
             for s, us in rows
         ]
