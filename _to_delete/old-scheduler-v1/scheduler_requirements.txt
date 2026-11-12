@@ -1,0 +1,19 @@
+# Scheduler dependencies — this folder only.
+#
+# Deliberately shorter than the application's requirements.txt: nothing here
+# imports FastAPI, uvicorn, Razorpay or any of the auth stack, because the
+# scheduler is not a web service. Installing these seven is enough to run
+# every script in this folder on a machine with no application source on it.
+#
+#     pip install -r scheduler/requirements.txt
+#
+# Versions are pinned to the same releases the application uses, so a box
+# running both gets one consistent set rather than two competing ones.
+
+sqlalchemy==2.0.35
+pymysql==1.1.1          # MySQL driver (pure Python, no C extension needed)
+cryptography==43.0.1    # required by PyMySQL for SSL connections
+python-dotenv==1.0.1    # cron starts with almost no environment; see _bootstrap.py
+
+# Testing (scheduler/tests) — not needed to RUN the scheduler.
+pytest==8.3.3

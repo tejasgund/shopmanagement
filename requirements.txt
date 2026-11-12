@@ -19,5 +19,20 @@ passlib[bcrypt]==1.7.4             # Optional wrapper used alongside bcrypt
 pydantic[email]==2.9.2
 email-validator==2.2.0
 
-# Environment variables (optional – load .env file)
+# Multipart form parsing (meter photo uploads)
+python-multipart==0.0.12
+
+# Environment variables (loaded from .env at startup - see app.py)
 python-dotenv==1.0.1
+
+# Scheduling: none. Rent bill generation used to run on an in-process
+# APScheduler started by the FastAPI startup hook; it is now a cron job
+# (see scheduler/README.md), so the dependency is gone. Nothing in the
+# application schedules work any more.
+
+# Payments (Razorpay Standard Checkout for tenant online payments)
+razorpay==2.0.1
+
+# Testing
+pytest==8.3.3
+httpx==0.27.2           # required by fastapi.testclient
